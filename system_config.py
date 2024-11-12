@@ -1,0 +1,90 @@
+"""
+Define the configurations for modeling the system.
+Essentially, this script will create the topology file for modeling.
+"""
+import copy
+import ml_collections as mlc
+
+
+def system_config():
+	c = copy.deepcopy( config )
+	return c
+
+config = mlc.ConfigDict(
+	{
+	"optimizer": {
+			"SGD": {
+				"enabled": False,
+				"lr": 1e-1,
+				"momentum": 0,
+				"weight_decay": 0
+			},
+			"Adam": {
+				"enabled": False,
+				"lr": 1e-3,
+				"amsgrad": False,
+				"momentum": 0,
+				"weight_decay": 0
+			},
+			"AdamW": {
+				"enabled": False,
+				"lr": 1e-3,
+				"amsgrad": False,
+				"momentum": 0,
+				"weight_decay": 0
+			}
+	}
+    "loss": {
+        "fape": {
+        	# For monomer.
+            "backbone": {
+                "clamp_distance": 10.0,
+                "loss_unit_distance": 10.0,
+                "weight": 0.5,
+            },
+            # For multimer.
+            "intra_chain_backbone": {
+            	"enabled": True,
+                "clamp_distance": 10.0,
+                "loss_unit_distance": 10.0,
+                "weight": 0.5
+            },
+            # For multimer.
+            "interface_backbone": {
+                "enabled": True,
+                "clamp_distance": 30.0,
+                "loss_unit_distance": 20.0,
+                "weight": 0.5
+			},
+			# For both monomer and multimer.
+            "sidechain": {
+		            "clamp_distance": 10.0,
+		            "length_scale": 10.0,
+		            "weight": 0.5,
+    		},
+        "eps": 1e-4,
+        "weight": 1.0,
+        },
+        "supervised_chi": {
+            "chi_weight": 0.5,
+            "angle_norm_weight": 0.01,
+            "eps": 1e-8,
+            "weight": 1.0,
+        },
+        "violation": {
+            "violation_tolerance_factor": 12.0,
+            "clash_overlap_tolerance": 1.5,
+            "average_clashes": True,
+            "eps": 1e-8,
+            "weight": 0.03,
+        },
+        "chain_center_of_mass": {
+            "clamp_distance": -4.0,
+            "weight": 0.05,
+            "eps": 1e-8,
+            "enabled": True,
+        },
+    }
+}
+)
+
