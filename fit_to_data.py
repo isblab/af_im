@@ -282,7 +282,7 @@ class FitToData():
 
 
 
-	def compute_loss( self, out, batch ):
+	def compute_loss( self, out: Dict, batch: Dict ):
 		"""
 		Calculates the cumulative loss which includes:
 			FAPE - backbone and sidechain

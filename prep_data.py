@@ -82,7 +82,7 @@ class DataGathering():
 		----------
 		None
 		"""
-		file_path = glob.glob( f"{name}/Jwalk_results/*.txt" )
+		file_path = glob.glob( f"./benchmark/{name}/Jwalk_results/*.txt" )
 		if len( file_path ) == 0:
 			raise Exception( f"Jwalk_results dir does not exist for {name}..." )
 		file_path = file_path[0]
