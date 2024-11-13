@@ -33,7 +33,7 @@ config = mlc.ConfigDict(
 				"momentum": 0,
 				"weight_decay": 0
 			}
-	}
+	},
     "loss": {
         "fape": {
         	# For monomer.

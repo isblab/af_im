@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import glob
 import pickle as pkl
@@ -137,10 +138,10 @@ class FitToData():
 		None
 		"""
 		if self.mode == "mono":
-			pretrained_weights = torch.load( "../monomer_params.pt" )
+			pretrained_weights = torch.load( "../../monomer_params.pt" )
 
 		elif self.mode == "multi":
-			pretrained_weights = torch.load( os.path.abspath( "../multimer_params.pt" ) )
+			pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
 
 		# Obtain weights for the structure module only.
 		sm_weights = OrderedDict( 
@@ -247,35 +248,35 @@ class FitToData():
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 
-		for epoch in self.sys_config["train"]["max_epochs"]:
-			t = time.time()
-			batch = self.system_features   # Just to keep in sync with OpenFold implementation.
-			gt_features = self.system_features.pop( "gt_features", None )
-			outputs = self.get_model_output( evo_output, gt_features )
+		# for epoch in self.sys_config["train"]["max_epochs"]:
+		t = time.time()
+		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
+		gt_features = self.system_features.pop( "gt_features", None )
+		outputs = self.get_model_output( evo_output, gt_features )
 
-			for k in outputs["sm"].keys():
-				print( f"{k}  -->  {outputs['sm'][k].shape}" )
-			for k in outputs.keys():
-				if k != "sm":
-					print( f"{k}  -->  {outputs[k].shape}" )
-	        
-	        # We are not using recycling so don't need this.
-	        # Remove the recycling dimension
-			# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
-			# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
+		for k in outputs["sm"].keys():
+			print( f"{k}  -->  {outputs['sm'][k].shape}" )
+		for k in outputs.keys():
+			if k != "sm":
+				print( f"{k}  -->  {outputs[k].shape}" )
+        
+        # We are not using recycling so don't need this.
+        # Remove the recycling dimension
+		# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
+		# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
 
-			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
-			# 	because the mapping between the predicted and ground-truth will become arbitrary.
-			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-			if self.is_multimer:
-				print( "\nPerforming multi-chain permutation alignment..." )
-				batch = multi_chain_permutation_align( out = outputs,
-														features = batch,
-														ground_truth = gt_features )
+		# This was used in training AF2 to permutes chains in ground truth before calculating the loss
+		# 	because the mapping between the predicted and ground-truth will become arbitrary.
+		# 	The model cannot be assumed to predict chains in the same order as the ground truth.
+		if self.is_multimer:
+			print( "\nPerforming multi-chain permutation alignment..." )
+			batch = multi_chain_permutation_align( out = outputs,
+													features = batch,
+													ground_truth = gt_features )
 
-			cum_loss, losses = self.compute_loss( outputs, batch )
-			cum_loss.backward()
-			optimizer.step()
+		cum_loss, losses = self.compute_loss( outputs, batch )
+		# cum_loss.backward()
+		# optimizer.step()
 		
 		t_ = time.time()
 		print( ( t_ - t ), " seconds" )
@@ -294,4 +295,4 @@ class FitToData():
 		"""
 		cum_loss, losses = self.loss_fn.forward( out, batch )
 
-		return cum_loss, np.array( [v for k, v in losses.items()] )
+		return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
