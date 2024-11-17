@@ -3,7 +3,8 @@
 
 ## Installation
 ### OpenFold
-For cuda12, clone the pl_upgrades branch in openfold git repo (https://github.com/aqlaboratory/openfold.git).  
+Unzip the openfold.zip file. This has been cloned from the pl_upgrades branch in openfold git repo (for Cuda12) (https://github.com/aqlaboratory/openfold.git).  
+Minor modifications have been in script_utils/prep_output().  
 For installation, see instructions in OpenFold gdoc.
 
 ### JWalk
