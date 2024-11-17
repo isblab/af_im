@@ -26,7 +26,7 @@ class IntegrativeLearning():
 		if self.mode == "mono":
 			# config_preset for monomer.
 			self.config_preset = "model_1_ptm"
-			self.ckpt_path = "openfold/resources/openfold_params/finetuning_ptm_2.pt"
+			self.ckpt_path = os.path.abspath( "./openfold/resources/openfold_params/finetuning_ptm_2.pt" )
 		elif self.mode == "multi":
 			# config_preset for multimer.
 			self.config_preset = "model_1_multimer_v3"
