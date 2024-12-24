@@ -15,28 +15,29 @@ class Optimizer( nn.Module ):
 		----------
 		model --> a Pytorch model object.
 		"""
-		if self.config.optimizer.SGD.enabled:
-			Optimizer = optim.SGD( params = model.parameters(),
-									lr = self.config.optimizer.SGD.lr,
-									momentum = self.config.optimizer.SGD.momemtum,
-									weight_decay = self.config.optimizer.SGD.weight_decay
+		if self.config.SGD.enabled:
+			optimizer = optim.SGD( params = model.parameters(),
+									lr = self.config.SGD.lr,
+									momentum = self.config.SGD.momentum,
+									weight_decay = self.config.SGD.weight_decay
 									 )
 
-		elif self.config.optimizer.Adam.enabled:
-			Optimizer = optim.Adam( params = model.parameters(),
-									lr = self.config.optimizer.Adam.lr,
-									amsgrad = self.config.optimizer.Adam.amsgrad,
-									momentum = self.config.optimizer.Adam.momemtum,
-									weight_decay = self.config.optimizer.Adam.weight_decay
+		elif self.config.Adam.enabled:
+			optimizer = optim.Adam( params = model.parameters(),
+									lr = self.config.Adam.lr,
+									amsgrad = self.config.Adam.amsgrad,
+									weight_decay = self.config.Adam.weight_decay
 									 )
 
 
-		elif self.config.optimizer.AdamW.enabled:
-			Optimizer = optim.SGD( params = model.parameters(),
-									lr = self.config.optimizer.AdamW.lr,
-									amsgrad = self.config.optimizer.AdamW.amsgrad,
-									momentum = self.config.optimizer.AdamW.momemtum,
-									weight_decay = self.config.optimizer.AdamW.weight_decay
+		elif self.config.AdamW.enabled:
+			optimizer = optim.SGD( params = model.parameters(),
+									lr = self.config.AdamW.lr,
+									amsgrad = self.config.AdamW.amsgrad,
+									weight_decay = self.config.AdamW.weight_decay
 									 )
+
+		else:
+			raise Exception( "No optimizer specified..." )
 
 		return optimizer
