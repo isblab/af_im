@@ -12,6 +12,11 @@ def system_config():
 
 config = mlc.ConfigDict(
 	{
+    "data_gathering": {
+            "xl_data": {
+                "path": ""
+            }
+    },
 	"optimizer": {
 			"SGD": {
 				"enabled": False,
@@ -20,17 +25,15 @@ config = mlc.ConfigDict(
 				"weight_decay": 0
 			},
 			"Adam": {
-				"enabled": False,
-				"lr": 1e-3,
+				"enabled": True,
+				"lr": 1e-4,
 				"amsgrad": False,
-				"momentum": 0,
 				"weight_decay": 0
 			},
 			"AdamW": {
 				"enabled": False,
-				"lr": 1e-3,
+				"lr": 1e-5,
 				"amsgrad": False,
-				"momentum": 0,
 				"weight_decay": 0
 			}
 	},
@@ -40,7 +43,7 @@ config = mlc.ConfigDict(
             "backbone": {
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 0.5,
+                "weight": 0.5
             },
             # For multimer.
             "intra_chain_backbone": {
@@ -63,7 +66,7 @@ config = mlc.ConfigDict(
 		            "weight": 0.5,
     		},
         "eps": 1e-4,
-        "weight": 1.0,
+        "weight": 10.0,
         },
         "supervised_chi": {
             "chi_weight": 0.5,
@@ -84,6 +87,9 @@ config = mlc.ConfigDict(
             "eps": 1e-8,
             "enabled": True,
         },
+        "xlr": {
+                "weight": 1e-3
+            },
     }
 }
 )
