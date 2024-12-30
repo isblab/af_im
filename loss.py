@@ -26,6 +26,11 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 	Calculate the cross-linking restraint loss as the mean squared deviation for the 
 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
 	This is the FAPE implementation for the restraint.
+	This restraint is implemented as a max bound restraint since XLMS 
+		povides a max bound for the distance between XL'd residue pairs.
+
+	XL_restraint = ( D - max_bound )*82 if D > max_bound else 0
+	
 	Note: R - SM recycling dim; B - batch dim (1); N - no. of residues;
 			A - no. of atoms (14, 37); X - coords dim (3); F - frame dim (4).
 	Taking example of 2ayo; N = 480.
@@ -76,10 +81,11 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 	# Apply cross-linked residue mask.
 	pred_dist_map = pred_dist_map * xl_res_mask
 
-	# For all XL'd residues, calculate the squared difference from the max_bound XL distance.
-	xl_viols = ( pred_dist_map - xl_tgt_mask )**2
+	# For all XL violations, calculate the squared difference from the max_bound XL distance.
+	viols_mask = pred_dist_map > max_bound_dist/length_scale
+	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2
 
-	loss = torch.mean( lambda_ * xl_viols )
+	loss = torch.mean( lambda_ * xl_viols + eps )
 
 	return loss
 
@@ -166,13 +172,10 @@ class LossFunction( nn.Module ):
 		loss_fns["xlr"] = lambda: xl_restraint( 
 							out = out, 
 							**batch["xl_restraint"]
-							# xl_tgt_mask = batch["xl_restraint"]["xl_tgt_mask"], 
-							# xl_res_mask = batch["xl_restraint"]["xl_res_mask"]
 							) 
 
 		cum_loss = 0.
 		losses = {}
-		print( self.config.keys() )
 		for loss_name, loss_fn in loss_fns.items():
 			weight = self.config[loss_name].weight
 			loss = loss_fn()
