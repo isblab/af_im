@@ -13,65 +13,110 @@ from openfold.utils.loss import ( find_structural_violations,
 
 from typing import Dict, Optional
 
+
 def xl_restraint( out: Dict[str, torch.Tensor],
 				xl_tgt_mask: torch.tensor, 
 				xl_res_mask: torch.tensor, 
+				length_scale: Optional[float] = 10.0,
 				max_bound_dist: Optional[float] = 35.0,
-				lambda_: Optional[float] = 0.5
+				lambda_: Optional[float] = 0.5,
+				eps: Optional[float] = 1e-8
 				):
 	"""
 	Calculate the cross-linking restraint loss as the mean squared deviation for the 
 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
+	This is the FAPE implementation for the restraint.
+	Note: R - SM recycling dim; B - batch dim (1); N - no. of residues;
+			A - no. of atoms (14, 37); X - coords dim (3); F - frame dim (4).
+	Taking example of 2ayo; N = 480.
 	"""
-	print( out["sm"]["frames"].shape )
-	print( out["sm"]["positions"].shape )
-	# traj = out["sm"]["frames"]
-	pred_positions = out["final_atom_positions"]
-	# ### need to check if the traj belongs to 4*4 matrix or a tensor_7
-	# print( traj.shape )
-	# if traj.shape[-1] == 7:
-	# 	pred_frames = Rigid.from_tensor_7( traj )
-	# elif traj.shape[-1] == 4:
-	# 	pred_frames = Rigid.from_tensor_4x4( traj )
-	# print( pred_frames.shape )
+	# Get the predicted affine matrices.
+	# traj --> [R,N,N,A,F] e.g. For 2ayo, [8,1,480,4,4]
+	traj = out["sm"]["frames"]
 
-	# pred_frames = Rigid(
+	# Legacy: not required but keeping OpenFold implementation.
+	# Need to check if the traj belongs to 4*4 matrix or a tensor_7
+	if traj.shape[-1] == 7:
+		pred_frames = Rigid.from_tensor_7( traj )
+	elif traj.shape[-1] == 4:
+		# OpenFold uses a rotation matrix.
+		# pred_frames here is an object of class Rigid() which wraps a rotation and translation.
+		pred_aff = Rigid.from_tensor_4x4( traj )
+
+	# This step is not needed as pred_aff is already an object of Rigid().
+	# pred_aff = Rigid(
 	# 	Rotation( 
-	# 		rot_mats = pred_frames.get_rots().get_rot_mats(), 
+	# 		rot_mats = pred_aff.get_rots().get_rot_mats(), 
 	# 		quats = None ),
-	# 		pred_frames.get_trans(),
+	# 		pred_aff.get_trans(),
 	# 	)
-	# print( pred_frames.shape )
-	# print( "\n---------------------------------------------\n" )
 
-	# # [*, N_frames, N_pts, 3]
-	# # Get the predicted positions in the predicted frames.
-	# local_pred_pos = pred_frames.invert()[..., None].apply(
-	# 	pred_positions[..., None, :, :]
-	# )
-	# ca_pos = local_pred_pos[..., 1, :]
+	# The translation vector of the affine matrix is used as positions.
+	pred_positions = pred_aff.get_trans()
+
+	# Apply the affine transformation to obtain the predicted positions in local frame.
+    # This directly gives us the pairwise distances for each residue along xyz.
+    # local_pred_pos --> [R,B,N,N,X] or [8,1,480,480,3]
+	local_pred_pos = pred_aff.invert()[..., None].apply(
+		pred_positions[..., None, :, :],
+	)
 	
+	# Calculate the pairwise Euclidean distance matrix.
+	# 	eps: Krde karam ke dil ye chain paayega
+	pred_dist_map = torch.sqrt( torch.sum( local_pred_pos**2, dim = -1 ) + eps )
+
+	# [B,N,N] --> [1,480,480]
 	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 )
 	xl_res_mask = xl_res_mask.unsqueeze( 0 )
 
-	ca_pos = pred_positions[..., 1, :]
-	ca_pos = ca_pos
-	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
-	print( diff.shape )
-	D = torch.sqrt( 
-					torch.sum( ( diff )**2, dim = -1 )
-					)
-	D = D*xl_res_mask
-	mask = D > max_bound_dist
-	print( D[mask] )
+	# Adjust the length scales.
+	pred_dist_map = pred_dist_map / length_scale
+	xl_tgt_mask = xl_tgt_mask / length_scale
 
-	# Compute the loss only for entries where the mask is True
-	loss = torch.zeros_like( D )
-	loss[mask] = lambda_ * ( D[mask] - xl_tgt_mask[mask] )**2
+	# Apply cross-linked residue mask.
+	pred_dist_map = pred_dist_map * xl_res_mask
 
-	# Aggregate the loss (sum or mean).
-	loss = torch.mean( loss )
+	# For all XL'd residues, calculate the squared difference from the max_bound XL distance.
+	xl_viols = ( pred_dist_map - xl_tgt_mask )**2
+
+	loss = torch.mean( lambda_ * xl_viols )
+
 	return loss
+
+
+# def xl_restraint( out: Dict[str, torch.Tensor],
+# 				xl_tgt_mask: torch.tensor, 
+# 				xl_res_mask: torch.tensor, 
+# 				length_scale: Optional[float] = 10.0,
+# 				max_bound_dist: Optional[float] = 35.0,
+# 				lambda_: Optional[float] = 0.5,
+# 				eps: Optional[float] = 1e-8
+# 				):
+# 	"""
+# 	Calculate the cross-linking restraint loss as the mean squared deviation for the 
+# 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
+# 	Here, I am using the "final_atom_positions" for the restraints.
+# 	"""
+# 	pred_positions = out["final_atom_positions"]
+	
+# 	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 ) / length_scale
+# 	xl_res_mask = xl_res_mask.unsqueeze( 0 )
+
+# 	ca_pos = pred_positions[..., 1, :]
+# 	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
+# 	print( diff.shape )
+# 	D = torch.sqrt( 
+# 					torch.sum( ( diff )**2, dim = -1 ) + eps
+# 					)
+# 	D = D / length_scale
+# 	D = D*xl_res_mask
+
+# 	# Compute the loss only for entries where the mask is True
+# 	loss = lambda_ * ( D - xl_tgt_mask )**2
+
+# 	# Aggregate the loss (sum or mean).
+# 	loss = torch.mean( loss )
+# 	return loss
 
 
 
