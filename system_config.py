@@ -66,7 +66,7 @@ config = mlc.ConfigDict(
 		            "weight": 0.5,
     		},
         "eps": 1e-4,
-        "weight": 10.0,
+        "weight": 1.0,
         },
         "supervised_chi": {
             "chi_weight": 0.5,
@@ -83,12 +83,12 @@ config = mlc.ConfigDict(
         },
         "chain_center_of_mass": {
             "clamp_distance": -4.0,
-            "weight": 0.05,
+            "weight": 0.0,
             "eps": 1e-8,
             "enabled": True,
         },
         "xlr": {
-                "weight": 1e-3
+                "weight": 1.0
             },
     }
 }
