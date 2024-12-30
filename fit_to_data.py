@@ -216,8 +216,8 @@ class FitToData():
 			outputs.update( evo_output )
 			outputs.update( self.aux_heads( outputs ) )
 
-		print( outputs.keys() )
-		print( outputs["sm"].keys() )
+		# print( outputs.keys() )
+		# print( outputs["sm"].keys() )
 		return outputs
 
 
@@ -254,43 +254,6 @@ class FitToData():
 					self.system_features[key] = self.system_features[key].unsqueeze( 0 )
 			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
-
-
-	def remove_extra_dims( self ):
-		"""
-		Adds a singleton batch dimension to all tensors.
-
-		****
-		This is needed because downstream functions (multi_chain_permutation_align)
-			assume that the tensors always have a batch dimension (which will be there while training).
-		The reasoning to add a batch dim is speculative.
-			I assume this because, in openfold.utils.multi_chain_permutation.multi_chain_permutation_align(),
-				Line 421: anchor_true_pos = torch.index_select(true_ca_poses[anchor_gt_idx], 1, anchor_gt_residue)
-			tries selecting the dim=1 (hardcoded) in the tensor true_ca_poses (shape = [Nres]) which does not exist.
-			Going through the code the only reason for this to happen can be the existence of a batch dim, 
-				that would exist while training in mini-batches but does not exist in our case.
-		****
-
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
-		None
-		"""
-		print( "\nAdding singleton batch dim to all tensors..." )
-		with torch.no_grad():
-			for key in self.system_features.keys():
-				if isinstance( self.system_features[key], dict ):
-					for k in self.system_features[key].keys():
-						self.system_features[key][k] = self.system_features[key][k].unsqueeze( 0 )
-				else:
-					self.system_features[key] = self.system_features[key].unsqueeze( 0 )
-
-			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
-			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
-
 
 
 	def fit( self ):
