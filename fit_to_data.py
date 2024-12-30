@@ -281,7 +281,7 @@ class FitToData():
 
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
-		for epoch in range( 2 ):
+		for epoch in range( 5 ):
 			outputs = self.get_model_output( evo_output, gt_features )
 
 			# for k in outputs["sm"].keys():
@@ -336,7 +336,7 @@ class FitToData():
 
 		"""
 		cum_loss, losses = self.loss_fn.forward( out, batch )
-		print( losses )
+		# print( losses )
 
 		return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
 

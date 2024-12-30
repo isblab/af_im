@@ -26,13 +26,13 @@ config = mlc.ConfigDict(
 			},
 			"Adam": {
 				"enabled": True,
-				"lr": 1e-4,
+				"lr": 1e-3,
 				"amsgrad": False,
 				"weight_decay": 0
 			},
 			"AdamW": {
 				"enabled": False,
-				"lr": 1e-5,
+				"lr": 1e-3,
 				"amsgrad": False,
 				"weight_decay": 0
 			}
