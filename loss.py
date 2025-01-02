@@ -19,7 +19,7 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 				xl_res_mask: torch.tensor, 
 				length_scale: Optional[float] = 10.0,
 				max_bound_dist: Optional[float] = 35.0,
-				lambda_: Optional[float] = 0.5,
+				weight: Optional[float] = 0.5,
 				eps: Optional[float] = 1e-8
 				):
 	"""
@@ -83,9 +83,9 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 
 	# For all XL violations, calculate the squared difference from the max_bound XL distance.
 	viols_mask = pred_dist_map > max_bound_dist/length_scale
-	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2
+	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2  + eps
 
-	loss = torch.mean( lambda_ * xl_viols + eps )
+	loss = torch.mean( weight * xl_viols )
 
 	return loss
 

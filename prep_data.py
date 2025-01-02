@@ -7,7 +7,7 @@ import glob
 from utils import run_subprocess
 
 
-class DataGathering():
+class CreateBenchmark():
 	def __init__( self ):
 		self.jwalk_exec = "jwalk"
 		self.xl_length = 35
@@ -121,6 +121,6 @@ class DataGathering():
 
 
 if __name__ == "__main__":
-	DataGathering().forward()
+	CreateBenchmark().forward()
 
 

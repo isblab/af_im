@@ -39,12 +39,14 @@ class IntegrativeLearning():
 		# Load the system specific configs.
 		self.sys_config = system_config()
 
-		# Path to the OpenFold params to be used.
-		self.openfold_params = os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
 		# Main directory for the modeled system.
 		self.base_dir = os.path.abspath( f"./benchmark/{self.sys_name}/" )
+
 		# Path to the OpenFold dir.
 		self.openfold_dir = os.path.abspath( "./openfold/" )
+		# Path to the OpenFold params to be used.
+		self.openfold_params = os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
+
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.abspath( f"{self.base_dir}/fasta_dir/" )
 		# Output directory path for OpenFold output.

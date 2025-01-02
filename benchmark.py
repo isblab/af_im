@@ -12,8 +12,8 @@ def get_benchmark():
 	benchmark = mlc.ConfigDict( 
 		{
 		"System1": {
-			"pdb_id": "2ayo",
-			"chains": [
+			"name": "2ayo",
+			"entity": [
 				{
 				"uni_id": "",
 				"copy_num": 1,
@@ -27,6 +27,7 @@ def get_benchmark():
 				"end": 
 				}
 			]
+			"base_dir": "",
 		},
 		}
 	 )
