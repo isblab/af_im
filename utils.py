@@ -1,8 +1,9 @@
+import json
 import subprocess
 from Bio.PDB import PDBParser, MMCIFIO
 import gemmi
 
-from typing import List, Mapping, Sequence, Any
+from typing import List, Mapping, Sequence, Any, Dict
 
 # from openfold.data.mmcif_parsing import (
 # 		_get_first_model, _get_protein_chains,
@@ -17,6 +18,22 @@ from typing import List, Mapping, Sequence, Any
 # MmCIFDict = Mapping[str, Sequence[str]]
 
 
+
+def read_json( file_path: str ):
+	"""
+	Parser for a JSON file, given the file path.
+	"""
+	with open( file_path, "r" ) as f:
+		data = json.load( f )
+	return data
+
+
+def write_json( data: Dict,  file_path: str ):
+	"""
+	Write a dict to a JSON file, given the file path.
+	"""
+	with open( file_path, "w" ) as w:
+		json.dump( data, w )
 
 
 
@@ -35,6 +52,21 @@ def res_to_idx( res_pos: int ):
     """
     return res_pos - 1
 
+
+def idx_to_res( idx: int ):
+    """
+    Convert an input index to residue position.
+    Residue_position = idx + 1
+
+    Input:
+    ----------
+    index --> index for the residue position.
+
+    Returns:
+    ----------
+    res_pos --> residue position.
+    """
+    return res_pos - 1
 
 
 def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
