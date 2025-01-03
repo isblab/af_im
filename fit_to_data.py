@@ -23,6 +23,8 @@ from openfold.np import protein
 
 from loss import LossFunction
 from optimizer import Optimizer
+from pdb_utils import get_stringio_objects, create_modelcif_object, prot_to_modelcif
+
 
 class FitToData():
 	def __init__( self, ofold_config: ml_collections.ConfigDict, 
@@ -282,36 +284,8 @@ class FitToData():
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
 		for epoch in range( 5 ):
-			outputs = self.get_model_output( evo_output, gt_features )
-
-			# for k in outputs["sm"].keys():
-			# 	print( f"{k}  -->  {outputs['sm'][k].shape}" )
-			# for k in outputs.keys():
-			# 	if k != "sm":
-			# 		print( f"{k}  -->  {outputs[k].shape}" )
-	        
-	        # We are not using recycling so don't need this.
-	        # Remove the recycling dimension
-			# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
-			# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
-
-			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
-			# 	because the mapping between the predicted and ground-truth will become arbitrary.
-			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-			if self.is_multimer:
-				print( "\nPerforming multi-chain permutation alignment..." )
-				batch = multi_chain_permutation_align( out = outputs,
-														features = batch,
-														ground_truth = gt_features )
-
 			print( f"Epoch: {epoch}" )
-
-			# Toss out the recycling dimensions --- we don't need them anymore
-			# batch = tensor_tree_map(
-			# 	lambda x: np.array(x[..., -1].cpu()),
-			# 	batch
-			# )
-			# out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
+			batch = self.predict( batch, evo_output, gt_features )
 
 			# Save on disk.
 			self.save_prot( outputs, epoch )
@@ -323,6 +297,42 @@ class FitToData():
 		t_ = time.time()
 		print( ( t_ - t ), " seconds" )
 
+
+
+	def predict( self, batch: Dict, evo_output: Dict, gt_features: Dict ):
+		"""
+		Obtain model predictions given the input.
+		Perform multi-chain permutation align.
+		"""
+		outputs = self.get_model_output( evo_output, gt_features )
+
+		# for k in outputs["sm"].keys():
+		# 	print( f"{k}  -->  {outputs['sm'][k].shape}" )
+		# for k in outputs.keys():
+		# 	if k != "sm":
+		# 		print( f"{k}  -->  {outputs[k].shape}" )
+        
+        # We are not using recycling so don't need this.
+        # Remove the recycling dimension
+		# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
+		# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
+
+		# This was used in training AF2 to permutes chains in ground truth before calculating the loss
+		# 	because the mapping between the predicted and ground-truth will become arbitrary.
+		# 	The model cannot be assumed to predict chains in the same order as the ground truth.
+		if self.is_multimer:
+			print( "\nPerforming multi-chain permutation alignment..." )
+			batch = multi_chain_permutation_align( out = outputs,
+													features = batch,
+													ground_truth = gt_features )
+
+		# Toss out the recycling dimensions --- we don't need them anymore
+		# batch = tensor_tree_map(
+		# 	lambda x: np.array(x[..., -1].cpu()),
+		# 	batch
+		# )
+		# out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
+		return batch
 
 
 	def compute_loss( self, out: Dict, batch: Dict ):
@@ -370,33 +380,16 @@ class FitToData():
 
 
 
-	def save_prot( self, outputs, epoch ):
+	def save_prot( self, fh, outputs, epoch ):
 		"""
 		Save the predicted structure as a PDB file.
 		Before saving we need to remove the batch dim and recycling dims.
 		"""
-		out = {}
-		for k in outputs.keys():
-			if isinstance( outputs[k], dict ):
-				if k not in out.keys():
-					out[k] = {}
-				for m in outputs[k].keys():
-					out[k][m] = outputs[k][m].squeeze( 0 )
-			else:
-				out[k] = outputs[k].squeeze( 0 )
-
-		unrelaxed_protein = prep_output(
-			out,                     # out,
-			self.feature_dict,       # batch,
-			self.feature_dict,       # feature_dict,
-			self.feature_processor,  # feature_processor
-			config_preset = None,
-			multimer_ri_gap = 1,
-			subtract_plddt = False
-		)
 
 		unrelaxed_output_path = f"./epoch_{epoch}.pdb"
-		with open(unrelaxed_output_path, 'w') as fp:
+		with open( unrelaxed_output_path, 'w' ) as fp:
 			# fp.write(protein.to_modelcif(unrelaxed_protein))
 			fp.write(protein.to_pdb(unrelaxed_protein))
+
+
 
