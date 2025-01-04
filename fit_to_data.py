@@ -15,7 +15,6 @@ import torch
 from openfold.data import feature_pipeline
 from openfold.model.structure_module import StructureModule
 from openfold.model.heads import AuxiliaryHeads
-from openfold.utils.script_utils import prep_output
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.feats import atom14_to_atom37
@@ -23,7 +22,7 @@ from openfold.np import protein
 
 from loss import LossFunction
 from optimizer import Optimizer
-from pdb_utils import get_stringio_objects, create_modelcif_object, prot_to_modelcif
+from pdb_utils import SaveModels
 
 
 class FitToData():
@@ -38,6 +37,7 @@ class FitToData():
 		self.mode = mode
 		self.system_features = system_features
 		self.output_dir = output_dir
+		self.output_cif_path = "2ayo_output_models.cif"
 
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
 
@@ -261,6 +261,17 @@ class FitToData():
 	def fit( self ):
 		"""
 		Fine-tune weights for the structure module for fit to data.
+		Get the Evoformer output: MSA, Single, Pair representations.
+			MSA representation not required though.
+		Add a singleton batch dim.
+		Temporary implemntation: Create XL restraint feature.
+		Initialize:
+			A SaveModel object to add and save predicted models to a CIF file.
+			Optimizer
+		Run the finetuning for max_epochs.
+			Get predicted output.
+			Add predicted model to model group.
+			Calculate loss and update parameters.
 
 		Input:
 		----------
@@ -270,30 +281,35 @@ class FitToData():
 		----------
 		None
 		"""
+		t = time.time()
 		evo_output = self.get_system_embeddings()
 
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 
 		# for epoch in self.sys_config["train"]["max_epochs"]:
-		t = time.time()
+		
 		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
 		batch = self.xl_data( batch )
 		gt_features = self.system_features.pop( "gt_features", None )
 
+		# Craete a SaveModel object.
+		model_to_cif = SaveModels( title = "2ayo", 
+									output_cif_path = self.output_cif_path )
+		# Initialize the System object.
+		model_to_cif.initialize_system()
+		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
-		for epoch in range( 5 ):
+		for epoch in range( 20 ):
 			print( f"Epoch: {epoch}" )
-			batch = self.predict( batch, evo_output, gt_features )
+			outputs, batch = self.predict( batch, evo_output, gt_features )
 
-			# Save on disk.
-			self.save_prot( outputs, epoch )
+			self.add_to_model_group( model_to_cif, outputs, epoch )
+			self.step( outputs, batch, optimizer )
 
-			cum_loss, losses = self.compute_loss( outputs, batch )
-			cum_loss.backward()
-			optimizer.step()
-		
+		self.save_model( model_to_cif )
+
 		t_ = time.time()
 		print( ( t_ - t ), " seconds" )
 
@@ -332,7 +348,20 @@ class FitToData():
 		# 	batch
 		# )
 		# out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
-		return batch
+		return outputs, batch
+
+
+
+	def step( self, outputs: Dict, batch: Dict, optimizer ):
+		"""
+		Compute the loss for the finetuned output (need to add that yet).
+		Keep track of per-epoch final loss and for each individual loss terms.
+		Update the parameters.
+		"""
+		cum_loss, losses = self.compute_loss( outputs, batch )
+		cum_loss.backward()
+		optimizer.step()
+
 
 
 	def compute_loss( self, out: Dict, batch: Dict ):
@@ -349,6 +378,30 @@ class FitToData():
 		# print( losses )
 
 		return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
+
+
+
+	def add_to_model_group( self, model_to_cif: SaveModels, outputs: Dict, epoch: int ):
+		"""
+		Create a Protein object using the predicted model output.
+		Add the predicted structure as a model to a modelcif object.
+		"""
+		unrelaxed_protein = model_to_cif.prep_protein( 
+													outputs = outputs, 
+													feature_dict = self.feature_dict, 
+			                                		feature_processor = self.feature_processor )
+		if epoch == 0:
+			model_to_cif.create_entity_asym_unit( unrelaxed_protein )
+
+		model_to_cif.add_to_modelcif( unrelaxed_protein, epoch )
+
+
+
+	def save_model( self, model_to_cif: SaveModels ):
+		"""
+		Sav the modelCIF object as a CIF file.
+		"""
+		model_to_cif.save()
 
 
 
@@ -377,19 +430,6 @@ class FitToData():
 		batch["xl_restraint"]["xl_tgt_mask"] = xl_dist
 
 		return batch
-
-
-
-	def save_prot( self, fh, outputs, epoch ):
-		"""
-		Save the predicted structure as a PDB file.
-		Before saving we need to remove the batch dim and recycling dims.
-		"""
-
-		unrelaxed_output_path = f"./epoch_{epoch}.pdb"
-		with open( unrelaxed_output_path, 'w' ) as fp:
-			# fp.write(protein.to_modelcif(unrelaxed_protein))
-			fp.write(protein.to_pdb(unrelaxed_protein))
 
 
 
