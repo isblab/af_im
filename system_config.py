@@ -26,7 +26,7 @@ config = mlc.ConfigDict(
 			},
 			"Adam": {
 				"enabled": True,
-				"lr": 1e-3,
+				"lr": 1e-4,
 				"amsgrad": False,
 				"weight_decay": 0
 			},
@@ -88,7 +88,7 @@ config = mlc.ConfigDict(
             "enabled": True,
         },
         "xlr": {
-                "weight": 1.0
+                "weight": 0.5
             },
     }
 }

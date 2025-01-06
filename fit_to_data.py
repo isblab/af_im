@@ -37,7 +37,7 @@ class FitToData():
 		self.mode = mode
 		self.system_features = system_features
 		self.output_dir = output_dir
-		self.output_cif_path = "2ayo_output_models.cif"
+		self.output_models_path = "2ayo_output_models"
 
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
 
@@ -294,21 +294,22 @@ class FitToData():
 		gt_features = self.system_features.pop( "gt_features", None )
 
 		# Craete a SaveModel object.
-		model_to_cif = SaveModels( title = "2ayo", 
-									output_cif_path = self.output_cif_path )
+		save_model_obj = SaveModels( title = "2ayo", 
+									output_format = "pdb",
+									output_path = self.output_models_path )
 		# Initialize the System object.
-		model_to_cif.initialize_system()
+		save_model_obj.initialize_system()
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
-		for epoch in range( 20 ):
+		for epoch in range( 500 ):
 			print( f"Epoch: {epoch}" )
 			outputs, batch = self.predict( batch, evo_output, gt_features )
 
-			self.add_to_model_group( model_to_cif, outputs, epoch )
+			self.add_model( save_model_obj, outputs, epoch )
 			self.step( outputs, batch, optimizer )
 
-		self.save_model( model_to_cif )
+		self.save_model( save_model_obj )
 
 		t_ = time.time()
 		print( ( t_ - t ), " seconds" )
@@ -381,27 +382,29 @@ class FitToData():
 
 
 
-	def add_to_model_group( self, model_to_cif: SaveModels, outputs: Dict, epoch: int ):
+	def add_model( self, save_model_obj: SaveModels, outputs: Dict, epoch: int ):
 		"""
 		Create a Protein object using the predicted model output.
-		Add the predicted structure as a model to a modelcif object.
+		For pdb: write the model as a pdb string.
+		For cif: add the predicted structure as a model to a modelcif object.
 		"""
-		unrelaxed_protein = model_to_cif.prep_protein( 
+		unrelaxed_protein = save_model_obj.prep_protein( 
 													outputs = outputs, 
 													feature_dict = self.feature_dict, 
 			                                		feature_processor = self.feature_processor )
-		if epoch == 0:
-			model_to_cif.create_entity_asym_unit( unrelaxed_protein )
+		# if epoch == 0:
+			# save_model_obj.create_attributes( unrelaxed_protein )
 
-		model_to_cif.add_to_modelcif( unrelaxed_protein, epoch )
+		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
+		save_model_obj.add_model( prot = unrelaxed_protein, epoch = epoch )
 
 
 
-	def save_model( self, model_to_cif: SaveModels ):
+	def save_model( self, save_model: SaveModels ):
 		"""
-		Sav the modelCIF object as a CIF file.
+		Save to PDB or CIF file.
 		"""
-		model_to_cif.save()
+		save_model.save()
 
 
 

@@ -14,18 +14,26 @@ import modelcif.qa_metric
 from typing import Any, Sequence, Mapping, Optional, Dict
 
 from openfold.utils.script_utils import prep_output
-from openfold.np.protein import Protein
+from openfold.np.protein import Protein, get_pdb_headers, _chain_end
 from openfold.np import residue_constants
 from openfold.data import feature_pipeline
 
+# Taken from openfold.np.protein.py
+PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+PDB_MAX_CHAINS = len(PDB_CHAIN_IDS)
+assert(PDB_MAX_CHAINS == 62)
 
 
 class SaveModels():
-    def __init__( self, title: str, output_cif_path: str ):
+    def __init__( self, title: str, output_format: str, output_path: str ):
         self.title = title
+        self.output_format = output_format
+        self.output_path = output_path
         self.entities_map = {}
         self.asym_unit_map = {}
-        self.output_cif_path = output_cif_path
+
+        if self.output_format not in ["pdb", "cif"]:
+            raise Exception( "Invalid output format specified. Use 'pdb' or 'cif'... " )
 
 
     def initialize_system( self ):
@@ -33,10 +41,13 @@ class SaveModels():
         Instantiate a modelcif.System object.
             Top-level class representing a complete modeled system
         """
-        self.system = self.create_system()
-        self.model_group = self.create_model_group()
-        # Add model_group to system.
-        self.system.model_groups.append( self.model_group )
+        if self.output_format == "pdb":
+            self.system = []
+        else:
+            self.system = self.create_system()
+            self.model_group = self.create_model_group()
+            # Add model_group to system.
+            self.system.model_groups.append( self.model_group )
 
 
     def create_system( self ):
@@ -86,14 +97,16 @@ class SaveModels():
         return unrelaxed_protein
 
 
-    def create_entity_asym_unit( self, prot: Protein ):
+    def create_attributes( self, prot: Protein ):
         """
         Create the required attributes form the Protein object.
         Add entities and asym units to the system for all models.
         """
         self.get_protein_attributes( prot )
-        self.create_entities()
-        self.create_asym_units()
+        if self.output_format == "cif":
+            self.create_entities()
+            self.create_asym_units()
+
 
 
     def get_protein_attributes( self, prot: Protein ):
@@ -176,9 +189,171 @@ class SaveModels():
         self.modeled_assembly = modelcif.Assembly(self.asym_unit_map.values(), name='Modeled assembly')
 
 
+    def add_model( self, prot: Protein, epoch: int ):
+        """
+        For the 1st model:
+            Create all required attributes and add to model.
+        For others, just add to model.
+        """
+        if epoch == 0:
+            headers = get_pdb_headers(prot)
+            if (len(headers) > 0):
+                self.system.extend(headers)
+        
+        self.create_attributes( prot )
+
+        if self.output_format == "pdb":
+            self.add_to_pdb( prot = prot, epoch = epoch  )
+        else:
+            if epoch == 0:
+                self.create_entity_asym_unit( prot = prot )
+            self.add_to_modelcif( prot = prot, epoch = epoch  )
+
+
+
+    def add_to_pdb( self, prot: Protein, epoch: int ):
+        """
+        Taken from openfold.np.protein.py
+        - Kartik - Modified to write multiple models in a PDB file format.
+
+        Converts a `Protein` instance to a PDB string.
+
+        Args:
+          prot: The protein to convert to PDB.
+
+        Returns:
+          PDB string.
+        """
+        # - Kartik - Using the epoch as Model index.
+        model_index = epoch
+        # restypes = residue_constants.restypes + ["X"]
+        res_1to3 = lambda r: residue_constants.restype_1to3.get(self.restypes[r], "UNK")
+        # atom_types = residue_constants.atom_types
+
+        # For uniformity, pdblines is replaced to self.system.
+        # pdb_lines = []
+
+        # atom_mask = prot.atom_mask
+        # aatype = prot.aatype
+        # atom_positions = prot.atom_positions
+        # residue_index = prot.residue_index.astype(np.int32)
+        # b_factors = prot.b_factors
+        # chain_index = prot.chain_index.astype(np.int32)
+
+        if np.any( self.aatype > residue_constants.restype_num ):
+            raise ValueError("Invalid aatypes.")
+
+        # Construct a mapping from chain integer indices to chain ID strings.
+        chain_ids = {}
+        for i in np.unique( self.chain_index ): # np.unique gives sorted output.
+            if i >= PDB_MAX_CHAINS:
+                raise ValueError(
+                    f"The PDB format supports at most {PDB_MAX_CHAINS} chains."
+                )
+            chain_ids[i] = PDB_CHAIN_IDS[i]
+
+        # headers = get_pdb_headers(prot)
+        # if (len(headers) > 0):
+        #     # pdb_lines.extend(headers)
+        #     self.system.extend(headers)
+
+        # pdb_lines.append("MODEL     1")
+        self.system.append( f"MODEL     {model_index}" )
+        # n = aatype.shape[0]
+        atom_index = 1
+        last_chain_index = self.chain_index[0]
+        prev_chain_index = 0
+        chain_tags = string.ascii_uppercase
+
+        # Add all atom sites.
+        for i in range( self.aatype.shape[0] ):
+            # Close the previous chain if in a multichain PDB.
+            if last_chain_index != self.chain_index[i]:
+                # pdb_lines.append
+                self.system.append(
+                    _chain_end(
+                        atom_index, 
+                        res_1to3( self.aatype[i - 1] ), 
+                        chain_ids[self.chain_index[i - 1]], 
+                        self.residue_index[i - 1]
+                    )
+                )
+                last_chain_index = self.chain_index[i]
+                atom_index += 1 # Atom index increases at the TER symbol.
+
+            res_name_3 = res_1to3( self.aatype[i] )
+            for atom_name, pos, mask, b_factor in zip(
+                self.atom_types, self.atom_positions[i], self.atom_mask[i], self.b_factors[i]
+            ):
+                if mask < 0.5:
+                    continue
+
+                record_type = "ATOM"
+                name = atom_name if len(atom_name) == 4 else f" {atom_name}"
+                alt_loc = ""
+                insertion_code = ""
+                occupancy = 1.00
+                element = atom_name[
+                    0
+                ]  # Protein supports only C, N, O, S, this works.
+                charge = ""
+
+                chain_tag = "A"
+                if( self.chain_index is not None ):
+                    chain_tag = chain_tags[self.chain_index[i]]
+
+                # PDB is a columnar format, every space matters here!
+                atom_line = (
+                    f"{record_type:<6}{atom_index:>5} {name:<4}{alt_loc:>1}"
+                    #TODO: check this refactor, chose main branch version
+                    #f"{res_name_3:>3} {chain_ids[chain_index[i]]:>1}"
+                    f"{res_name_3:>3} {chain_tag:>1}"
+                    f"{self.residue_index[i]:>4}{insertion_code:>1}   "
+                    f"{pos[0]:>8.3f}{pos[1]:>8.3f}{pos[2]:>8.3f}"
+                    f"{occupancy:>6.2f}{b_factor:>6.2f}          "
+                    f"{element:>2}{charge:>2}"
+                )
+                # pdb_lines.append(atom_line)
+                self.system.append( atom_line )
+                atom_index += 1
+
+            should_terminate = (i == self.n - 1)
+            if( self.chain_index is not None ):
+                if(i != self.n - 1 and self.chain_index[i + 1] != prev_chain_index):
+                    should_terminate = True
+                    prev_chain_index = self.chain_index[i + 1]
+
+            if(should_terminate):
+                # Close the chain.
+                chain_end = "TER"
+                chain_termination_line = (
+                    f"{chain_end:<6}{atom_index:>5}      "
+                    f"{res_1to3( self.aatype[i]):>3} "
+                    f"{chain_tag:>1}{self.residue_index[i]:>4}"
+                )
+                # pdb_lines.append(chain_termination_line)
+                self.system.append( chain_termination_line )
+                atom_index += 1
+
+                if(i != self.n - 1):
+                    # "prev" is a misnomer here. This happens at the beginning of
+                    # each new chain.
+                    # pdb_lines.extend(get_pdb_headers(prot, prev_chain_index))
+                    self.system.extend( get_pdb_headers( prot, prev_chain_index ) )
+
+        # pdb_lines.append("ENDMDL")
+        # pdb_lines.append("END")
+        self.system.append("ENDMDL")
+
+        # Pad all lines to 80 characters
+        # pdb_lines = [line.ljust(80) for line in pdb_lines]
+        # return '\n'.join(pdb_lines) + '\n' # Add terminating newline.
+
+
+
     def add_to_modelcif( self, prot: Protein, epoch: int ):
         """
-        # Taken from openfold.np.protein.py
+        Taken from openfold.np.protein.py
         - Kartik - modified this function to allow writing multiple models to the same CIF file.
         Instead of returning a ModelCIF string, this function will add a 
             model to a model group and the latter to the system.
@@ -282,12 +457,20 @@ class SaveModels():
 
     def save( self ):
         """
-        Save the modelcif object as a CIF file on disk.
+        Save the models on disk as per the format.
         """
-        fh = self.to_mmcif_string()
-        
-        with open( self.output_cif_path, 'w' ) as fp:
-            fp.write( fh.getvalue() )
+        if self.output_format == "pdb":
+            # Pad all lines to 80 characters
+            self.system.append("END")
+            self.system = [line.ljust(80) for line in self.system]
+            self.system = "\n".join( self.system ) + "\n"
+            with open( f"{self.output_path}.pdb", 'w' ) as fp:
+                fp.write( self.system )
+        else:
+            fh = self.to_mmcif_string()
+            
+            with open( f"{self.output_path}.cif", 'w' ) as fp:
+                fp.write( fh.getvalue() )
 
 
 
