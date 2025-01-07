@@ -43,27 +43,27 @@ config = mlc.ConfigDict(
             "backbone": {
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 0.5
+                "weight": 1.0 # 0.5
             },
             # For multimer.
             "intra_chain_backbone": {
             	"enabled": True,
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 0.5
+                "weight": 1.0 # 0.5
             },
             # For multimer.
             "interface_backbone": {
                 "enabled": True,
                 "clamp_distance": 30.0,
                 "loss_unit_distance": 20.0,
-                "weight": 0.5
+                "weight": 1.0 # 0.5
 			},
 			# For both monomer and multimer.
             "sidechain": {
 		            "clamp_distance": 10.0,
 		            "length_scale": 10.0,
-		            "weight": 0.5,
+		            "weight": 1.0 # 0.5
     		},
         "eps": 1e-4,
         "weight": 1.0,
@@ -79,7 +79,7 @@ config = mlc.ConfigDict(
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
             "eps": 1e-8,
-            "weight": 0.03,
+            "weight": 1.0, # 0.3, 0.03
         },
         "chain_center_of_mass": {
             "clamp_distance": -4.0,
