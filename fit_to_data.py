@@ -40,6 +40,7 @@ class FitToData():
 		self.output_models_path = "2ayo_output_models"
 
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
+		self.loss_dict = {}
 
 
 	def forward( self ):
@@ -353,18 +354,6 @@ class FitToData():
 
 
 
-	def step( self, outputs: Dict, batch: Dict, optimizer ):
-		"""
-		Compute the loss for the finetuned output (need to add that yet).
-		Keep track of per-epoch final loss and for each individual loss terms.
-		Update the parameters.
-		"""
-		cum_loss, losses = self.compute_loss( outputs, batch )
-		cum_loss.backward()
-		optimizer.step()
-
-
-
 	def compute_loss( self, out: Dict, batch: Dict ):
 		"""
 		Calculates the cumulative loss which includes:
@@ -378,7 +367,33 @@ class FitToData():
 		cum_loss, losses = self.loss_fn.forward( out, batch )
 		# print( losses )
 
-		return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
+		return cum_loss, losses
+		# return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
+
+
+	def update_loss_dict( self, losses: Dict ):
+		"""
+		Keep a tab on the loss per epoch for all individual loss 
+			terms and the cumulative loss.
+		"""
+		if self.loss_dict == {}:
+			self.loss_dict = {k:[v.item()] for k, v in losses.items()}
+		else:
+			for k, v in losses.items():
+				self.loss_dict[k].append( v.item() )
+
+
+
+	def step( self, outputs: Dict, batch: Dict, optimizer ):
+		"""
+		Compute the loss for the finetuned output (need to add that yet).
+		Keep track of per-epoch final loss and for each individual loss terms.
+		Update the parameters.
+		"""
+		cum_loss, losses = self.compute_loss( outputs, batch )
+		self.update_loss_dict( losses )
+		cum_loss.backward()
+		optimizer.step()
 
 
 

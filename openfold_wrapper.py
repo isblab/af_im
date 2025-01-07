@@ -10,6 +10,8 @@ from system_config import system_config
 
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
+from create_plots import plot_loss
+
 
 class IntegrativeLearning():
 	def __init__( self ):
@@ -54,6 +56,9 @@ class IntegrativeLearning():
 		# Directory storing the precomputed alignments.
 		self.alignment_dir = os.path.abspath( f"{self.output_dir}/alignments/" )
 
+		# File name for the loss plot.
+		self.loss_plot_file = f"{self.base_dir}/Loss.png"
+
 
 
 	def forward( self ):
@@ -80,11 +85,14 @@ class IntegrativeLearning():
 		os.chdir( self.base_dir )
 
 		# Load the models and fit to data.
-		FitToData( ofold_config = self.ofold_config, 
-					sys_config = self.sys_config,
-					mode = self.mode,
-					system_features = system_features,
-					output_dir = self.output_dir ).forward()
+		fit = FitToData( ofold_config = self.ofold_config, 
+						sys_config = self.sys_config,
+						mode = self.mode,
+						system_features = system_features,
+						output_dir = self.output_dir )
+		fit.forward()
+
+		plot_loss( fit.loss_dict, self.loss_plot_file )
 
 		toc = time.time()
 		with open( f"./Time_taken.txt", "w" ) as w:
