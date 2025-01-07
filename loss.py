@@ -14,12 +14,11 @@ from openfold.utils.loss import ( find_structural_violations,
 from typing import Dict, Optional
 
 
-def xl_restraint( out: Dict[str, torch.Tensor],
+def fape_xl_restraint( out: Dict[str, torch.Tensor],
 				xl_tgt_mask: torch.tensor, 
 				xl_res_mask: torch.tensor, 
 				length_scale: Optional[float] = 10.0,
 				max_bound_dist: Optional[float] = 35.0,
-				weight: Optional[float] = 0.5,
 				eps: Optional[float] = 1e-8
 				):
 	"""
@@ -83,46 +82,49 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 
 	# For all XL violations, calculate the squared difference from the max_bound XL distance.
 	viols_mask = pred_dist_map > max_bound_dist/length_scale
-	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2  + eps
+	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2
 
-	loss = torch.mean( weight * xl_viols )
+	loss = torch.mean( xl_viols )
 
 	return loss
 
 
-# def xl_restraint( out: Dict[str, torch.Tensor],
-# 				xl_tgt_mask: torch.tensor, 
-# 				xl_res_mask: torch.tensor, 
-# 				length_scale: Optional[float] = 10.0,
-# 				max_bound_dist: Optional[float] = 35.0,
-# 				lambda_: Optional[float] = 0.5,
-# 				eps: Optional[float] = 1e-8
-# 				):
-# 	"""
-# 	Calculate the cross-linking restraint loss as the mean squared deviation for the 
-# 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
-# 	Here, I am using the "final_atom_positions" for the restraints.
-# 	"""
-# 	pred_positions = out["final_atom_positions"]
+def xl_restraint( out: Dict[str, torch.Tensor],
+				xl_tgt_mask: torch.tensor, 
+				xl_res_mask: torch.tensor, 
+				length_scale: Optional[float] = 10.0,
+				max_bound_dist: Optional[float] = 3.5,
+				lambda_: Optional[float] = 0.5,
+				eps: Optional[float] = 1e-8
+				):
+	"""
+	Calculate the cross-linking restraint loss as the mean squared deviation for the 
+	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
+	Here, I am using the "final_atom_positions" for the restraints.
+	"""
+	pred_positions = out["final_atom_positions"]
 	
-# 	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 ) / length_scale
-# 	xl_res_mask = xl_res_mask.unsqueeze( 0 )
+	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 ) / length_scale
+	xl_res_mask = xl_res_mask.unsqueeze( 0 )
 
-# 	ca_pos = pred_positions[..., 1, :]
-# 	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
-# 	print( diff.shape )
-# 	D = torch.sqrt( 
-# 					torch.sum( ( diff )**2, dim = -1 ) + eps
-# 					)
-# 	D = D / length_scale
-# 	D = D*xl_res_mask
+	# Extracting Ca-coordinates.
+	ca_pos = pred_positions[..., 1, :]
+	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
+	D = torch.sqrt( 
+					torch.sum( ( diff )**2, dim = -1 ) + eps
+					)
+	D = D / length_scale
+	# Consider only the cross-linked residues.
+	D = D*xl_res_mask
 
-# 	# Compute the loss only for entries where the mask is True
-# 	loss = lambda_ * ( D - xl_tgt_mask )**2
+	# Identify Xl violations.
+	viols_mask = D > max_bound_dist
+	print( D[viols_mask] )
+	loss = ( D[viols_mask] - max_bound_dist )**2
 
-# 	# Aggregate the loss (sum or mean).
-# 	loss = torch.mean( loss )
-# 	return loss
+	# Aggregate the loss (sum or mean).
+	loss = torch.mean( loss )
+	return loss
 
 
 
@@ -130,6 +132,8 @@ class LossFunction( nn.Module ):
 	def __init__( self, config ):
 		print( config.keys() )
 		self.config = config
+		self.loss_dict = {}
+
 
 	def forward( self, out, batch ):
 		if "violation" not in out.keys():
