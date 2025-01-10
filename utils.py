@@ -1,3 +1,4 @@
+import ml_collections as mlc
 import json
 import subprocess
 from Bio.PDB import PDBParser, MMCIFIO
@@ -17,6 +18,26 @@ from typing import List, Mapping, Sequence, Any, Dict
 # SeqRes = str
 # MmCIFDict = Mapping[str, Sequence[str]]
 
+
+def read_configdict_from_json( file_path: str ):
+	"""
+	Read from a mlc.ConfigDict saved JSON file and 
+		return mlc.ConfigDict object.
+	"""
+	with open( file_path, 'r' ) as f:
+		config_dict = json.loads( 
+							json.load( f )
+							 )
+	return mlc.ConfigDict( config_dict )
+
+
+
+def write_configdict_to_json( config_dict: mlc.ConfigDict, file_path: str ):
+	"""
+	Save an mlc.Configdict object to JSON file.
+	"""
+	with open( file_path, "w" ) as w:
+		json.dump( config_dict.to_json(), w )
 
 
 def read_json( file_path: str ):
