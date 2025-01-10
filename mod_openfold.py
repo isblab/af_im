@@ -20,6 +20,8 @@ from openfold.data.mmcif_parsing import (
 from openfold.data.input_pipeline_multimer import prepare_ground_truth_features
 from openfold.data.feature_processing_multimer import _make_seq_mask
 from openfold.data.feature_pipeline import np_to_tensor_dict
+from openfold.utils.loss import ( compute_fape, backbone_loss, sidechain_loss )
+
 
 from typing import Mapping, Optional, MutableMapping, Dict, List, Tuple, Sequence, Any
 ChainId = str
@@ -28,6 +30,61 @@ PdbStructure = PDB.Structure.Structure
 SeqRes = str
 MmCIFDict = Mapping[str, Sequence[str]]
 FeatureDict = MutableMapping[str, np.ndarray]
+
+
+
+# Taken from openfold.utils.loss.py
+######################################################################
+def fape_loss(
+	out: Dict[str, torch.Tensor],
+	batch: Dict[str, torch.Tensor],
+	config: ml_collections.ConfigDict,
+) -> torch.Tensor:
+	traj = out["sm"]["frames"]
+	asym_id = batch.get("asym_id")
+	if asym_id is not None:
+		intra_chain_mask = (asym_id[..., None] == asym_id[..., None, :]).to(dtype=traj.dtype)
+
+
+		if config.intra_chain_backbone.enabled:
+			intra_chain_bb_loss = backbone_loss(
+				traj=traj,
+				pair_mask=intra_chain_mask,
+				**{**batch, **config.intra_chain_backbone},
+			)
+		else:
+			intra_chain_bb_loss = 0
+
+		if config.interface_backbone.enabled:
+			interface_bb_loss = backbone_loss(
+			    traj=traj,
+			    pair_mask=1. - intra_chain_mask,
+			    **{**batch, **config.interface_backbone},
+			)
+		else:
+			interface_bb_loss = 0
+        
+		weighted_bb_loss = (intra_chain_bb_loss * config.intra_chain_backbone.weight
+                            + interface_bb_loss * config.interface_backbone.weight)
+	else:
+		bb_loss = backbone_loss(
+		    traj=traj,
+		    **{**batch, **config.backbone},
+		)
+		weighted_bb_loss = bb_loss * config.backbone.weight
+
+	sc_loss = sidechain_loss(
+			out["sm"]["sidechain_frames"],
+			out["sm"]["positions"],
+			**{**batch, **config.sidechain},
+		)
+
+	loss = weighted_bb_loss + config.sidechain.weight * sc_loss
+
+    # Average over the batch dimension
+	loss = torch.mean(loss)
+
+	return loss
 
 
 # Taken from openfold.data.data_pipeline.DataPipelineMultimer()
