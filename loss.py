@@ -5,11 +5,13 @@ from torch import nn
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.loss import ( find_structural_violations, 
 								compute_renamed_ground_truth,
-								fape_loss,
+								# fape_loss,
 								supervised_chi_loss,
 								violation_loss,
 								chain_center_of_mass_loss
 								)
+
+from mod_openfold import fape_loss
 
 from typing import Dict, Optional
 
@@ -94,7 +96,6 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 				xl_res_mask: torch.tensor, 
 				length_scale: Optional[float] = 10.0,
 				max_bound_dist: Optional[float] = 3.5,
-				lambda_: Optional[float] = 0.5,
 				eps: Optional[float] = 1e-8
 				):
 	"""
@@ -120,7 +121,7 @@ def xl_restraint( out: Dict[str, torch.Tensor],
 	# Identify Xl violations.
 	viols_mask = D > max_bound_dist
 	print( D[viols_mask] )
-	loss = ( D[viols_mask] - max_bound_dist )**2
+	loss = ( D[viols_mask] - max_bound_dist )**2 + eps
 
 	# Aggregate the loss (sum or mean).
 	loss = torch.mean( loss )

@@ -26,7 +26,7 @@ config = mlc.ConfigDict(
 			},
 			"Adam": {
 				"enabled": True,
-				"lr": 1e-4,
+				"lr": 1e-3,
 				"amsgrad": False,
 				"weight_decay": 0
 			},
@@ -54,7 +54,7 @@ config = mlc.ConfigDict(
             },
             # For multimer.
             "interface_backbone": {
-                "enabled": True,
+                "enabled": False,
                 "clamp_distance": 30.0,
                 "loss_unit_distance": 20.0,
                 "weight": 1.0 # 0.5
@@ -79,7 +79,7 @@ config = mlc.ConfigDict(
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
             "eps": 1e-8,
-            "weight": 1.0, # 0.3, 0.03
+            "weight": 2.0, # 0.3, 0.03
         },
         "chain_center_of_mass": {
             "clamp_distance": -4.0,
@@ -88,7 +88,7 @@ config = mlc.ConfigDict(
             "enabled": True,
         },
         "xlr": {
-                "weight": 0.5
+                "weight": 0.25
             },
     }
 }
