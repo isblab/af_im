@@ -7,10 +7,12 @@ from collections import OrderedDict
 import ml_collections
 import time
 import copy
+import random
 
 from typing import Dict
 
 import torch
+from torch import nn
 
 from openfold.data import feature_pipeline
 from openfold.model.structure_module import StructureModule
@@ -42,6 +44,16 @@ class FitToData():
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
 		self.loss_dict = {}
 
+		self.seed = 1
+
+
+	def seed_worker( self ):
+		torch.manual_seed( self.seed )
+		# torch.cuda.manual_seed( worker_seed )
+		torch.cuda.manual_seed_all( self.seed )
+		np.random.seed( self.seed )
+		random.seed( self.seed )
+
 
 	def forward( self ):
 		"""
@@ -49,7 +61,6 @@ class FitToData():
 		self.load_feature_dict()
 		# Now loading the models.
 		self.load_models()
-
 		self.fit()
 
 
@@ -303,8 +314,13 @@ class FitToData():
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
+		d = nn.Dropout1d( p = 0.05 )
+
 		for epoch in range( 500 ):
 			print( f"Epoch: {epoch}" )
+
+			evo_output["single"] = d( evo_output["single"] )
+
 			outputs, batch = self.predict( batch, evo_output, gt_features )
 
 			self.add_model( save_model_obj, outputs, epoch )
@@ -392,8 +408,8 @@ class FitToData():
 		"""
 		cum_loss, losses = self.compute_loss( outputs, batch )
 		self.update_loss_dict( losses )
-		cum_loss.backward()
-		optimizer.step()
+		# cum_loss.backward()
+		# optimizer.step()
 
 
 
@@ -420,7 +436,6 @@ class FitToData():
 		Save to PDB or CIF file.
 		"""
 		save_model.save()
-
 
 
 	def xl_data( self, batch ):
