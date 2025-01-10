@@ -2,8 +2,11 @@ import subprocess
 import os
 import ml_collections as mlc
 
-from utils import download_pdb, run_subprocess
+from utils import run_subprocess
+from api_utils import download_pdb
 
+
+systems = ["2ayo"]
 
 def get_benchmark():
 	"""
@@ -12,22 +15,24 @@ def get_benchmark():
 	benchmark = mlc.ConfigDict( 
 		{
 		"System1": {
-			"name": "2ayo",
+			"name": systems[0],
 			"entity": [
 				{
-				"uni_id": "",
+				"uni_id": "P54578",
 				"copy_num": 1,
-				"start": ,
-				"end": 
+				"start": 1,
+				"end": 404,
+				"sequence": "MPLYSVTVKWGKEKFEGVELNTDEPPMVFKAQLFALTGVQPARQKVMVKGGTLKDDDWGNIKIKNGMTLLMMGSADALPEEPSAKTVFVEDMTEEQLASAMELPCGLTNLGNTCYMNATVQCIRSVPELKDALKRYAGALRASGEMASAQYITAALRDLFDSMDKTSSSIPPIILLQFLHMAFPQFAEKGEQGQYLQQDANECWIQMMRVLQQKLEAIEDDSVKETDSSSASAATPSKKKSLIDQFFGVEFETTMKCTESEEEEVTKGKENQLQLSCFINQEVKYLFTGLKLRLQEEITKQSPTLQRNALYIKSSKISRLPAYLTIQMVRFFYKEKESVNAKVLKDVKFPLMLDMYELCTPELQEKMVSFRSKFKDLEDKKVNQQPNTSDKKSSPQKEVKYEPFSFADDIGSNNCGYYDLQAVLTHQGRSSSSGHYVSWVKRKQDEWIKFDDDKVSIVTPEDILRLSGGGDWHIAYVLLYGPRRVEIMEEESEQ"
 				},
 				{
-				"uni_id": "",
+				"uni_id": "P0CG48",
 				"copy_num": 1,
-				"start": ,
-				"end": 
+				"start": 1,
+				"end": 76,
+				"sequence": "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGMQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGGV"
 				}
-			]
-			"base_dir": "",
+			],
+			"base_dir": f"./benchmark/{systems[0]}/",
 		},
 		}
 	 )
@@ -54,7 +59,7 @@ def initialize_benchmark_dir():
 	benchmark = get_benchmark()
 
 	for system in benchmark:
-		sys_name = system.pdb_id
+		sys_name = system.name
 
 		sys_dir = f"{benchmark_dir}{sys_name}/"
 		if not os.path.exists( sys_dir ):
@@ -70,4 +75,9 @@ def initialize_benchmark_dir():
 
 
 if __name__ == "__main__":
-	initialize_benchmark_dir()
+	# initialize_benchmark_dir()
+	x = get_benchmark()
+	import json
+	with open( "./sys_conf_2ayo.json", "w" ) as w:
+		json.dump( x.to_json(), w )
+

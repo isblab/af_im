@@ -6,12 +6,13 @@ import copy
 import ml_collections as mlc
 
 
-def system_config():
+def topology_dict():
 	c = copy.deepcopy( config )
 	return c
 
 config = mlc.ConfigDict(
 	{
+    "system": {},
     "data_gathering": {
             "xl_data": {
                 "path": ""
