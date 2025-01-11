@@ -11,6 +11,53 @@ from utils import run_subprocess
 
 from typing import Optional
 
+"""
+We extract the following features using the OpenFold pipeline:
+aatype
+between_segment_residues
+residue_index
+seq_length
+all_atom_positions
+all_atom_mask
+resolution
+is_distillation
+asym_id
+sym_id
+entity_id
+seq_mask
+gt_features
+	all_atom_positions: --> [480, 37, 3]
+	all_atom_mask: --> [480, 37]
+	asym_id: -->  [480]
+	sym_id: --> [480]
+	entity_id: --> 480]
+	aatype: --> [480]
+	atom14_atom_exists: --> [480, 14]
+	residx_atom14_to_atom37: --> [480, 14]
+	residx_atom37_to_atom14: --> [480, 37]
+	atom37_atom_exists: --> [480, 37]
+	atom14_gt_exists: --> [480, 14]
+	atom14_gt_positions: --> [480, 14, 3]
+	atom14_alt_gt_positions  --> [480, 14, 3]
+	atom14_alt_gt_exists: --> [480, 14]
+	atom14_atom_is_ambiguous: --> [480, 14]
+	rigidgroups_gt_frames: --> [480, 8, 4, 4]
+	rigidgroups_gt_exists: --> [480, 8]
+	rigidgroups_group_exists: --> [480, 8]
+	rigidgroups_group_is_ambiguous: --> [480, 8]
+	rigidgroups_alt_gt_frames: --> [480, 8, 4, 4]
+	torsion_angles_sin_cos: --> [480, 7, 2]
+	alt_torsion_angles_sin_cos: --> [480, 7, 2]
+	torsion_angles_mask: --> [480, 7]
+	pseudo_beta: --> [480, 3])
+	pseudo_beta_mask: --> [480]
+	backbone_rigid_tensor: --> [480, 4, 4]
+	backbone_rigid_mask: --> [480]
+	chi_angles_sin_cos: --> [480, 4, 2]
+	chi_mask: --> [480, 4]
+"""
+
+
 class SystemRepresentation():
 	def __init__( self, sys_name: str, ofold_dir: str, ofold_script: str, 
 					fasta_dir: str, alignment_dir: str, 
@@ -45,28 +92,6 @@ class SystemRepresentation():
 
 		print( "\nCreating ground truth features from the initial structure..." )
 		data = self.get_feature_from_init_struct()
-		# # Parse the .cif file to get an mmcif_object.
-		# # This mmcif_object is not the same as Biopython structure object.
-		# with open( self.init_struct_cif, "r" ) as f:
-		#     mmcif_string = f.read()
-
-		# mmcif_object = parse( # mmcif_parsing.parse(
-		#     file_id = "2ayo", mmcif_string = mmcif_string
-		# ).mmcif_object
-
-		# print( os.path.exists( self.init_struct_cif ) )
-		# # Extract relevant relevant features from the mmcif_object.
-		# np_example = self.process_mmcif( mmcif_object )
-
-		# print( "Load config file..." )
-		# config = model_config( "model_1_multimer_v3" )
-
-		# # Obtain the ground truth features.
-		# data = self.np_example_to_features(
-		# 			np_example = np_example,
-		# 			config = config["data"],
-		# 			mode = "train",
-		# 			is_multimer = True )
 
 		print( data.keys() )
 		for k in data["gt_features"].keys():
