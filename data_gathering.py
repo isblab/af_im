@@ -28,6 +28,9 @@ class DataGathering():
 
 		self.sys_config = sys_config
 
+		# Dict storing all required restraint features.
+		self.restraint_features = {}
+
 
 	def forward( self ):
 		"""
@@ -96,11 +99,52 @@ class DataGathering():
 
 
 
-	def add_residue_offset( self ):
+	def calculate_offsets( self, system_dict: Dict ):
 		"""
-		Add the offsets to residue positions based on the chain order in the system.
+		Calculate offsets to be added to the residues in each chain.
+		Offset to a residue in any chain is equal to the no. of residues upto the required chain.
+		e.g. system_dict -- {"A": [1,100], "B": [1, 50], "C": [1, 200]}
+				offset_dict -- {"A": 0, "B": 100, "C": 150}
+		Also calculate the system length -- total residues in the system.
 		"""
-		self.topology_file = read_json( self.topology_file_path )
+		offset_dict = {}
+		offset = 0
+		for chain in system_dict:
+			offset_dict[chain]  = offset
+
+			chain_len = len( system_dict[chain] )
+			# Offset is the no. of residues upto the current chain.
+			offset += chain_len
+
+		# The final offset equals the length of the system.
+		sys_len = offset
+
+		return offset_dict, sys_len
+
+
+
+	def add_offsets( self, offset_dict: Dict, xl_df: pd.DataFrame ):
+		"""
+		Add offsets to the residues of all chains for both the cross-linked proteins.
+		"""
+		for chain in offset_dict:
+			mask1 = xl_df["prot1"] == chain
+			mask2 = xl_df["prot2"] == chain
+
+			select_res1 = xl_df[mask1]
+			select_res2 = xl_df[mask2]
+
+			select_res1["res1"] += offset_dict[chain]
+			select_res2["res2"] += offset_dict[chain]
+
+			xl_df.loc[mask1, "res1"] = select_res1["res1"]
+			xl_df.loc[mask2, "res2"] = select_res2["res2"]
+
+		# Correcting for index in the array.
+		xl_df["res1"] -= 1
+		xl_df["res2"] -= 1
+
+		return xl_df
 
 
 
@@ -108,47 +152,47 @@ class DataGathering():
 		"""
 		Parse the .csv file containing the XL data.
 		"""
-		df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
+		xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
 
-		r1, r2 = np.array( df["res1"] ), np.array( df["res2"] )
-		r1, r2 = r1 - 1, r2 -1
-		r2 += 404
-		xl_dist = torch.zeros( ( 480, 480 ) )
-		xl_mask = torch.zeros( ( 480, 480 ) )
+		return xl_df
 
+
+	def get_xl_max_bound( self ):
+		"""
+		Based on the cross-linker, get the max distance bound.
+		"""
+		# Incomplete right now.
+		if self.sys_config:
+			return 35
+
+
+
+	def create_xl_restraint_features( self ):
+		"""
+		Parse the XLs file.
+		Calculate and add offsets to each chain in the system.
+		Create a binary mask indicating cross-linked (XL'd) residues.
+		XL restraint features:
+			binary mask for XL'd residues.
+			max bound for the cross-linker.
+		"""
+		xl_df = self.parse_xl_data()
+
+		offset_dict, sys_len = self.calculate_offsets( system_dict )
+
+		xl_df = self.add_offsets( offset_dict, xl_df )
+
+		# Create a 0-matrix for the XL-residue mask.
+		xl_mask = torch.zeros( ( sys_len, sys_len ) )
+
+		# Below diagonal.
 		xl_mask[r1, r2] = 1
-		xl_dist[r1, r2] = 35
-
+		# Above diagonal.
 		xl_mask[r2, r1] = 1
-		xl_dist[r2, r1] = 35
 
 		batch["xl_restraint"] = {}
 		batch["xl_restraint"]["xl_res_mask"] = xl_mask
-		# batch["xl_restraint"]["xl_tgt_mask"] = xl_dist
+		batch["xl_restraint"]["xl_max_bound"] = self.sys_config.xl_max_bound
 
 		return batch		
-
-
-	def preprocess_xl_data( self, df: pd.DataFrame ):
-		"""
-		1. Sort the XLs according to chain IDs for prot1.
-		2. Convert the residue positions to appropriate indices.
-			For all residues in a chain, the index must be shifted by the no. 
-				of residues in the previous chain.
-		3. Split the indices into column vectors.
-		"""
-
-
-
-	def create_xl_map( self, xl_res1: np.array, xl_res2: np.array ):
-		"""
-		Create a zero-matrix with the shape defined by the system length.
-		Add 1's for XL'd residues, creating a binary XL-map (essentially a contact map).
-		"""
-
-
-	def make_xl_restraint_features( self ):
-		"""
-		Given the XL'd residues create a binary mask for XL'd residue pairs (xl_res_mask).
-		"""
 
