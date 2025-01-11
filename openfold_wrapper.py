@@ -53,7 +53,6 @@ class IntegrativeLearning():
 
 
 
-
 	def forward( self ):
 		tic = time.time()
 		# The base directory should exist.
@@ -63,11 +62,11 @@ class IntegrativeLearning():
 		os.chdir( self.base_dir )
 
 		# Get the restraint features.
-		restraint_features = DataGathering( sys_name = self.sys_name,
-									 		base_dir = self.base_dir,
-									 		fasta_dir = self.fasta_dir,
-									 		sys_config = self.topology.system
-									 		).forward()
+		# restraint_features = DataGathering( sys_name = self.sys_name,
+		# 							 		base_dir = self.base_dir,
+		# 							 		fasta_dir = self.fasta_dir,
+		# 							 		sys_config = self.topology.system
+		# 							 		).forward()
 
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation( sys_name = self.sys_name,
@@ -81,6 +80,9 @@ class IntegrativeLearning():
 											mode = self.mode,
 											cpu_cores = self.cpu_cores,
 											device = self.device ).forward()
+		
+		# Add restraint features to system features dict.
+		# system_features["restraint_features"] = restraint_features
 		# Move back to base dir.
 		os.chdir( self.base_dir )
 

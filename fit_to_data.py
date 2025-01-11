@@ -270,6 +270,22 @@ class FitToData():
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
 
+	def update_gt_features( self, batch: Dict, gt_features_keys: Dict ):
+		"""
+		gt_features is a dict nested within batch.
+		In OpenFold, for each training step, the gt_features key is split from batch.
+		The mul multi-chain_permutation_align() takes batch and gt_features as input separately.
+			Post processing all keys in gt_features to batch dict.
+		So, gt_features dict needs to be updated from batch dict.
+		"""
+		gt_features = {}
+		for key in gt_features_keys:
+			gt_features[key] = batch[key]
+
+		return gt_features
+
+
+
 	def fit( self ):
 		"""
 		Fine-tune weights for the structure module for fit to data.
@@ -303,7 +319,9 @@ class FitToData():
 		
 		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
 		batch = self.xl_data( batch )
-		gt_features = self.system_features.pop( "gt_features", None )
+		gt_features = batch.pop( "gt_features", None )
+		gt_features_keys = gt_features.keys()
+		restraint_features = batch.pop( "restraint_features", None )
 
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = "2ayo", 
@@ -314,17 +332,19 @@ class FitToData():
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
 
-		d = nn.Dropout1d( p = 0.05 )
+		# d = nn.Dropout1d( p = 0.05 )
 
 		for epoch in range( 500 ):
 			print( f"Epoch: {epoch}" )
 
-			evo_output["single"] = d( evo_output["single"] )
+			# evo_output["single"] = d( evo_output["single"] )
 
 			outputs, batch = self.predict( batch, evo_output, gt_features )
 
+			gt_features = self.update_gt_features( batch, gt_features_keys )
+
 			self.add_model( save_model_obj, outputs, epoch )
-			self.step( outputs, batch, optimizer )
+			self.step( outputs, batch, restraint_features, optimizer )
 
 		self.save_model( save_model_obj )
 
@@ -370,7 +390,7 @@ class FitToData():
 
 
 
-	def compute_loss( self, out: Dict, batch: Dict ):
+	def compute_loss( self, out: Dict, batch: Dict, restraint_features: Dict ):
 		"""
 		Calculates the cumulative loss which includes:
 			FAPE - backbone and sidechain
@@ -380,7 +400,7 @@ class FitToData():
 			Restraints
 
 		"""
-		cum_loss, losses = self.loss_fn.forward( out, batch )
+		cum_loss, losses = self.loss_fn.forward( out, batch, restraint_features )
 		# print( losses )
 
 		return cum_loss, losses
@@ -400,7 +420,7 @@ class FitToData():
 
 
 
-	def step( self, outputs: Dict, batch: Dict, optimizer ):
+	def step( self, outputs: Dict, batch: Dict, restraint_features: Dict, optimizer ):
 		"""
 		Compute the loss for the finetuned output (need to add that yet).
 		Keep track of per-epoch final loss and for each individual loss terms.
@@ -408,8 +428,8 @@ class FitToData():
 		"""
 		cum_loss, losses = self.compute_loss( outputs, batch )
 		self.update_loss_dict( losses )
-		# cum_loss.backward()
-		# optimizer.step()
+		cum_loss.backward()
+		optimizer.step()
 
 
 
@@ -436,6 +456,7 @@ class FitToData():
 		Save to PDB or CIF file.
 		"""
 		save_model.save()
+
 
 
 	def xl_data( self, batch ):

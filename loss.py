@@ -136,7 +136,7 @@ class LossFunction( nn.Module ):
 		self.loss_dict = {}
 
 
-	def forward( self, out, batch ):
+	def forward( self, out: Dict, batch: Dict, restraint_features: Dict ):
 		if "violation" not in out.keys():
 			out["violation"] = find_structural_violations(
 				batch,
@@ -176,7 +176,7 @@ class LossFunction( nn.Module ):
 
 		loss_fns["xlr"] = lambda: xl_restraint( 
 							out = out, 
-							**batch["xl_restraint"]
+							restraint_features["xl_restraint"]
 							) 
 
 		cum_loss = 0.
