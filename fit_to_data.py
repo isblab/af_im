@@ -25,6 +25,7 @@ from openfold.np import protein
 from loss import LossFunction
 from optimizer import Optimizer
 from pdb_utils import SaveModels
+from utils import valid_type
 
 
 class FitToData():
@@ -235,6 +236,7 @@ class FitToData():
 		return outputs
 
 
+
 	def add_batch_dim( self ):
 		"""
 		Adds a singleton batch dimension to all tensors.
@@ -259,30 +261,64 @@ class FitToData():
 		None
 		"""
 		print( "\nAdding singleton batch dim to all tensors..." )
-		with torch.no_grad():
-			for key in self.system_features.keys():
-				if isinstance( self.system_features[key], dict ):
-					for k in self.system_features[key].keys():
-						self.system_features[key][k] = self.system_features[key][k].unsqueeze( 0 )
+
+		def parse_nested_dict( dict_: Dict ):
+			for k in dict_:
+				if isinstance( dict_[k], Dict ):
+					dict_[k] = parse_nested_dict( dict_[k] )
 				else:
-					self.system_features[key] = self.system_features[key].unsqueeze( 0 )
+					if isinstance( dict_[k], torch.Tensor ):
+						dict_[k] = dict_[k].unsqueeze( 0 )
+						print( k, "  ", dict_[k].shape )
+					else:
+						print( k, "  ", dict_[k] )
+			return dict_
+		
+		with torch.no_grad():
+			self.system_features = parse_nested_dict( self.system_features )
+			# for key in self.system_features.keys():
+			# 	if valid_type( self.system_features[key], dict ):
+					
+			# 		for k in self.system_features[key].keys():
+			# 			if valid_type( self.system_features[key][k], dict ):
+							
+			# 				for m in self.system_features[key][k].keys():
+			# 					if valid_type( self.system_features[key][k][m], dict ):
+									
+			# 						for n in self.system_features[key][k][m].keys():
+			# 							if valid_type( self.system_features[key][k][m][n], dict ):
+			# 								self.system_features[key][k] = self.system_features[key][k][m][n].unsqueeze( 0 )
+			# 								print( key, "  ", k, "  ", self.system_features[key][k][m][n].shape )
+										
+			# 							else:
+			# 								self.system_features[key][k][m][n] = self.system_features[key][k][m][n].unsqueeze( 0 )
+			# 								print( key, "  ", k, "  ", self.system_features[key][k][m][n].shape )
+								
+			# 					else:
+			# 						self.system_features[key][k][m] = self.system_features[key][k][m].unsqueeze( 0 )
+						
+			# 			else:
+			# 				self.system_features[key][k] = self.system_features[key][k].unsqueeze( 0 )
+				
+			# 	else:
+			# 		self.system_features[key] = self.system_features[key].unsqueeze( 0 )
 			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
 
-	def update_gt_features( self, batch: Dict, gt_features_keys: Dict ):
-		"""
-		gt_features is a dict nested within batch.
-		In OpenFold, for each training step, the gt_features key is split from batch.
-		The mul multi-chain_permutation_align() takes batch and gt_features as input separately.
-			Post processing all keys in gt_features to batch dict.
-		So, gt_features dict needs to be updated from batch dict.
-		"""
-		gt_features = {}
-		for key in gt_features_keys:
-			gt_features[key] = batch[key]
+	# def update_gt_features( self, batch: Dict, gt_features_keys: Dict ):
+	# 	"""
+	# 	gt_features is a dict nested within batch.
+	# 	In OpenFold, for each training step, the gt_features key is split from batch.
+	# 	The mul multi-chain_permutation_align() takes batch and gt_features as input separately.
+	# 		Post processing all keys in gt_features to batch dict.
+	# 	So, gt_features dict needs to be updated from batch dict.
+	# 	"""
+	# 	gt_features = {}
+	# 	for key in gt_features_keys:
+	# 		gt_features[key] = batch[key]
 
-		return gt_features
+	# 	return gt_features
 
 
 
@@ -314,13 +350,13 @@ class FitToData():
 
 		# Add a singleton batch dim.
 		self.add_batch_dim()
-
-		# for epoch in self.sys_config["train"]["max_epochs"]:
 		
 		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
-		batch = self.xl_data( batch )
+		# batch = self.xl_data( batch )
+		# Separate out the ground truth features.
 		gt_features = batch.pop( "gt_features", None )
 		gt_features_keys = gt_features.keys()
+		# Separate out the restraint features.
 		restraint_features = batch.pop( "restraint_features", None )
 
 		# Craete a SaveModel object.
@@ -334,14 +370,14 @@ class FitToData():
 
 		# d = nn.Dropout1d( p = 0.05 )
 
-		for epoch in range( 500 ):
+		for epoch in range( self.system_features.train.max_epochs ):
 			print( f"Epoch: {epoch}" )
 
 			# evo_output["single"] = d( evo_output["single"] )
 
 			outputs, batch = self.predict( batch, evo_output, gt_features )
 
-			gt_features = self.update_gt_features( batch, gt_features_keys )
+			# gt_features = self.update_gt_features( batch, gt_features_keys )
 
 			self.add_model( save_model_obj, outputs, epoch )
 			self.step( outputs, batch, restraint_features, optimizer )
