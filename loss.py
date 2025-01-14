@@ -12,130 +12,68 @@ from openfold.utils.loss import ( find_structural_violations,
 								)
 
 from mod_openfold import fape_loss
+from restraints import XlRestraint
 
 from typing import Dict, Optional
 
 
-def fape_xl_restraint( out: Dict[str, torch.Tensor],
-				xl_res_mask: torch.tensor, 
-				length_scale: Optional[float] = 10.0,
-				xl_max_bound: Optional[float] = 35.0,
-				eps: Optional[float] = 1e-8
-				):
-	"""
-	Calculate the cross-linking restraint loss as the mean squared deviation for the 
-	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
-	This is the FAPE implementation for the restraint.
-	This restraint is implemented as a max bound restraint since XLMS 
-		povides a max bound for the distance between XL'd residue pairs.
+class FapeLoss():
+	# Just a wrapper for the OpenFold Fape loss.
+	def __init__(  self, config ):
+		self.name = "fape"
+		self.config = config
 
-	XL_restraint = ( D - max_bound )*82 if D > max_bound else 0
-	
-	Note: R - SM recycling dim; B - batch dim (1); N - no. of residues;
-			A - no. of atoms (14, 37); X - coords dim (3); F - frame dim (4).
-	Taking example of 2ayo; N = 480.
-	"""
-	# Get the predicted affine matrices.
-	# traj --> [R,N,N,A,F] e.g. For 2ayo, [8,1,480,4,4]
-	traj = out["sm"]["frames"]
+	def get( self, out, batch ):
+		return lambda: fape_loss(
+								out,
+								batch,
+								self.config
+								)
 
-	# Legacy: not required but keeping OpenFold implementation.
-	# Need to check if the traj belongs to 4*4 matrix or a tensor_7
-	if traj.shape[-1] == 7:
-		pred_frames = Rigid.from_tensor_7( traj )
-	elif traj.shape[-1] == 4:
-		# OpenFold uses a rotation matrix.
-		# pred_frames here is an object of class Rigid() which wraps a rotation and translation.
-		pred_aff = Rigid.from_tensor_4x4( traj )
+class SupervisedChiLoss():
+	# Just a wrapper for the OpenFold Supervised Chi loss.
+	def __init__(  self, config ):
+		self.name = "supervised_chi"
+		self.config = config
 
-	# This step is not needed as pred_aff is already an object of Rigid().
-	# pred_aff = Rigid(
-	# 	Rotation( 
-	# 		rot_mats = pred_aff.get_rots().get_rot_mats(), 
-	# 		quats = None ),
-	# 		pred_aff.get_trans(),
-	# 	)
+	def get( self, out, batch ):
+		return lambda: supervised_chi_loss(
+								out["sm"]["angles"],
+								out["sm"]["unnormalized_angles"],
+								**{**batch, **self.config},
+								)
 
-	# The translation vector of the affine matrix is used as positions.
-	pred_positions = pred_aff.get_trans()
+class ViolationLoss():
+	# Just a wrapper for the OpenFold Violation loss.
+	def __init__(  self, config ):
+		self.name = "violation"
+		self.config = config
 
-	# Apply the affine transformation to obtain the predicted positions in local frame.
-    # This directly gives us the pairwise distances for each residue along xyz.
-    # local_pred_pos --> [R,B,N,N,X] or [8,1,480,480,3]
-	local_pred_pos = pred_aff.invert()[..., None].apply(
-		pred_positions[..., None, :, :],
-	)
-	
-	# Calculate the pairwise Euclidean distance matrix.
-	# 	eps: Krde karam ke dil ye chain paayega
-	pred_dist_map = torch.sqrt( torch.sum( local_pred_pos**2, dim = -1 ) + eps )
+	def get( self, out, batch ):
+		# Violation loss does not need the argument batch, just kept here for uniformity.
+		return lambda: violation_loss(
+								out["violation"],
+								self.config
+								)
 
-	# Adjust the length scales.
-	pred_dist_map = pred_dist_map / length_scale
-	xl_max_bound = xl_max_bound/length_scale
+class ChainCenterOfMassLoss():
+	# Just a wrapper for the OpenFold Chain center of mass loss.
+	def __init__(  self, config ):
+		self.name = "chain_center_of_mass"
+		self.config = config
 
-	# Apply cross-linked residue mask.
-	pred_dist_map = pred_dist_map * xl_res_mask
-
-	# For all XL violations, calculate the squared difference from the max_bound XL distance.
-	viols_mask = pred_dist_map > xl_max_bound
-
-	if viols_mask.any():
-		loss = ( pred_dist_map[viols_mask] - xl_max_bound )**2
-	else:
-		loss = pred_dist_map*0 
-
-	loss = torch.mean( loss )
-
-	return loss
-
-
-def xl_restraint( out: Dict[str, torch.Tensor],
-				xl_res_mask: torch.tensor, 
-				length_scale: Optional[float] = 10.0,
-				xl_max_bound: Optional[float] = 35.0,
-				eps: Optional[float] = 1e-8
-				):
-	"""
-	Calculate the cross-linking restraint loss as the mean squared deviation for the 
-	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
-	Here, I am using the "final_atom_positions" for the restraint.
-	"""
-	# [B,N,37,3] --> For 2ayo: [1,480,37,3]
-	pred_positions = out["final_atom_positions"]
-
-	# Extracting Ca-coordinates.
-	# [B,N,3] --> For 2ayo: [1,480,3]
-	ca_pos = pred_positions[..., 1, :]
-	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
-	D = torch.sqrt( 
-					torch.sum( ( diff )**2, dim = -1 ) + eps
-					)
-	# Adjust the length scales.
-	D = D / length_scale
-	xl_max_bound = xl_max_bound / length_scale
-	
-	# Consider only the cross-linked residues.
-	D = D*xl_res_mask
-
-	# Identify Xl violations.
-	viols_mask = D > xl_max_bound
-	if viols_mask.any():
-		loss = ( D[viols_mask] - xl_max_bound )**2
-	else:
-		# loss = torch.tensor( [0.0], device = D.device, requires_grad = True )
-		loss = D*0 
-	# Aggregate the loss (sum or mean).
-	loss = torch.mean( loss )
-	return loss
-
+	def get( self, out, batch ):
+		return lambda: chain_center_of_mass_loss(
+								all_atom_pred_pos = out["final_atom_positions"],
+								**{**batch, **self.config},
+								)
 
 
 class LossFunction( nn.Module ):
 	def __init__( self, config ):
-		print( config.keys() )
 		self.config = config
-		self.loss_dict = {}
+
+		self.loss_fns  =self.loss_included()
 
 
 	def forward( self, out: Dict, batch: Dict, restraint_features: Dict ):
@@ -154,32 +92,41 @@ class LossFunction( nn.Module ):
 				)
 			)
 
-		loss_fns = {
-			"fape": lambda: fape_loss(
-				out,
-				batch,
-				self.config.fape,
-			),
-			"supervised_chi": lambda: supervised_chi_loss(
-								out["sm"]["angles"],
-								out["sm"]["unnormalized_angles"],
-								**{**batch, **self.config.supervised_chi},
-			),
-			"violation": lambda: violation_loss(
-						out["violation"],
-						**{**batch, **self.config.violation},
-			),
-		}
-		if self.config.chain_center_of_mass.enabled:
-			loss_fns["chain_center_of_mass"] = lambda: chain_center_of_mass_loss(
-								all_atom_pred_pos = out["final_atom_positions"],
-								**{**batch, **self.config.chain_center_of_mass},
-			)
+		# Iteratively calculate the loss for all included terms.
+		for obj in self.loss_fns:
+			name = obj.name
+			if name == "xlr":
+				loss_fns[name] = obj.get( out, restraint_features )
+			else:
+				loss_fns[name] = obj.get( out, batch )
 
-		loss_fns["xlr"] = lambda: xl_restraint( 
-							out = out, 
-							**restraint_features["xl_restraint"]
-							) 
+
+		# loss_fns = {
+		# 	"fape": lambda: fape_loss(
+		# 		out,
+		# 		batch,
+		# 		self.config.fape,
+		# 	),
+		# 	"supervised_chi": lambda: supervised_chi_loss(
+		# 						out["sm"]["angles"],
+		# 						out["sm"]["unnormalized_angles"],
+		# 						**{**batch, **self.config.supervised_chi},
+		# 	),
+		# 	"violation": lambda: violation_loss(
+		# 				out["violation"],
+		# 				**{**batch, **self.config.violation},
+		# 	),
+		# }
+		# if self.config.chain_center_of_mass.enabled:
+		# 	loss_fns["chain_center_of_mass"] = lambda: chain_center_of_mass_loss(
+		# 						all_atom_pred_pos = out["final_atom_positions"],
+		# 						**{**batch, **self.config.chain_center_of_mass},
+		# 	)
+
+		# loss_fns["xlr"] = lambda: xl_restraint( 
+		# 					out = out, 
+		# 					**restraint_features["xl_restraint"]
+		# 					) 
 
 		cum_loss = 0.
 		losses = {}
@@ -200,3 +147,25 @@ class LossFunction( nn.Module ):
 		# the (average) sequence length. See subsection 1.9.
 		# seq_len = torch.mean(batch["seq_length"].float())
 
+
+	def loss_included( self ):
+		"""
+		Loss terms to be included in the full loss function.
+		"""
+		loss_fns = []
+		if self.config.fape.enabled:
+			loss_fns.append( FapeLoss( self.config.fape ) )
+		
+		if self.config.supervised_chi.enabled:
+			loss_fns.append( SupervisedChiLoss( self.config.supervised_chi ) )
+
+		if self.config.violation.enabled:
+			loss_fns.append( ViolationLoss( self.config.violation ) )
+
+		if self.config.chain_center_of_mass.enabled:
+			loss_fns.append( ChainCenterOfMassLoss( self.config.chain_center_of_mass ) )
+
+		if self.config.xlr.enabled:
+			loss_fns.append( XlRestraint( self.config.xlr ) )
+
+		return loss_fns
