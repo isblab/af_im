@@ -47,11 +47,11 @@ config = mlc.ConfigDict(
             	"enabled": True,
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 0.25 # 0.5
+                "weight": 0.5
             },
             # For multimer.
             "interface_backbone": {
-                "enabled": True,
+                "enabled": False,
                 "clamp_distance": 30.0,
                 "loss_unit_distance": 20.0,
                 "weight": 0.5
@@ -78,7 +78,7 @@ config = mlc.ConfigDict(
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
             "eps": 1e-8,
-            "weight": 1.0
+            "weight": 2.0
         },
         "chain_center_of_mass": {
             "enabled": True,
@@ -88,7 +88,7 @@ config = mlc.ConfigDict(
         },
         "xlr": {
                 "enabled": True,
-                "weight": 1.0
+                "weight": 0.5
             },
     },
     "train": {
