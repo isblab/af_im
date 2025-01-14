@@ -17,10 +17,9 @@ from typing import Dict, Optional
 
 
 def fape_xl_restraint( out: Dict[str, torch.Tensor],
-				xl_tgt_mask: torch.tensor, 
 				xl_res_mask: torch.tensor, 
 				length_scale: Optional[float] = 10.0,
-				max_bound_dist: Optional[float] = 35.0,
+				xl_max_bound: Optional[float] = 35.0,
 				eps: Optional[float] = 1e-8
 				):
 	"""
@@ -71,58 +70,61 @@ def fape_xl_restraint( out: Dict[str, torch.Tensor],
 	# 	eps: Krde karam ke dil ye chain paayega
 	pred_dist_map = torch.sqrt( torch.sum( local_pred_pos**2, dim = -1 ) + eps )
 
-	# [B,N,N] --> [1,480,480]
-	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 )
-	xl_res_mask = xl_res_mask.unsqueeze( 0 )
-
 	# Adjust the length scales.
 	pred_dist_map = pred_dist_map / length_scale
-	xl_tgt_mask = xl_tgt_mask / length_scale
+	xl_max_bound = xl_max_bound/length_scale
 
 	# Apply cross-linked residue mask.
 	pred_dist_map = pred_dist_map * xl_res_mask
 
 	# For all XL violations, calculate the squared difference from the max_bound XL distance.
-	viols_mask = pred_dist_map > max_bound_dist/length_scale
-	xl_viols = ( pred_dist_map[viols_mask] - max_bound_dist )**2
+	viols_mask = pred_dist_map > xl_max_bound
 
-	loss = torch.mean( xl_viols )
+	if viols_mask.any():
+		loss = ( pred_dist_map[viols_mask] - xl_max_bound )**2
+	else:
+		loss = pred_dist_map*0 
+
+	loss = torch.mean( loss )
 
 	return loss
 
 
 def xl_restraint( out: Dict[str, torch.Tensor],
-				xl_tgt_mask: torch.tensor, 
 				xl_res_mask: torch.tensor, 
 				length_scale: Optional[float] = 10.0,
-				max_bound_dist: Optional[float] = 3.5,
+				xl_max_bound: Optional[float] = 35.0,
 				eps: Optional[float] = 1e-8
 				):
 	"""
 	Calculate the cross-linking restraint loss as the mean squared deviation for the 
 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
-	Here, I am using the "final_atom_positions" for the restraints.
+	Here, I am using the "final_atom_positions" for the restraint.
 	"""
+	# [B,N,37,3] --> For 2ayo: [1,480,37,3]
 	pred_positions = out["final_atom_positions"]
-	
-	xl_tgt_mask = xl_tgt_mask.unsqueeze( 0 ) / length_scale
-	xl_res_mask = xl_res_mask.unsqueeze( 0 )
 
 	# Extracting Ca-coordinates.
+	# [B,N,3] --> For 2ayo: [1,480,3]
 	ca_pos = pred_positions[..., 1, :]
 	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
 	D = torch.sqrt( 
 					torch.sum( ( diff )**2, dim = -1 ) + eps
 					)
+	# Adjust the length scales.
 	D = D / length_scale
+	xl_max_bound = xl_max_bound / length_scale
+	
 	# Consider only the cross-linked residues.
 	D = D*xl_res_mask
 
 	# Identify Xl violations.
-	viols_mask = D > max_bound_dist
-	print( D[viols_mask] )
-	loss = ( D[viols_mask] - max_bound_dist )**2 + eps
-
+	viols_mask = D > xl_max_bound
+	if viols_mask.any():
+		loss = ( D[viols_mask] - xl_max_bound )**2
+	else:
+		# loss = torch.tensor( [0.0], device = D.device, requires_grad = True )
+		loss = D*0 
 	# Aggregate the loss (sum or mean).
 	loss = torch.mean( loss )
 	return loss
