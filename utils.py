@@ -58,38 +58,6 @@ def write_json( data: Dict,  file_path: str ):
 
 
 
-def res_to_idx( res_pos: int ):
-    """
-    Convert an input residue position to index.
-    Index = residue_position - 1
-
-    Input:
-    ----------
-    res_pos --> residue position.
-
-    Returns:
-    ----------
-    index --> index for the residue position.
-    """
-    return res_pos - 1
-
-
-def idx_to_res( idx: int ):
-    """
-    Convert an input index to residue position.
-    Residue_position = idx + 1
-
-    Input:
-    ----------
-    index --> index for the residue position.
-
-    Returns:
-    ----------
-    res_pos --> residue position.
-    """
-    return res_pos - 1
-
-
 def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
 	"""
 	Convert a .pdb file to a .cif file.

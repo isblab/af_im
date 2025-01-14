@@ -176,7 +176,7 @@ class LossFunction( nn.Module ):
 
 		loss_fns["xlr"] = lambda: xl_restraint( 
 							out = out, 
-							restraint_features["xl_restraint"]
+							**restraint_features["xl_restraint"]
 							) 
 
 		cum_loss = 0.

@@ -13,11 +13,6 @@ def topology_dict():
 config = mlc.ConfigDict(
 	{
     "system": {},
-    "data_gathering": {
-            "xl_data": {
-                "path": ""
-            }
-    },
 	"optimizer": {
 			"SGD": {
 				"enabled": False,
@@ -59,13 +54,13 @@ config = mlc.ConfigDict(
                 "enabled": True,
                 "clamp_distance": 30.0,
                 "loss_unit_distance": 20.0,
-                "weight": 0.25 # 0.5
+                "weight": 0.5
 			},
 			# For both monomer and multimer.
             "sidechain": {
 		            "clamp_distance": 10.0,
 		            "length_scale": 10.0,
-		            "weight": 0.25 # 0.5
+		            "weight": 0.5
     		},
         "eps": 1e-4,
         "weight": 1.0,
@@ -75,7 +70,7 @@ config = mlc.ConfigDict(
             "chi_weight": 0.5,
             "angle_norm_weight": 0.01,
             "eps": 1e-8,
-            "weight": 0.25,
+            "weight": 1.0,
         },
         "violation": {
             "enabled": True,
@@ -83,7 +78,7 @@ config = mlc.ConfigDict(
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
             "eps": 1e-8,
-            "weight": 5.0, # 0.3, 0.03
+            "weight": 1.0
         },
         "chain_center_of_mass": {
             "enabled": True,
@@ -93,8 +88,11 @@ config = mlc.ConfigDict(
         },
         "xlr": {
                 "enabled": True,
-                "weight": 0.25
+                "weight": 1.0
             },
+    },
+    "train": {
+        "max_epochs": 50
     }
 }
 )
