@@ -119,8 +119,8 @@ class CreateBenchmark():
 		print( f"Intra-XLs = {len( intraprotein_xls )} \t Inter-XLs = {len( interprotein_xls )}" )
 		
 		# Save on disk.
-		intraprotein_xls.to_csv( f"{name}_intraprotein_xls.csv" )
-		interprotein_xls.to_csv( f"{name}_interprotein_xls.csv" )
+		intraprotein_xls.to_csv( f"{name}_intraprotein_xls.csv", index = False )
+		interprotein_xls.to_csv( f"{name}_interprotein_xls.csv", index = False )
 
 
 if __name__ == "__main__":
