@@ -3,6 +3,8 @@ import pandas as pd
 import ml_collections as mlc
 import os
 
+import torch
+
 from utils import read_json, write_json
 
 from typing import Dict
@@ -32,6 +34,7 @@ class DataGathering():
 		self.restraint_features = {}
 
 
+
 	def forward( self ):
 		"""
 		Given the system specific configs,
@@ -39,9 +42,9 @@ class DataGathering():
 			2. Create a directory containing FASTA file for input to OpenFold.
 			3. Create restraint features dict.
 		"""
-		system = self.create_full_system()
-		print( system )
-		self.create_fasta_input( system )
+		system_dict = self.create_full_system()
+		self.create_fasta_input( system_dict )
+		self.create_xl_restraint_features( system_dict )
 
 
 
@@ -68,7 +71,6 @@ class DataGathering():
 		system_dict = {}
 		idx = 0
 		for entity in self.sys_config.entity:
-			print( entity )
 			copy_num = entity["copy_num"]
 			for i in range( copy_num ):
 				start = entity["start"]
@@ -78,7 +80,7 @@ class DataGathering():
 				seq = entity["sequence"]
 				seq = seq[start - 1: end]
 
-				system_dict[f"{self.sys_name}_{chain_id}"] = seq
+				system_dict[f"{self.sys_name}_{idx+1}_{chain_id}"] = seq
 
 				idx += 1
 		return system_dict
@@ -122,6 +124,14 @@ class DataGathering():
 		return offset_dict, sys_len
 
 
+	def parse_xl_data( self ):
+		"""
+		Parse the .csv file containing the XL data.
+		"""
+		xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
+
+		return xl_df
+
 
 	def add_offsets( self, offset_dict: Dict, xl_df: pd.DataFrame ):
 		"""
@@ -140,7 +150,7 @@ class DataGathering():
 			xl_df.loc[mask1, "res1"] = select_res1["res1"]
 			xl_df.loc[mask2, "res2"] = select_res2["res2"]
 
-		# Correcting for index in the array.
+		# Correcting for 0-indexing in the array.
 		xl_df["res1"] -= 1
 		xl_df["res2"] -= 1
 
@@ -148,26 +158,7 @@ class DataGathering():
 
 
 
-	def parse_xl_data( self, batch ):
-		"""
-		Parse the .csv file containing the XL data.
-		"""
-		xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
-
-		return xl_df
-
-
-	def get_xl_max_bound( self ):
-		"""
-		Based on the cross-linker, get the max distance bound.
-		"""
-		# Incomplete right now.
-		if self.sys_config:
-			return 35
-
-
-
-	def create_xl_restraint_features( self ):
+	def create_xl_restraint_features( self, system_dict ):
 		"""
 		Parse the XLs file.
 		Calculate and add offsets to each chain in the system.
@@ -176,6 +167,7 @@ class DataGathering():
 			binary mask for XL'd residues.
 			max bound for the cross-linker.
 		"""
+		xl_config = self.sys_config.data_gathering.xl_restraint
 		xl_df = self.parse_xl_data()
 
 		offset_dict, sys_len = self.calculate_offsets( system_dict )
@@ -185,14 +177,18 @@ class DataGathering():
 		# Create a 0-matrix for the XL-residue mask.
 		xl_mask = torch.zeros( ( sys_len, sys_len ) )
 
+		r1 = xl_df["res1"]
+		r2 = xl_df["res2"]
+
 		# Below diagonal.
 		xl_mask[r1, r2] = 1
 		# Above diagonal.
 		xl_mask[r2, r1] = 1
 
-		batch["xl_restraint"] = {}
-		batch["xl_restraint"]["xl_res_mask"] = xl_mask
-		batch["xl_restraint"]["xl_max_bound"] = self.sys_config.xl_max_bound
+		self.restraint_features["xl_restraint"] = {}
+		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_mask
+		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_config.xl_max_bound
+		
 
-		return batch		
+
 
