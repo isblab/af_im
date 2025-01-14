@@ -439,6 +439,7 @@ class FitToData():
 		# return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
 
 
+
 	def update_loss_dict( self, losses: Dict ):
 		"""
 		Keep a tab on the loss per epoch for all individual loss 
