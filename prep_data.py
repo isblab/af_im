@@ -70,8 +70,11 @@ class CreateBenchmark():
 		file_path = file_path[0]
 		df = pd.read_csv( file_path, sep = "\s+" ) # delim_whitespace = True
 
-		# Remove XLs with distances higher than the XL_length.
-		df = df.loc[df["Euclidean"] <= self.xl_length]
+		# Remove XLs with Eulcidean distances higher than the XL_length.
+		# df = df.loc[df["Euclidean"] <= self.xl_length]
+		# Remove XLs with SASD distances higher than the XL_length.
+		# 	Using SASD provides more accurate XLs.
+		df = df.loc[df["SASD"] <= self.xl_length]
 
 		intra = df[df["Atom1"].str.split( "-" ).str[2] == df["Atom2"].str.split( "-" ).str[2]]
 		inter = df[df["Atom1"].str.split( "-" ).str[2] != df["Atom2"].str.split( "-" ).str[2]]
