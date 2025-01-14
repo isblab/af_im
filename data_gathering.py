@@ -80,7 +80,10 @@ class DataGathering():
 				seq = entity["sequence"]
 				seq = seq[start - 1: end]
 
-				system_dict[f"{self.sys_name}_{idx+1}_{chain_id}"] = seq
+				system_dict[f"{self.sys_name}_{idx+1}_{chain_id}"] = {
+													"seq": seq,
+													"positions": [start, end]
+				}
 
 				idx += 1
 		return system_dict
@@ -97,31 +100,8 @@ class DataGathering():
 
 		with open( self.fasta_file_path, "w" ) as w:
 			for chain in system_dict.keys():
-				w.writelines( f">{chain}\n{system_dict[chain]}\n" )
+				w.writelines( f">{chain}\n{system_dict[chain]['seq']}\n" )
 
-
-
-	def calculate_offsets( self, system_dict: Dict ):
-		"""
-		Calculate offsets to be added to the residues in each chain.
-		Offset to a residue in any chain is equal to the no. of residues upto the required chain.
-		e.g. system_dict -- {"A": [1,100], "B": [1, 50], "C": [1, 200]}
-				offset_dict -- {"A": 0, "B": 100, "C": 150}
-		Also calculate the system length -- total residues in the system.
-		"""
-		offset_dict = {}
-		offset = 0
-		for chain in system_dict:
-			offset_dict[chain]  = offset
-
-			chain_len = len( system_dict[chain] )
-			# Offset is the no. of residues upto the current chain.
-			offset += chain_len
-
-		# The final offset equals the length of the system.
-		sys_len = offset
-
-		return offset_dict, sys_len
 
 
 	def parse_xl_data( self ):
@@ -133,28 +113,123 @@ class DataGathering():
 		return xl_df
 
 
-	def add_offsets( self, offset_dict: Dict, xl_df: pd.DataFrame ):
+
+	def get_residue_index_map( self, system_dict: Dict ):
 		"""
-		Add offsets to the residues of all chains for both the cross-linked proteins.
+		Create a mapping between the residue position to system indices and its inverse.
+		Also map the residue positions to the corresponding chains.
 		"""
-		for chain in offset_dict:
-			mask1 = xl_df["prot1"] == chain
-			mask2 = xl_df["prot2"] == chain
+		res_idx_map = {}
+		
+		sys_start = 0
+		for chain in system_dict:
+			# Intrapolate all residue positions between start and end.
+			start, end = system_dict[chain]["positions"]
+			residues_positions = np.arange( start, end+1, 1 )
+			total = len( residues_positions )
 
-			select_res1 = xl_df[mask1]
-			select_res2 = xl_df[mask2]
+			if total != len( system_dict[chain]["seq"] ):
+				raise Exception( "No. of residues and sequence length do not match..." )
+			
+			# Create the corresponding indices.
+			sys_end = sys_start + total
+			system_index = np.arange( sys_start, sys_end, 1 )
 
-			select_res1["res1"] += offset_dict[chain]
-			select_res2["res2"] += offset_dict[chain]
+			sys_start = sys_end
 
-			xl_df.loc[mask1, "res1"] = select_res1["res1"]
-			xl_df.loc[mask2, "res2"] = select_res2["res2"]
 
-		# Correcting for 0-indexing in the array.
-		xl_df["res1"] -= 1
-		xl_df["res2"] -= 1
+
+			# Get the chain IDs for all residues.
+			chain = chain.split( "_" )[-1]
+			# chains = [chain]*total
+			
+			res_idx_map[chain] = {}
+			res_idx_map[chain]["res_to_ind"] = dict( zip( residues_positions, system_index ) )
+			res_idx_map[chain]["ind_to_res"] = dict( zip( system_index, residues_positions ) )
+
+		return res_idx_map
+
+
+
+	def map_residue_to_index( self, xl_df: pd.DataFrame, res_idx_map: Dict ):
+		"""
+		Given a DataFrame containing positions for cross-linked residues,
+			map all residue positions to system indices from 0 to N,
+			where N is the total no. of residues in the system.
+		"""
+		print( xl_df.head() )
+		for i in range( len( xl_df ) ):
+			chain1 = xl_df.loc[ i, "prot1" ]
+			res1 = xl_df.loc[ i, "res1" ]
+			index1 = res_idx_map[chain1]["res_to_ind"][res1]
+			xl_df.loc[ i, "res1" ] = index1
+			
+			chain2 = xl_df.loc[ i, "prot2" ]
+			res2 = xl_df.loc[ i, "res2" ]
+			index2 = res_idx_map[chain2]["res_to_ind"][res2]
+			xl_df.loc[ i, "res2" ] = index2
 
 		return xl_df
+
+
+
+	def get_sys_len( self, system_dict: Dict ):
+		"""
+		Calculate the system length -- total residues in the system.
+		"""
+		sys_len = 0
+		for chain in system_dict:
+			sys_len += len( system_dict[chain]['seq'] )
+
+		return sys_len
+
+
+	# def calculate_offsets( self, system_dict: Dict ):
+	# 	"""
+	# 	Calculate offsets to be added to the residues in each chain.
+	# 	Offset to a residue in any chain is equal to the no. of residues upto the required chain.
+	# 	e.g. system_dict -- {"A": [1,100], "B": [1, 50], "C": [1, 200]}
+	# 			offset_dict -- {"A": 0, "B": 100, "C": 150}
+	# 	Also calculate the system length -- total residues in the system.
+	# 	"""
+	# 	offset_dict = {}
+	# 	offset = 0
+	# 	for chain in system_dict:
+	# 		offset_dict[chain]  = offset
+
+	# 		chain_len = len( system_dict[chain]['seq'] )
+	# 		# Offset is the no. of residues upto the current chain.
+	# 		offset += chain_len
+
+	# 	# The final offset equals the length of the system.
+	# 	sys_len = offset
+
+	# 	return offset_dict, sys_len
+
+
+
+	# def add_offsets( self, offset_dict: Dict, xl_df: pd.DataFrame ):
+	# 	"""
+	# 	Add offsets to the residues of all chains for both the cross-linked proteins.
+	# 	"""
+	# 	for chain in offset_dict:
+	# 		mask1 = xl_df["prot1"] == chain
+	# 		mask2 = xl_df["prot2"] == chain
+
+	# 		select_res1 = xl_df[mask1]
+	# 		select_res2 = xl_df[mask2]
+
+	# 		select_res1["res1"] += offset_dict[chain]
+	# 		select_res2["res2"] += offset_dict[chain]
+
+	# 		xl_df.loc[mask1, "res1"] = select_res1["res1"]
+	# 		xl_df.loc[mask2, "res2"] = select_res2["res2"]
+
+	# 	# Correcting for 0-indexing in the array.
+	# 	xl_df["res1"] -= 1
+	# 	xl_df["res2"] -= 1
+
+	# 	return xl_df
 
 
 
@@ -170,9 +245,14 @@ class DataGathering():
 		xl_config = self.sys_config.data_gathering.xl_restraint
 		xl_df = self.parse_xl_data()
 
-		offset_dict, sys_len = self.calculate_offsets( system_dict )
+		# offset_dict, sys_len = self.calculate_offsets( system_dict )
+		sys_len = self.get_sys_len( system_dict )
 
-		xl_df = self.add_offsets( offset_dict, xl_df )
+		# xl_df = self.add_offsets( offset_dict, xl_df )
+
+		res_idx_map = self.get_residue_index_map( system_dict )
+
+		xl_df = self.map_residue_to_index( xl_df, res_idx_map )
 
 		# Create a 0-matrix for the XL-residue mask.
 		xl_mask = torch.zeros( ( sys_len, sys_len ) )
