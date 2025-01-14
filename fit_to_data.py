@@ -269,9 +269,6 @@ class FitToData():
 				else:
 					if isinstance( dict_[k], torch.Tensor ):
 						dict_[k] = dict_[k].unsqueeze( 0 )
-						print( k, "  ", dict_[k].shape )
-					else:
-						print( k, "  ", dict_[k] )
 			return dict_
 		
 		with torch.no_grad():
@@ -352,7 +349,6 @@ class FitToData():
 		self.add_batch_dim()
 		
 		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
-		# batch = self.xl_data( batch )
 		# Separate out the ground truth features.
 		gt_features = batch.pop( "gt_features", None )
 		gt_features_keys = gt_features.keys()
@@ -370,7 +366,7 @@ class FitToData():
 
 		# d = nn.Dropout1d( p = 0.05 )
 
-		for epoch in range( self.system_features.train.max_epochs ):
+		for epoch in range( self.sys_config.train.max_epochs ):
 			print( f"Epoch: {epoch}" )
 
 			# evo_output["single"] = d( evo_output["single"] )
@@ -462,7 +458,7 @@ class FitToData():
 		Keep track of per-epoch final loss and for each individual loss terms.
 		Update the parameters.
 		"""
-		cum_loss, losses = self.compute_loss( outputs, batch )
+		cum_loss, losses = self.compute_loss( outputs, batch, restraint_features )
 		self.update_loss_dict( losses )
 		cum_loss.backward()
 		optimizer.step()
@@ -495,31 +491,31 @@ class FitToData():
 
 
 
-	def xl_data( self, batch ):
-		"""
-		Load the .csv file containing the XL data.
-		Create a binary mask for XLed residue pairs (xl_res_mask).
-		Create a mask for the max bound between XLed residues (xl_tgt_mask).
-		"""
-		df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
+	# def xl_data( self, batch ):
+	# 	"""
+	# 	Load the .csv file containing the XL data.
+	# 	Create a binary mask for XLed residue pairs (xl_res_mask).
+	# 	Create a mask for the max bound between XLed residues (xl_tgt_mask).
+	# 	"""
+	# 	df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
 
-		r1, r2 = np.array( df["res1"] ), np.array( df["res2"] )
-		r1, r2 = r1 - 1, r2 -1
-		r2 += 404
-		xl_dist = torch.zeros( ( 480, 480 ) )
-		xl_mask = torch.zeros( ( 480, 480 ) )
+	# 	r1, r2 = np.array( df["res1"] ), np.array( df["res2"] )
+	# 	r1, r2 = r1 - 1, r2 -1
+	# 	r2 += 404
+	# 	xl_dist = torch.zeros( ( 480, 480 ) )
+	# 	xl_mask = torch.zeros( ( 480, 480 ) )
 
-		xl_mask[r1, r2] = 1
-		xl_dist[r1, r2] = 35
+	# 	xl_mask[r1, r2] = 1
+	# 	xl_dist[r1, r2] = 35
 
-		xl_mask[r2, r1] = 1
-		xl_dist[r2, r1] = 35
+	# 	xl_mask[r2, r1] = 1
+	# 	xl_dist[r2, r1] = 35
 
-		batch["xl_restraint"] = {}
-		batch["xl_restraint"]["xl_res_mask"] = xl_mask
-		batch["xl_restraint"]["xl_tgt_mask"] = xl_dist
+	# 	batch["xl_restraint"] = {}
+	# 	batch["xl_restraint"]["xl_res_mask"] = xl_mask
+	# 	batch["xl_restraint"]["xl_tgt_mask"] = xl_dist
 
-		return batch
+	# 	return batch
 
 
 
