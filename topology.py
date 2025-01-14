@@ -84,11 +84,14 @@ config = mlc.ConfigDict(
             "enabled": True,
             "clamp_distance": -4.0,
             "weight": 0.0,
-            "eps": 1e-8,
+            "eps": 1e-8
         },
         "xlr": {
                 "enabled": True,
-                "weight": 0.5
+                "fape_xlr": False,
+                "simple_xlr": True,
+                "weight": 0.5,
+                "eps": 1e-8
             },
     },
     "train": {
