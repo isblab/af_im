@@ -157,7 +157,6 @@ class DataGathering():
 			map all residue positions to system indices from 0 to N,
 			where N is the total no. of residues in the system.
 		"""
-		print( xl_df.head() )
 		for i in range( len( xl_df ) ):
 			chain1 = xl_df.loc[ i, "prot1" ]
 			res1 = xl_df.loc[ i, "res1" ]
@@ -246,10 +245,9 @@ class DataGathering():
 		xl_df = self.parse_xl_data()
 
 		# offset_dict, sys_len = self.calculate_offsets( system_dict )
-		sys_len = self.get_sys_len( system_dict )
-
 		# xl_df = self.add_offsets( offset_dict, xl_df )
-
+		
+		sys_len = self.get_sys_len( system_dict )
 		res_idx_map = self.get_residue_index_map( system_dict )
 
 		xl_df = self.map_residue_to_index( xl_df, res_idx_map )
@@ -260,9 +258,9 @@ class DataGathering():
 		r1 = xl_df["res1"]
 		r2 = xl_df["res2"]
 
-		# Below diagonal.
-		xl_mask[r1, r2] = 1
 		# Above diagonal.
+		xl_mask[r1, r2] = 1
+		# Below diagonal.
 		xl_mask[r2, r1] = 1
 
 		self.restraint_features["xl_restraint"] = {}

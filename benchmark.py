@@ -35,7 +35,7 @@ def get_benchmark():
 			"data_gathering": {
 				"xl_restraint": {
 					"xl_type": "",
-					"xl_max_bound": 35,
+					"xl_max_bound": 35.0,
 					"file_name": "2ayo_interprotein_xls.csv"
 				}
 			}

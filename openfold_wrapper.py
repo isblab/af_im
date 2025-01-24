@@ -14,7 +14,7 @@ from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
 from create_plots import plot_loss
-from utils import read_configdict_from_json
+from utils import read_configdict_from_json, write_configdict_to_json
 
 from typing import Dict
 
@@ -26,23 +26,23 @@ class IntegrativeLearning():
 		# Main directory for the modeled system.
 		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/{self.sys_name}/" ) )
 		# mono/multi
-		self.mode = "multi"
+		self.pred_mode = "multi"
 		# Path for the OpenFold inference script.
 		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 		# No. of CPU cores to be used.
 		self.cpu_cores = 4
 		# cpu/cuda
 		self.device = "cuda"
-		if self.mode == "mono":
+		if self.pred_mode == "mono":
 			# config_preset for monomer.
 			self.config_preset = "model_1_ptm"
 			self.ckpt_path = os.path.abspath( "./openfold/resources/openfold_params/finetuning_ptm_2.pt" )
-		elif self.mode == "multi":
+		elif self.pred_mode == "multi":
 			# config_preset for multimer.
 			self.config_preset = "model_1_multimer_v3"
 			self.ckpt_path = None
 		else:
-			raise Exception( f"Invalid mode = {self.mode} specififed..." )
+			raise Exception( f"Invalid mode = {self.pred_mode} specififed..." )
 
 		# Load OpenFold configs file.
 		self.ofold_config = model_config( self.config_preset )
@@ -74,10 +74,10 @@ class IntegrativeLearning():
 											ofold_script = self.script,
 											fasta_dir = self.fasta_dir, 
 											alignment_dir = self.alignment_dir, 
-											output_dir = self.output_dir,
+											ofold_output_dir = self.ofold_output_dir,
 											config_preset = self.config_preset, 
 											ckpt_path = self.ckpt_path,
-											mode = self.mode,
+											mode = self.pred_mode,
 											cpu_cores = self.cpu_cores,
 											device = self.device ).forward()
 		
@@ -89,12 +89,15 @@ class IntegrativeLearning():
 		# Load the models and fit to data.
 		fit = FitToData( ofold_config = self.ofold_config, 
 						sys_config = self.topology,
-						mode = self.mode,
+						mode = self.pred_mode,
 						system_features = system_features,
+						ofold_output_dir = self.ofold_output_dir,
 						output_dir = self.output_dir )
 		fit.forward()
 
 		plot_loss( fit.loss_dict, self.loss_plot_file )
+
+		self.save_topology_file()
 
 		toc = time.time()
 		with open( f"./Time_taken.txt", "w" ) as w:
@@ -123,12 +126,36 @@ class IntegrativeLearning():
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" ) # os.path.abspath( f"{self.base_dir}/fasta_dir/" )
 		# Output directory path for OpenFold output.
-		self.output_dir = os.path.join( self.base_dir, f"{self.sys_name}_output" ) # os.path.abspath( f"{self.base_dir}/{self.sys_name}_output/" )
+		self.ofold_output_dir = os.path.join( self.base_dir, f"{self.sys_name}_output" ) # os.path.abspath( f"{self.base_dir}/{self.sys_name}_output/" )
 		# Directory storing the precomputed alignments.
-		self.alignment_dir = os.path.join( self.output_dir, "alignments" ) # os.path.abspath( f"{self.output_dir}/alignments/" )
+		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" ) # os.path.abspath( f"{self.output_dir}/alignments/" )
+
+		# Create directory to store output.
+		# 	separate directory is created for mode = test/prod.
+		version = self.topology.train.version
+		mode = self.topology.train.mode
+
+		dir_ = os.path.join( self.base_dir, f"{mode}" )
+		if not os.path.exists( dir_ ):
+			os.makedirs( dir_ )		
+		
+		self.output_dir = os.path.join( self.base_dir, f"{mode}/version_{version}" )
+
+		if not os.path.exists( self.output_dir ):
+			os.makedirs( self.output_dir )
 
 		# File name for the loss plot.
-		self.loss_plot_file = os.path.join( self.base_dir, "Loss.png" ) # f"{self.base_dir}/Loss.png"
+		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" ) # f"{self.base_dir}/Loss.png"
+		self.topology_file = os.path.join( self.output_dir, f"topology_{version}.json" )
+
+
+	def save_topology_file( self ):
+		"""
+		Save the topology file in the output directory.
+		"""
+		write_configdict_to_json( self.topology, 
+									self.topology_file
+								 )
 
 
 

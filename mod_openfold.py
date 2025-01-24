@@ -53,7 +53,7 @@ def fape_loss(
 				**{**batch, **config.intra_chain_backbone},
 			)
 		else:
-			intra_chain_bb_loss = 0
+			intra_chain_bb_loss = torch.tensor( [0.0], device = traj.device, requires_grad = True )
 
 		if config.interface_backbone.enabled:
 			interface_bb_loss = backbone_loss(
@@ -62,7 +62,7 @@ def fape_loss(
 			    **{**batch, **config.interface_backbone},
 			)
 		else:
-			interface_bb_loss = 0
+			interface_bb_loss = torch.tensor( [0.0], device = traj.device, requires_grad = True )
         
 		weighted_bb_loss = (intra_chain_bb_loss * config.intra_chain_backbone.weight
                             + interface_bb_loss * config.interface_backbone.weight)

@@ -36,6 +36,7 @@ config = mlc.ConfigDict(
     "loss": {
         "fape": {
             "enabled": True,
+            "add_penalty": False,
         	# For monomer.
             "backbone": {
                 "clamp_distance": 10.0,
@@ -47,7 +48,7 @@ config = mlc.ConfigDict(
             	"enabled": True,
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 0.5
+                "weight": 1.0
             },
             # For multimer.
             "interface_backbone": {
@@ -67,6 +68,7 @@ config = mlc.ConfigDict(
         },
         "supervised_chi": {
             "enabled": True,
+            "add_penalty": False,
             "chi_weight": 0.5,
             "angle_norm_weight": 0.01,
             "eps": 1e-8,
@@ -74,6 +76,7 @@ config = mlc.ConfigDict(
         },
         "violation": {
             "enabled": True,
+            "add_penalty": True,
             "violation_tolerance_factor": 12.0,
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
@@ -82,19 +85,23 @@ config = mlc.ConfigDict(
         },
         "chain_center_of_mass": {
             "enabled": True,
+            "add_penalty": True,
             "clamp_distance": -4.0,
-            "weight": 0.0,
+            "weight": 2.0,
             "eps": 1e-8
         },
         "xlr": {
                 "enabled": True,
+                "add_penalty": True,
                 "fape_xlr": False,
                 "simple_xlr": True,
-                "weight": 0.5,
+                "weight": 0.25,
                 "eps": 1e-8
             },
     },
     "train": {
+        "version": 0,
+        "mode": "test",
         "max_epochs": 50
     }
 }

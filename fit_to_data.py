@@ -25,7 +25,6 @@ from openfold.np import protein
 from loss import LossFunction
 from optimizer import Optimizer
 from pdb_utils import SaveModels
-from utils import valid_type
 
 
 class FitToData():
@@ -33,14 +32,16 @@ class FitToData():
 					sys_config: ml_collections.ConfigDict, 
 					mode: str, 
 					system_features: Dict, 
+					ofold_output_dir: str,
 					output_dir: str ):
 		self.ofold_config = ofold_config
 		self.sys_config = sys_config
 		self.is_multimer = self.ofold_config.globals.is_multimer,
 		self.mode = mode
 		self.system_features = system_features
+		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
-		self.output_models_path = "2ayo_output_models"
+		self.models_file = os.path.join( self.output_dir, f"2ayo_output_models" )
 
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
 		self.loss_dict = {}
@@ -78,7 +79,7 @@ class FitToData():
 		None
 		"""
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
-		feature_dict_path = glob.glob( f"{self.output_dir}/predictions/*feature_dict.pkl" )
+		feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
 		if len( feature_dict_path ) == 0:
 			raise Exception( f"Incorrect path -- {feature_dict_path}..." )
 
@@ -104,7 +105,7 @@ class FitToData():
 		( N --> no. of seq in MSA; L --> no. of residues in system. )
 		"""
 		print( "\nLoding evoformer output MSA, Pair, Single representations..." )
-		pkl_path = glob.glob( f"{self.output_dir}/predictions/*output_dict.pkl" )
+		pkl_path = glob.glob( f"{self.ofold_output_dir}/predictions/*output_dict.pkl" )
 		if len( pkl_path ) == 0:
 			raise Exception( f"Incorrect path -- {pkl_path}..." )
 
@@ -358,7 +359,7 @@ class FitToData():
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = "2ayo", 
 									output_format = "pdb",
-									output_path = self.output_models_path )
+									output_path = self.models_file )
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 		# Initialize the specified optimizer.
@@ -489,34 +490,5 @@ class FitToData():
 		Save to PDB or CIF file.
 		"""
 		save_model.save()
-
-
-
-	# def xl_data( self, batch ):
-	# 	"""
-	# 	Load the .csv file containing the XL data.
-	# 	Create a binary mask for XLed residue pairs (xl_res_mask).
-	# 	Create a mask for the max bound between XLed residues (xl_tgt_mask).
-	# 	"""
-	# 	df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
-
-	# 	r1, r2 = np.array( df["res1"] ), np.array( df["res2"] )
-	# 	r1, r2 = r1 - 1, r2 -1
-	# 	r2 += 404
-	# 	xl_dist = torch.zeros( ( 480, 480 ) )
-	# 	xl_mask = torch.zeros( ( 480, 480 ) )
-
-	# 	xl_mask[r1, r2] = 1
-	# 	xl_dist[r1, r2] = 35
-
-	# 	xl_mask[r2, r1] = 1
-	# 	xl_dist[r2, r1] = 35
-
-	# 	batch["xl_restraint"] = {}
-	# 	batch["xl_restraint"]["xl_res_mask"] = xl_mask
-	# 	batch["xl_restraint"]["xl_tgt_mask"] = xl_dist
-
-	# 	return batch
-
 
 

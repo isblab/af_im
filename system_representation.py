@@ -3,7 +3,7 @@ import os
 import glob
 
 from mod_openfold import parse, process_mmcif, np_example_to_features
-# from openfold.config import model_config
+from openfold.config import model_config
 
 from commands import ( monomer_cmd, monomer_precomp_aln_cmd,
 						multimer_cmd, multimer_precomp_aln_cmd )
@@ -61,7 +61,7 @@ gt_features
 class SystemRepresentation():
 	def __init__( self, sys_name: str, ofold_dir: str, ofold_script: str, 
 					fasta_dir: str, alignment_dir: str, 
-					output_dir: str, config_preset: str, 
+					ofold_output_dir: str, config_preset: str, 
 					ckpt_path: Optional[str], mode: str,
 					# init_struct_pdb: str, init_struct_cif: str,
 					cpu_cores: int, device: str = "cpu" ):
@@ -70,7 +70,7 @@ class SystemRepresentation():
 		self.script = ofold_script
 		self.fasta_dir = fasta_dir 
 		self.alignment_dir = alignment_dir
-		self.output_dir = output_dir
+		self.ofold_output_dir = ofold_output_dir
 		self.config_preset = config_preset
 		self.ckpt_path = ckpt_path
 		self.cpu_cores = cpu_cores
@@ -79,16 +79,16 @@ class SystemRepresentation():
 
 
 	def forward( self ):
-		if len( glob.glob( f"{self.output_dir}/predictions/*unrelaxed.cif" ) ) != 0:
+		if len( glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" ) ) != 0:
 			print( "\nInitial structure for the system exists..." )
-			self.init_struct_cif = glob.glob( f"{self.output_dir}/predictions/*unrelaxed.cif" )[0]
+			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" )[0]
 		
 		else:
 			print( "\nPredicting the initial structure for the system..." )
-			if not os.path.exists( os.path.abspath( f"{self.output_dir}/predictions/*unrelaxed.cif" ) ):
+			if not os.path.exists( os.path.abspath( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" ) ):
 				self.get_initial_structure()
 			# OpenFold predicted initial structure in CIF format.
-			self.init_struct_cif = glob.glob( f"{self.output_dir}/predictions/*unrelaxed.cif" )[0]
+			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" )[0]
 
 		print( "\nCreating ground truth features from the initial structure..." )
 		data = self.get_feature_from_init_struct()
@@ -146,12 +146,12 @@ class SystemRepresentation():
 		if os.path.exists( self.alignment_dir ):
 			print( "using precomputed alignments for monomer prediction..." )
 			command = monomer_precomp_aln_cmd( self.script, self.fasta_dir, 
-											self.alignment_dir, self.output_dir,
+											self.alignment_dir, self.ofold_output_dir,
 											self.config_preset, self.ckpt_path,
 											self.cpu_cores, self.device )
 
 		else:
-			command = monomer_cmd( self.script, self.fasta_dir, self.output_dir,
+			command = monomer_cmd( self.script, self.fasta_dir, self.ofold_output_dir,
 									self.config_preset,  self.ckpt_path,
 									self.cpu_cores, self.device )
 
@@ -179,11 +179,11 @@ class SystemRepresentation():
 		if os.path.exists( self.alignment_dir ):
 			print( "using precomputed alignments for multimer prediction..." )
 			command = multimer_precomp_aln_cmd( self.script, self.fasta_dir, 
-												self.alignment_dir, self.output_dir,
+												self.alignment_dir, self.ofold_output_dir,
 												self.config_preset, self.cpu_cores, self.device )
 
 		else:
-			command = multimer_cmd( self.script, self.fasta_dir, self.output_dir,
+			command = multimer_cmd( self.script, self.fasta_dir, self.ofold_output_dir,
 									self.config_preset, self.cpu_cores, self.device )
 
 		print( "Running multimer prediction..." )

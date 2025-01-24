@@ -53,7 +53,7 @@ class ViolationLoss():
 		# Violation loss does not need the argument batch, just kept here for uniformity.
 		return lambda: violation_loss(
 								out["violation"],
-								self.config
+								**{**batch, **self.config}
 								)
 
 class ChainCenterOfMassLoss():
@@ -72,8 +72,9 @@ class ChainCenterOfMassLoss():
 class LossFunction( nn.Module ):
 	def __init__( self, config ):
 		self.config = config
+		self.init_viol = None
 
-		self.loss_fns  =self.loss_included()
+		self.loss_fns_included  =self.loss_included()
 
 
 	def forward( self, out: Dict, batch: Dict, restraint_features: Dict ):
@@ -93,10 +94,11 @@ class LossFunction( nn.Module ):
 			)
 
 		# Iteratively calculate the loss for all included terms.
-		for obj in self.loss_fns:
+		loss_fns = {}
+		for obj in self.loss_fns_included:
 			name = obj.name
 			if name == "xlr":
-				loss_fns[name] = obj.get( out, restraint_features )
+				loss_fns[name] = obj.get( out, restraint_features["xl_restraint"] )
 			else:
 				loss_fns[name] = obj.get( out, batch )
 
@@ -130,14 +132,29 @@ class LossFunction( nn.Module ):
 
 		cum_loss = 0.
 		losses = {}
+		# Think
+		# if self.init_viol == None:
+		# 	viol = loss_fns.get( "violation" )
+		# 	self.init_viol = viol()
+		# else:
+		# 	viol = loss_fns.get( "violation" )
+
 		for loss_name, loss_fn in loss_fns.items():
 			weight = self.config[loss_name].weight
 			loss = loss_fn()
+
 			print( loss_name, "  ", loss, "  ", weight )
+
+			# Temp: For FAPE loss, if there are too many violations.
+			if loss_name == "fape":
+				loss = -1*loss
+			
 			if torch.isnan( loss ) or torch.isinf( loss ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
 				loss = loss.new_tensor( 0., requires_grad = True )
-			cum_loss = cum_loss + weight * loss
+			# If add_penalty is False, the loss will not be included for backprop.
+			if self.config[name]["add_penalty"]:
+				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
 		losses["unscaled_loss"] = cum_loss.detach().clone()
 

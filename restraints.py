@@ -16,16 +16,16 @@ class XlRestraint():
 		self.eps = config.eps
 
 
-	def get( out, batch ):
+	def get( self, out, batch ):
 		if self.config.fape_xlr:
-			return self.fape_xl_restraint( out, batch )
+			return lambda: self.fape_xl_restraint( out, **batch )
 		elif self.config.simple_xlr:
-			return self.simple_xl_restraint( out, batch )
+			return lambda: self.simple_xl_restraint( out, **batch )
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
 
 
-	def fape_xl_restraint( out: Dict[str, torch.Tensor],
+	def fape_xl_restraint( self, out: Dict[str, torch.Tensor],
 							xl_res_mask: torch.tensor,
 							xl_max_bound: float ):
 		"""
@@ -74,7 +74,7 @@ class XlRestraint():
 		
 		# Calculate the pairwise Euclidean distance matrix.
 		# 	eps: Krde karam ke dil ye chain paayega
-		pred_dist_map = torch.sqrt( torch.sum( local_pred_pos**2, dim = -1 ) + eps )
+		pred_dist_map = torch.sqrt( torch.sum( local_pred_pos**2, dim = -1 ) + self.eps )
 
 		# Adjust the length scales.
 		pred_dist_map = pred_dist_map / self.length_scale
@@ -91,12 +91,12 @@ class XlRestraint():
 		else:
 			loss = pred_dist_map*0 
 
-		loss = torch.mean( loss )
-
+		# Normalizing by the total no. of cross-linked residue pairs.
+		loss = torch.sum( loss )/ (self.eps + torch.sum( xl_res_mask ) )
 		return loss
 
 
-	def simple_xl_restraint( out: Dict[str, torch.Tensor],
+	def simple_xl_restraint( self, out: Dict[str, torch.Tensor],
 							xl_res_mask: torch.tensor,
 							xl_max_bound: float ):
 		"""
@@ -112,7 +112,7 @@ class XlRestraint():
 		ca_pos = pred_positions[..., 1, :]
 		diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
 		D = torch.sqrt( 
-						torch.sum( ( diff )**2, dim = -1 ) + eps
+						torch.sum( ( diff )**2, dim = -1 ) + self.eps
 						)
 		# Adjust the length scales.
 		D = D / self.length_scale
@@ -128,6 +128,7 @@ class XlRestraint():
 		else:
 			# loss = torch.tensor( [0.0], device = D.device, requires_grad = True )
 			loss = D*0 
-		# Aggregate the loss (sum or mean).
-		loss = torch.mean( loss )
+		
+		# Normalizing by the total no. of cross-linked residue pairs.
+		loss = torch.sum( loss )/ (self.eps + torch.sum( xl_res_mask ) )
 		return loss
