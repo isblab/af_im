@@ -5,8 +5,8 @@ import glob
 from mod_openfold import parse, process_mmcif, np_example_to_features
 from openfold.config import model_config
 
-from commands import ( monomer_cmd, monomer_precomp_aln_cmd,
-						multimer_cmd, multimer_precomp_aln_cmd )
+from commands import OpenfoldCommand #, monomer_cmd, monomer_precomp_aln_cmd,
+						# multimer_cmd, multimer_precomp_aln_cmd )
 from utils import run_subprocess
 
 from typing import Optional
@@ -115,10 +115,31 @@ class SystemRepresentation():
 		----------
 		None
 		"""
-		if self.mode == 'mono':
-			self.run_monomer_prediction()
-		elif self.mode == 'multi':
-			self.run_multimer_prediction()
+		# Move to OpenFold dir.
+		os.chdir( self.openfold_dir )
+		mode = "monomer" if self.mode == "mode" else "multimer"
+		
+		if os.path.exists( self.alignment_dir ):
+			print( f"using precomputed alignments for {mode} prediction..." )
+		else:
+			self.alignment_dir = None
+		
+		obj = OpenfoldCommand( script = self.script, 
+								fasta_dir = self.fasta_dir, 
+								config_preset = self.config_preset, 
+								alignment_dir = self.alignment_dir, 
+								output_dir = self.ofold_output_dir,
+								mode = self.mode,
+								cpu_cores = self.cpu_cores, 
+								device = self.device )
+		
+		print( f"Running {mode} prediction..." )
+		command = obj.get()
+		run_subprocess( command )
+		# if self.mode == 'mono':
+		# 	self.run_monomer_prediction()
+		# elif self.mode == 'multi':
+		# 	self.run_multimer_prediction()
 
 
 	def run_monomer_prediction( self ):

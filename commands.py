@@ -4,11 +4,14 @@ import os
 class OpenfoldCommand():
 	def __init__( self, script: str, fasta_dir: str, 
 						config_preset: str, alignment_dir: str, 
-						cpu_cores: str, device: str ):
+						output_dir: str, mode: str, cpu_cores: str, 
+						device: str ):
 		self.script = script
 		self.fasta_dir = fasta_dir
 		self.config_preset = config_preset
 		self.alignment_dir = alignment_dir
+		self.output_dir = output_dir
+		self.mode = mode
 		self.cpu_cores = cpu_cores
 		self.device = device
 
@@ -16,7 +19,7 @@ class OpenfoldCommand():
 		self.db_base = "/data/alpha-fold-db/"
 		self.databases = [
 		[os.path.join( self.db_base, "pdb_mmcif/mmcif_files" )],
-		["--uniref90_database_path", os.path.join( self.db_base, "pdb_mmcif/mmcif_files/" )],
+		["--uniref90_database_path", os.path.join( self.db_base, "uniref90/uniref90.fasta" )],
 		["--mgnify_database_path", os.path.join( self.db_base, "mgnify/mgy_clusters_2022_05.fa" )],
 		["--pdb70_database_path", os.path.join( self.db_base, "pdb70/pdb70" )],
 		["--uniclust30_database_path", os.path.join( self.db_base, "uniclust30/uniclust30_2018_08/uniclust30_2018_08" )],
@@ -24,23 +27,22 @@ class OpenfoldCommand():
 		["--uniref30_database_path", os.path.join( self.db_base, "uniref30/UniRef30_2021_03" )],
 		["--uniprot_database_path", os.path.join( self.db_base, "uniprot/uniprot.fasta" )],
 		["--bfd_database_path", os.path.join( self.db_base, "bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" )],
-		["--jackhmmer_binary_path", os.path.join( self.db_base, "" )]
 		]
 
 		self.tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 		self.tools = [
-		["--jackhmmer_binary_path", os.path.join( self.db_base, "jackhmmer" )],
-		["--hhblits_binary_path", os.path.join( self.db_base, "hhblits" )],
-		["--hhsearch_binary_path", os.path.join( self.db_base, "hhsearch" )],
-		["--kalign_binary_path", os.path.join( self.db_base, "kalign" )],
+		["--jackhmmer_binary_path", os.path.join( self.tool_base, "jackhmmer" )],
+		["--hhblits_binary_path", os.path.join( self.tool_base, "hhblits" )],
+		["--hhsearch_binary_path", os.path.join( self.tool_base, "hhsearch" )],
+		["--kalign_binary_path", os.path.join( self.tool_base, "kalign" )],
 		]
 
 		self.other_options = [
+		["--openfold_checkpoint_path", "openfold/resources/openfold_params/finetuning_ptm_2.pt"],
 		["--config_preset", self.config_preset],
 		["--output_dir", self.output_dir],
-		["--openfold_checkpoint_path", "openfold/resources/openfold_params/finetuning_ptm_2.pt"],
 		["--save_outputs"],
-		["--cpus", self.cpu_cores],
+		["--cpus", f"{self.cpu_cores}"],
 		["--model_device", self.device],
 		["--cif_output"]
 		]
@@ -53,21 +55,21 @@ class OpenfoldCommand():
 		command_list = []
 
 		command_list.extend( 
-						["python",
+						["python3",
 						self.script,
-						self.fasta_dir],
-						self.databases[0]
+						self.fasta_dir,
+						self.databases[0][0]]
 			 			)
-		
+
 		if self.alignment_dir != None:
 			command_list.extend( 
 							["--use_precomputed_alignments", self.alignment_dir]
 							 )
 
 		if self.mode == "mono":
-			del self.databases[4:7]
+			del self.databases[5:8]
 		else:
-			del self.databases[3]
+			del self.databases[3:5]
 		
 		for db in self.databases[1:]:
 			command_list.extend( db )
@@ -75,7 +77,11 @@ class OpenfoldCommand():
 		for tool in self.tools:
 			command_list.extend( tool )
 
-		for opt in self.other_options:
+		# Do not require checkpoint for running multimer.
+		if self.mode == "mono":
+			command_list.extend( self.other_options[0] )
+
+		for opt in self.other_options[1:]:
 			command_list.extend( opt )
 
 		return command_list
