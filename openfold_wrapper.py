@@ -52,6 +52,16 @@ class IntegrativeLearning():
 		self.create_required_paths()
 
 
+	def seed_worker( self ):
+		# Seed for PRNG.
+		seed = 1
+		torch.manual_seed( seed )
+		# torch.cuda.manual_seed( worker_seed )
+		torch.cuda.manual_seed_all( seed )
+		np.random.seed( seed )
+		random.seed( seed )
+
+
 	def forward( self ):
 		tic = time.time()
 		# The base directory should exist.
@@ -79,6 +89,7 @@ class IntegrativeLearning():
 											ckpt_path = self.ckpt_path,
 											mode = self.pred_mode,
 											cpu_cores = self.cpu_cores,
+											seed_worker = seed_worker,
 											device = self.device ).forward()
 		
 		# Add restraint features to system features dict.
@@ -92,7 +103,8 @@ class IntegrativeLearning():
 						mode = self.pred_mode,
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
-						output_dir = self.output_dir )
+						output_dir = self.output_dir,
+						seed_worker = seed_worker )
 		fit.forward()
 
 		plot_loss( fit.loss_dict, self.loss_plot_file )

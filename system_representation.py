@@ -64,7 +64,8 @@ class SystemRepresentation():
 					ofold_output_dir: str, config_preset: str, 
 					ckpt_path: Optional[str], mode: str,
 					# init_struct_pdb: str, init_struct_cif: str,
-					cpu_cores: int, device: str = "cpu" ):
+					cpu_cores: int, device: str = "cpu",
+					seed_worker ):
 		self.sys_name = sys_name
 		self.openfold_dir = ofold_dir
 		self.script = ofold_script
@@ -76,6 +77,8 @@ class SystemRepresentation():
 		self.cpu_cores = cpu_cores
 		self.device = device
 		self.mode = mode
+
+		seed_worker()
 
 
 	def forward( self ):
