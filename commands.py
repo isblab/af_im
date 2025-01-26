@@ -4,14 +4,15 @@ import os
 class OpenfoldCommand():
 	def __init__( self, script: str, fasta_dir: str, 
 						config_preset: str, alignment_dir: str, 
-						output_dir: str, mode: str, cpu_cores: str, 
-						device: str ):
+						output_dir: str, mode: str, seed: int, 
+						cpu_cores: int, device: str ):
 		self.script = script
 		self.fasta_dir = fasta_dir
 		self.config_preset = config_preset
 		self.alignment_dir = alignment_dir
 		self.output_dir = output_dir
 		self.mode = mode
+		self.seed
 		self.cpu_cores = cpu_cores
 		self.device = device
 
@@ -40,6 +41,7 @@ class OpenfoldCommand():
 		self.other_options = [
 		["--openfold_checkpoint_path", "openfold/resources/openfold_params/finetuning_ptm_2.pt"],
 		["--config_preset", self.config_preset],
+		["--data_random_seed", f"{self.seed}"]
 		["--output_dir", self.output_dir],
 		["--save_outputs"],
 		["--cpus", f"{self.cpu_cores}"],
