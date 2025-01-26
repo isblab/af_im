@@ -122,116 +122,6 @@ class FitToData():
 		return evo_output
 
 
-	# def load_models( self ):
-	# 	"""
-	# 	Load the Structure module and the auxillary heads module.
-	# 	Intialize with the pretrained weights.
-
-	# 	Input:
-	# 	----------
-	# 	Does not take any arguments.
-
-	# 	Returns:
-	# 	----------
-	# 	None
-	# 	"""
-	# 	print( "\nLoading the structure module and auxillary heads..." )
-	# 	sm_weights, aux_heads_weights  = self.get_pretrained_weights()
-		
-	# 	# Instantiate the structure module and aux heads.
-	# 	self.structure_module = StructureModule(
-	# 		is_multimer = self.is_multimer,
-	# 		**self.ofold_config["model"]["structure_module"]
-	# 	)
-	# 	self.aux_heads = AuxiliaryHeads(
-	# 	    self.ofold_config["model"]["heads"],
-	# 	)
-
-	# 	# Initialize the models with the pretrained weights.
-	# 	self.structure_module.load_state_dict( sm_weights )
-	# 	self.aux_heads.load_state_dict( aux_heads_weights )
-
-	# 	# Set the structure module to train mode.
-	# 	self.structure_module.train()
-
-	# 	# Set the aux heads to eval mode.
-	# 	self.aux_heads.eval()
-
-
-
-	# def get_pretrained_weights( self ):
-	# 	"""
-	# 	Get the weights for the pretrained OpenFold monomer and multimer models.
-	# 	Extract weights for only Structure modeule, pLDDT head, and TM head.
-
-	# 	Input:
-	# 	----------
-	# 	Does not take any arguments.
-
-	# 	Returns:
-	# 	----------
-	# 	None
-	# 	"""
-	# 	if self.mode == "mono":
-	# 		pretrained_weights = torch.load( "../../monomer_params.pt" )
-
-	# 	elif self.mode == "multi":
-	# 		pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
-
-	# 	# Obtain weights for the structure module only.
-	# 	sm_weights = OrderedDict( 
-	# 		( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-	# 		for key in pretrained_weights.keys() if "structure_module" in key 
-	# 		)
-	# 	# Obtain weights for the auxillary heads module.
-	# 	aux_heads_weights = OrderedDict( 
-	# 		( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-	# 		for key in pretrained_weights.keys() if "aux_heads" in key 
-	# 		)
-
-	# 	return sm_weights, aux_heads_weights
-
-
-
-	# def get_model_output( self, evo_output: Dict, gt_features: Dict ):
-	# 	"""
-	# 	Run the structure module and auxillary heads module.
-
-	# 	Input:
-	# 	----------
-	# 	evo_output --> dict containing MSA, Pair, Single representtaions.
-	# 	gt_features --> dict contaiining the ground truth features.
-
-	# 	Returns:
-	# 	----------
-	# 	outputs --> dict containing the output from structure module and auxillary heads module.
-	# 	"""
-	# 	outputs = {}
-	# 	# Don't need the full Evoformer dict, just the Pair and Single representation.
-	# 	outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output, 
-	# 													aatype = gt_features["aatype"],
-	# 													mask = self.system_features["seq_mask"].to( dtype = evo_output["single"].dtype ) )
-
-	# 	# The  dim=0 in all structure module outputs represents the no. of 
-	# 	# 	structure module blocks (default = 8).
-	# 	outputs["final_atom_positions"] = atom14_to_atom37(
-	# 												outputs["sm"]["positions"][-1],
-	# 												gt_features
-	# 												)
-	# 	outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
-	# 	outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
-
-	# 	with torch.no_grad():
-	# 		# The AuxillaryHeads module requires MSA, pair, Single representations in the output dict.
-	# 		outputs.update( evo_output )
-	# 		outputs.update( self.aux_heads( outputs ) )
-
-	# 	# print( outputs.keys() )
-	# 	# print( outputs["sm"].keys() )
-	# 	return outputs
-
-
-
 	def add_batch_dim( self ):
 		"""
 		Adds a singleton batch dimension to all tensors.
@@ -268,32 +158,6 @@ class FitToData():
 		
 		with torch.no_grad():
 			self.system_features = parse_nested_dict( self.system_features )
-			# for key in self.system_features.keys():
-			# 	if valid_type( self.system_features[key], dict ):
-					
-			# 		for k in self.system_features[key].keys():
-			# 			if valid_type( self.system_features[key][k], dict ):
-							
-			# 				for m in self.system_features[key][k].keys():
-			# 					if valid_type( self.system_features[key][k][m], dict ):
-									
-			# 						for n in self.system_features[key][k][m].keys():
-			# 							if valid_type( self.system_features[key][k][m][n], dict ):
-			# 								self.system_features[key][k] = self.system_features[key][k][m][n].unsqueeze( 0 )
-			# 								print( key, "  ", k, "  ", self.system_features[key][k][m][n].shape )
-										
-			# 							else:
-			# 								self.system_features[key][k][m][n] = self.system_features[key][k][m][n].unsqueeze( 0 )
-			# 								print( key, "  ", k, "  ", self.system_features[key][k][m][n].shape )
-								
-			# 					else:
-			# 						self.system_features[key][k][m] = self.system_features[key][k][m].unsqueeze( 0 )
-						
-			# 			else:
-			# 				self.system_features[key][k] = self.system_features[key][k].unsqueeze( 0 )
-				
-			# 	else:
-			# 		self.system_features[key] = self.system_features[key].unsqueeze( 0 )
 			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
@@ -364,43 +228,6 @@ class FitToData():
 
 		t_ = time.time()
 		print( ( t_ - t ), " seconds" )
-
-
-
-	# def predict( self, batch: Dict, evo_output: Dict, gt_features: Dict ):
-		"""
-		Obtain model predictions given the input.
-		Perform multi-chain permutation align.
-		"""
-		# outputs = self.get_model_output( evo_output, gt_features )
-
-		# for k in outputs["sm"].keys():
-		# 	print( f"{k}  -->  {outputs['sm'][k].shape}" )
-		# for k in outputs.keys():
-		# 	if k != "sm":
-		# 		print( f"{k}  -->  {outputs[k].shape}" )
-        
-        # We are not using recycling so don't need this.
-        # Remove the recycling dimension
-		# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
-		# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
-
-		# # This was used in training AF2 to permutes chains in ground truth before calculating the loss
-		# # 	because the mapping between the predicted and ground-truth will become arbitrary.
-		# # 	The model cannot be assumed to predict chains in the same order as the ground truth.
-		# if self.is_multimer:
-		# 	print( "\nPerforming multi-chain permutation alignment..." )
-		# 	batch = multi_chain_permutation_align( out = outputs,
-		# 											features = batch,
-		# 											ground_truth = gt_features )
-
-		# Toss out the recycling dimensions --- we don't need them anymore
-		# batch = tensor_tree_map(
-		# 	lambda x: np.array(x[..., -1].cpu()),
-		# 	batch
-		# )
-		# out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
-		# return outputs, batch
 
 
 
