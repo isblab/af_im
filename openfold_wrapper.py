@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import os
 import subprocess
@@ -6,6 +7,7 @@ import json
 import ml_collections as mlc
 import pickle as pkl
 import time
+import random
 
 from openfold.config import model_config
 from topology import topology_dict
@@ -89,7 +91,7 @@ class IntegrativeLearning():
 											ckpt_path = self.ckpt_path,
 											mode = self.pred_mode,
 											cpu_cores = self.cpu_cores,
-											seed_worker = seed_worker,
+											seed_worker = self.seed_worker,
 											device = self.device ).forward()
 		
 		# Add restraint features to system features dict.
@@ -104,7 +106,7 @@ class IntegrativeLearning():
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
 						output_dir = self.output_dir,
-						seed_worker = seed_worker )
+						seed_worker = self.seed_worker )
 		fit.forward()
 
 		plot_loss( fit.loss_dict, self.loss_plot_file )

@@ -64,8 +64,7 @@ class SystemRepresentation():
 					ofold_output_dir: str, config_preset: str, 
 					ckpt_path: Optional[str], mode: str,
 					# init_struct_pdb: str, init_struct_cif: str,
-					cpu_cores: int, device: str = "cpu",
-					seed_worker ):
+					cpu_cores: int, seed_worker, device: str = "cpu" ):
 		self.sys_name = sys_name
 		self.openfold_dir = ofold_dir
 		self.script = ofold_script
