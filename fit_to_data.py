@@ -4,7 +4,7 @@ import os
 import glob
 import pickle as pkl
 from collections import OrderedDict
-import ml_collections
+import ml_collections as mlc
 import time
 import copy
 import random
@@ -18,22 +18,24 @@ from openfold.data import feature_pipeline
 from openfold.model.structure_module import StructureModule
 from openfold.model.heads import AuxiliaryHeads
 from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import protein
 
+from model import Model1
 from loss import LossFunction
 from optimizer import Optimizer
 from pdb_utils import SaveModels
 
 
+
 class FitToData():
-	def __init__( self, ofold_config: ml_collections.ConfigDict, 
-					sys_config: ml_collections.ConfigDict, 
+	def __init__( self, ofold_config: mlc.ConfigDict, 
+					sys_config: mlc.ConfigDict, 
 					mode: str, 
 					system_features: Dict, 
 					ofold_output_dir: str,
-					output_dir: str ):
+					output_dir: str,
+					seed_worker ):
 		self.ofold_config = ofold_config
 		self.sys_config = sys_config
 		self.is_multimer = self.ofold_config.globals.is_multimer,
@@ -46,15 +48,7 @@ class FitToData():
 		self.loss_fn = LossFunction( self.sys_config["loss"] )
 		self.loss_dict = {}
 
-		self.seed = 1
-
-
-	def seed_worker( self ):
-		torch.manual_seed( self.seed )
-		# torch.cuda.manual_seed( worker_seed )
-		torch.cuda.manual_seed_all( self.seed )
-		np.random.seed( self.seed )
-		random.seed( self.seed )
+		seed_worker()
 
 
 	def forward( self ):
@@ -62,7 +56,7 @@ class FitToData():
 		"""
 		self.load_feature_dict()
 		# Now loading the models.
-		self.load_models()
+		# self.load_models()
 		self.fit()
 
 
@@ -128,113 +122,113 @@ class FitToData():
 		return evo_output
 
 
-	def load_models( self ):
-		"""
-		Load the Structure module and the auxillary heads module.
-		Intialize with the pretrained weights.
+	# def load_models( self ):
+	# 	"""
+	# 	Load the Structure module and the auxillary heads module.
+	# 	Intialize with the pretrained weights.
 
-		Input:
-		----------
-		Does not take any arguments.
+	# 	Input:
+	# 	----------
+	# 	Does not take any arguments.
 
-		Returns:
-		----------
-		None
-		"""
-		print( "\nLoading the structure module and auxillary heads..." )
-		sm_weights, aux_heads_weights  = self.get_pretrained_weights()
+	# 	Returns:
+	# 	----------
+	# 	None
+	# 	"""
+	# 	print( "\nLoading the structure module and auxillary heads..." )
+	# 	sm_weights, aux_heads_weights  = self.get_pretrained_weights()
 		
-		# Instantiate the structure module and aux heads.
-		self.structure_module = StructureModule(
-			is_multimer = self.is_multimer,
-			**self.ofold_config["model"]["structure_module"]
-		)
-		self.aux_heads = AuxiliaryHeads(
-		    self.ofold_config["model"]["heads"],
-		)
+	# 	# Instantiate the structure module and aux heads.
+	# 	self.structure_module = StructureModule(
+	# 		is_multimer = self.is_multimer,
+	# 		**self.ofold_config["model"]["structure_module"]
+	# 	)
+	# 	self.aux_heads = AuxiliaryHeads(
+	# 	    self.ofold_config["model"]["heads"],
+	# 	)
 
-		# Initialize the models with the pretrained weights.
-		self.structure_module.load_state_dict( sm_weights )
-		self.aux_heads.load_state_dict( aux_heads_weights )
+	# 	# Initialize the models with the pretrained weights.
+	# 	self.structure_module.load_state_dict( sm_weights )
+	# 	self.aux_heads.load_state_dict( aux_heads_weights )
 
-		# Set the structure module to train mode.
-		self.structure_module.train()
+	# 	# Set the structure module to train mode.
+	# 	self.structure_module.train()
 
-		# Set the aux heads to eval mode.
-		self.aux_heads.eval()
-
-
-
-	def get_pretrained_weights( self ):
-		"""
-		Get the weights for the pretrained OpenFold monomer and multimer models.
-		Extract weights for only Structure modeule, pLDDT head, and TM head.
-
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
-		None
-		"""
-		if self.mode == "mono":
-			pretrained_weights = torch.load( "../../monomer_params.pt" )
-
-		elif self.mode == "multi":
-			pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
-
-		# Obtain weights for the structure module only.
-		sm_weights = OrderedDict( 
-			( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-			for key in pretrained_weights.keys() if "structure_module" in key 
-			)
-		# Obtain weights for the auxillary heads module.
-		aux_heads_weights = OrderedDict( 
-			( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-			for key in pretrained_weights.keys() if "aux_heads" in key 
-			)
-
-		return sm_weights, aux_heads_weights
+	# 	# Set the aux heads to eval mode.
+	# 	self.aux_heads.eval()
 
 
 
-	def get_model_output( self, evo_output: Dict, gt_features: Dict ):
-		"""
-		Run the structure module and auxillary heads module.
+	# def get_pretrained_weights( self ):
+	# 	"""
+	# 	Get the weights for the pretrained OpenFold monomer and multimer models.
+	# 	Extract weights for only Structure modeule, pLDDT head, and TM head.
 
-		Input:
-		----------
-		evo_output --> dict containing MSA, Pair, Single representtaions.
-		gt_features --> dict contaiining the ground truth features.
+	# 	Input:
+	# 	----------
+	# 	Does not take any arguments.
 
-		Returns:
-		----------
-		outputs --> dict containing the output from structure module and auxillary heads module.
-		"""
-		outputs = {}
-		# Don't need the full Evoformer dict, just the Pair and Single representation.
-		outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output, 
-														aatype = gt_features["aatype"],
-														mask = self.system_features["seq_mask"].to( dtype = evo_output["single"].dtype ) )
+	# 	Returns:
+	# 	----------
+	# 	None
+	# 	"""
+	# 	if self.mode == "mono":
+	# 		pretrained_weights = torch.load( "../../monomer_params.pt" )
 
-		# The  dim=0 in all structure module outputs represents the no. of 
-		# 	structure module blocks (default = 8).
-		outputs["final_atom_positions"] = atom14_to_atom37(
-													outputs["sm"]["positions"][-1],
-													gt_features
-													)
-		outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
-		outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
+	# 	elif self.mode == "multi":
+	# 		pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
 
-		with torch.no_grad():
-			# The AuxillaryHeads module requires MSA, pair, Single representations in the output dict.
-			outputs.update( evo_output )
-			outputs.update( self.aux_heads( outputs ) )
+	# 	# Obtain weights for the structure module only.
+	# 	sm_weights = OrderedDict( 
+	# 		( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
+	# 		for key in pretrained_weights.keys() if "structure_module" in key 
+	# 		)
+	# 	# Obtain weights for the auxillary heads module.
+	# 	aux_heads_weights = OrderedDict( 
+	# 		( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
+	# 		for key in pretrained_weights.keys() if "aux_heads" in key 
+	# 		)
 
-		# print( outputs.keys() )
-		# print( outputs["sm"].keys() )
-		return outputs
+	# 	return sm_weights, aux_heads_weights
+
+
+
+	# def get_model_output( self, evo_output: Dict, gt_features: Dict ):
+	# 	"""
+	# 	Run the structure module and auxillary heads module.
+
+	# 	Input:
+	# 	----------
+	# 	evo_output --> dict containing MSA, Pair, Single representtaions.
+	# 	gt_features --> dict contaiining the ground truth features.
+
+	# 	Returns:
+	# 	----------
+	# 	outputs --> dict containing the output from structure module and auxillary heads module.
+	# 	"""
+	# 	outputs = {}
+	# 	# Don't need the full Evoformer dict, just the Pair and Single representation.
+	# 	outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output, 
+	# 													aatype = gt_features["aatype"],
+	# 													mask = self.system_features["seq_mask"].to( dtype = evo_output["single"].dtype ) )
+
+	# 	# The  dim=0 in all structure module outputs represents the no. of 
+	# 	# 	structure module blocks (default = 8).
+	# 	outputs["final_atom_positions"] = atom14_to_atom37(
+	# 												outputs["sm"]["positions"][-1],
+	# 												gt_features
+	# 												)
+	# 	outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
+	# 	outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
+
+	# 	with torch.no_grad():
+	# 		# The AuxillaryHeads module requires MSA, pair, Single representations in the output dict.
+	# 		outputs.update( evo_output )
+	# 		outputs.update( self.aux_heads( outputs ) )
+
+	# 	# print( outputs.keys() )
+	# 	# print( outputs["sm"].keys() )
+	# 	return outputs
 
 
 
@@ -304,22 +298,6 @@ class FitToData():
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
 
-	# def update_gt_features( self, batch: Dict, gt_features_keys: Dict ):
-	# 	"""
-	# 	gt_features is a dict nested within batch.
-	# 	In OpenFold, for each training step, the gt_features key is split from batch.
-	# 	The mul multi-chain_permutation_align() takes batch and gt_features as input separately.
-	# 		Post processing all keys in gt_features to batch dict.
-	# 	So, gt_features dict needs to be updated from batch dict.
-	# 	"""
-	# 	gt_features = {}
-	# 	for key in gt_features_keys:
-	# 		gt_features[key] = batch[key]
-
-	# 	return gt_features
-
-
-
 	def fit( self ):
 		"""
 		Fine-tune weights for the structure module for fit to data.
@@ -362,8 +340,12 @@ class FitToData():
 									output_path = self.models_file )
 		# Initialize the System object.
 		save_model_obj.initialize_system()
+		
+		# Get model.
+		model = Model1( self.system_features, self.ofold_config, self.mode, self.is_multimer )
+
 		# Initialize the specified optimizer.
-		optimizer = Optimizer( self.sys_config.optimizer ).forward( self.structure_module )
+		optimizer = Optimizer( self.sys_config.optimizer ).forward( model.params() )
 
 		# d = nn.Dropout1d( p = 0.05 )
 
@@ -371,10 +353,9 @@ class FitToData():
 			print( f"Epoch: {epoch}" )
 
 			# evo_output["single"] = d( evo_output["single"] )
+			outputs, batch = model.predict( evo_output, gt_features, batch )
 
-			outputs, batch = self.predict( batch, evo_output, gt_features )
-
-			# gt_features = self.update_gt_features( batch, gt_features_keys )
+			# outputs, batch = self.predict( batch, evo_output, gt_features )
 
 			self.add_model( save_model_obj, outputs, epoch )
 			self.step( outputs, batch, restraint_features, optimizer )
@@ -386,12 +367,12 @@ class FitToData():
 
 
 
-	def predict( self, batch: Dict, evo_output: Dict, gt_features: Dict ):
+	# def predict( self, batch: Dict, evo_output: Dict, gt_features: Dict ):
 		"""
 		Obtain model predictions given the input.
 		Perform multi-chain permutation align.
 		"""
-		outputs = self.get_model_output( evo_output, gt_features )
+		# outputs = self.get_model_output( evo_output, gt_features )
 
 		# for k in outputs["sm"].keys():
 		# 	print( f"{k}  -->  {outputs['sm'][k].shape}" )
@@ -404,14 +385,14 @@ class FitToData():
 		# outputs = tensor_tree_map( lambda t: t[..., -1], outputs )
 		# self.system_features = tensor_tree_map( lambda t: t[..., -1], self.system_features )
 
-		# This was used in training AF2 to permutes chains in ground truth before calculating the loss
-		# 	because the mapping between the predicted and ground-truth will become arbitrary.
-		# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-		if self.is_multimer:
-			print( "\nPerforming multi-chain permutation alignment..." )
-			batch = multi_chain_permutation_align( out = outputs,
-													features = batch,
-													ground_truth = gt_features )
+		# # This was used in training AF2 to permutes chains in ground truth before calculating the loss
+		# # 	because the mapping between the predicted and ground-truth will become arbitrary.
+		# # 	The model cannot be assumed to predict chains in the same order as the ground truth.
+		# if self.is_multimer:
+		# 	print( "\nPerforming multi-chain permutation alignment..." )
+		# 	batch = multi_chain_permutation_align( out = outputs,
+		# 											features = batch,
+		# 											ground_truth = gt_features )
 
 		# Toss out the recycling dimensions --- we don't need them anymore
 		# batch = tensor_tree_map(
@@ -419,7 +400,7 @@ class FitToData():
 		# 	batch
 		# )
 		# out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
-		return outputs, batch
+		# return outputs, batch
 
 
 
