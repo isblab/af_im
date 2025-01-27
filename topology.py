@@ -93,8 +93,7 @@ config = mlc.ConfigDict(
         "xlr": {
                 "enabled": True,
                 "add_penalty": True,
-                "fape_xlr": False,
-                "simple_xlr": True,
+                "type": "simple_xlr" # fape_xlr, simple_xlr, disto_xlr
                 "weight": 0.25,
                 "eps": 1e-8
             },
