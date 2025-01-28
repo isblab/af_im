@@ -12,6 +12,8 @@ def topology_dict():
 
 config = mlc.ConfigDict(
 	{
+    "objective": "Adding the XL contact map as an additive bias to Pair rep. "+
+                    "No gradient update",
     "system": {},
 	"optimizer": {
 			"SGD": {
@@ -90,18 +92,28 @@ config = mlc.ConfigDict(
             "weight": 2.0,
             "eps": 1e-8
         },
+            "distogram": {
+                "enabled": True,
+                "add_penalty": True,
+                "min_bin": 2.3125,
+                "max_bin": 21.6875,
+                "no_bins": 64,
+                "eps": 1e-8,  # 1e-6,
+                "weight": 0.3,
+        },
         "xlr": {
                 "enabled": True,
                 "add_penalty": True,
-                "type": "simple_xlr" # fape_xlr, simple_xlr, disto_xlr
-                "weight": 0.25,
+                "type": "disto_xlr", # fape_xlr, simple_xlr, disto_xlr
+                "weight": 0.5,
                 "eps": 1e-8
-            },
+        },
     },
     "train": {
         "version": 0,
         "mode": "test",
-        "max_epochs": 50
+        "max_epochs": 50,
+        "allow_grad_update": False
     }
 }
 )

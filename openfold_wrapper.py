@@ -113,6 +113,7 @@ class IntegrativeLearning():
 
 		self.save_topology_file()
 
+
 		toc = time.time()
 		with open( f"./Time_taken.txt", "w" ) as w:
 			w.writelines( f"Time taken: {( toc-tic )/3600} hours" )
@@ -161,6 +162,10 @@ class IntegrativeLearning():
 		# File name for the loss plot.
 		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" ) # f"{self.base_dir}/Loss.png"
 		self.topology_file = os.path.join( self.output_dir, f"topology_{version}.json" )
+		self.objective_file = os.path.join( self.output_dir, f"objective_{version}.txt" )
+
+		with open( self.objective_file, "w" ) as w:
+			w.writelines( self.topology.objective )
 
 
 	def save_topology_file( self ):
