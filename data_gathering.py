@@ -263,10 +263,37 @@ class DataGathering():
 		# Below diagonal.
 		xl_mask[r2, r1] = 1
 
+		contact_map = xl_mask.clone()
+		distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
+		distogram = distogram*xl_mask.squeeze( 0 ).unsqueeze( -1 )
+		
 		self.restraint_features["xl_restraint"] = {}
 		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_mask
+		self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
 		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_config.xl_max_bound
+
+
+	def get_distogram( self, contact_map: torch.Tensor, xl_max_bound: float ):
+		"""
+		Given a XL contact map and xl max bound, create a distogram.
+		"""
+		# These are taken from openFold.utils.loss.distogram_loss().
+		min_bin = 2.3125
+		max_bin = 21.6875
+		no_bins = 64
 		
+		boundaries = torch.linspace(
+			min_bin,
+			max_bin,
+			no_bins - 1 )
 
+		idx = torch.where( contact_map == 1 )
+		contact_map[idx] = xl_max_bound
 
+		# 63 bins for min to max distance and 1 for the rest.
+		true_bins = torch.sum( contact_map.unsqueeze( -1 ) > boundaries, dim = -1 )
+
+		distogram = torch.nn.functional.one_hot( true_bins, no_bins ).float()
+
+		return distogram
 
