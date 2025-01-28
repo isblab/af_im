@@ -17,11 +17,12 @@ from torch import nn
 from openfold.data import feature_pipeline
 from openfold.model.structure_module import StructureModule
 from openfold.model.heads import AuxiliaryHeads
+from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import protein
 
-from model import Model1
+from model import Model1, Model2
 from loss import LossFunction
 from optimizer import Optimizer
 from pdb_utils import SaveModels
@@ -191,7 +192,7 @@ class FitToData():
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 		
-		batch = self.system_features   # Just to keep in sync with OpenFold implementation.
+		batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
 		# Separate out the ground truth features.
 		gt_features = batch.pop( "gt_features", None )
 		gt_features_keys = gt_features.keys()
@@ -206,7 +207,8 @@ class FitToData():
 		save_model_obj.initialize_system()
 		
 		# Get model.
-		model = Model1( self.system_features, self.ofold_config, self.mode, self.is_multimer )
+		# model = Model1( self.system_features, self.ofold_config, self.mode, self.is_multimer )
+		model = Model2( self.system_features, self.ofold_config, self.mode, self.is_multimer )
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( model.params() )
@@ -218,8 +220,16 @@ class FitToData():
 
 			# evo_output["single"] = d( evo_output["single"] )
 			outputs, batch = model.predict( evo_output, gt_features, batch )
-
 			# outputs, batch = self.predict( batch, evo_output, gt_features )
+
+			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
+			# 	because the mapping between the predicted and ground-truth will become arbitrary.
+			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
+			if self.is_multimer:
+				print( "\nPerforming multi-chain permutation alignment..." )
+				batch = multi_chain_permutation_align( out = outputs,
+														features = batch,
+														ground_truth = gt_features )
 
 			self.add_model( save_model_obj, outputs, epoch )
 			self.step( outputs, batch, restraint_features, optimizer )
@@ -270,8 +280,10 @@ class FitToData():
 		"""
 		cum_loss, losses = self.compute_loss( outputs, batch, restraint_features )
 		self.update_loss_dict( losses )
-		cum_loss.backward()
-		optimizer.step()
+
+		if self.sys_config.train.allow_grad_update:
+			cum_loss.backward()
+			optimizer.step()
 
 
 
