@@ -56,14 +56,14 @@ class LoadState():
 							)
 			if layer == "lddt":
 				# Obtain weights for the plddt head from auxillary heads module.
-				self.weights_dict["layer"] = OrderedDict( 
-							( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-							for key in pretrained_weights.keys() if "aux_heads.lddt" in key 
+				self.weights_dict[layer] = OrderedDict( 
+							( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
+							for key in pretrained_weights.keys() if "aux_heads.plddt" in key 
 							)
 			if layer == "distogram":
 				# Obtain weights for the distogram head from auxillary heads module.
 				self.weights_dict[layer] = OrderedDict( 
-							( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
+							( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
 							for key in pretrained_weights.keys() if "aux_heads.distogram" in key 
 							)
 
@@ -114,7 +114,7 @@ class Model1( LoadState ):
 		self.ofold_config = ofold_config
 		self.system_features = system_features
 
-		layers = ["structure_module", "plddt"]
+		layers = ["structure_module", "lddt"]
 		self.load_pretrained_models( layers )
 
 		# Not fine-tuning the structure module here.
@@ -163,14 +163,14 @@ class Model1( LoadState ):
 			# Required for relaxation later on
 			outputs["plddt"] = compute_plddt( lddt_logits )
 
-		# This was used in training AF2 to permutes chains in ground truth before calculating the loss
-		# 	because the mapping between the predicted and ground-truth will become arbitrary.
-		# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-		if self.is_multimer:
-			print( "\nPerforming multi-chain permutation alignment..." )
-			batch = multi_chain_permutation_align( out = outputs,
-													features = batch,
-													ground_truth = gt_features )
+		# # This was used in training AF2 to permutes chains in ground truth before calculating the loss
+		# # 	because the mapping between the predicted and ground-truth will become arbitrary.
+		# # 	The model cannot be assumed to predict chains in the same order as the ground truth.
+		# if self.is_multimer:
+		# 	print( "\nPerforming multi-chain permutation alignment..." )
+		# 	batch = multi_chain_permutation_align( out = outputs,
+		# 											features = batch,
+		# 											ground_truth = gt_features )
 
 		return outputs, batch
 
@@ -185,15 +185,17 @@ class Model1( LoadState ):
 
 class PairBias( nn.Module ):
 	def __init__( self ):
-		self.lnorm = nn.Layernorm( 64 )
-		self.linear = nn.Linear( in_features = 1, out_features = 64, bias = True )
+		super().__init__()
+		# Feature dim for pair rep (c_z) is 128.
+		self.linear = nn.Linear( in_features = 64, out_features = 128, bias = True )
 		self.activation = nn.ReLU()
+		self.lnorm = nn.LayerNorm( 128 )
 
 
 	def forward( self, x_in ):
-		o = self.lnorm( x_in )
-		o = self.linear( o )
+		o = self.linear( x_in )
 		o = self.activation( o )
+		o = self.lnorm( o )
 
 		return o
 
@@ -208,11 +210,14 @@ class Model2( LoadState ):
 		self.ofold_config = ofold_config
 		self.system_features = system_features
 
-		layers = ["structure_module", "plddt", "distogram"]
+		layers = ["structure_module", "lddt", "distogram"]
 		self.load_pretrained_models( layers )
 
+		# For embedding the input distogram.
+		self.pair_bias = PairBias()
+
 		# Not fine-tuning the structure module here.
-		self.structure_module.eval()
+		self.structure_module.train()
 
 		# Not fine-tuning lddt head.
 		self.plddt.eval()
@@ -236,6 +241,14 @@ class Model2( LoadState ):
 		"""
 		outputs = {}
 		with torch.no_grad():
+			gt_distogram = self.system_features["restraint_features"]["xl_restraint"]["gt_distogram"]
+			xl_res_mask = self.system_features["restraint_features"]["xl_restraint"]["xl_res_mask"]
+			pair_rep = evo_output.pop( "pair", None )
+
+		# pair = self.pair_bias( gt_distogram )
+		evo_output["pair"] = pair + xl_res_mask
+
+		with torch.no_grad():
 			# Don't need the full Evoformer dict, just the Pair and Single representation.
 			outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output, 
 															aatype = gt_features["aatype"],
@@ -250,15 +263,14 @@ class Model2( LoadState ):
 			outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
 			outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
 
+			distogram_logits = self.distogram_head( evo_output["pair"] )
+			outputs["distogram_logits"] = distogram_logits
 
 			# The AuxillaryHeads module requires MSA, pair, Single representations in the output dict.
 			outputs.update( evo_output )
 			lddt_logits = self.plddt( outputs["sm"]["single"] )
 			# Required for relaxation later on
 			outputs["plddt"] = compute_plddt( lddt_logits )
-
-		distogram_logits = self.distogram( outputs["pair"] )
-		outputs["distogram_logits"] = distogram_logits
 
 		return outputs, batch
 
@@ -267,6 +279,6 @@ class Model2( LoadState ):
 		"""
 		Return a list of models for the optimizer.
 		"""
-		return [self.pair_bias, self.distogram_head]
+		return [self.pair_bias, self.structure_module]
 
 
