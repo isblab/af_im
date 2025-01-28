@@ -3,6 +3,7 @@ import torch
 from torch import nn
 
 from openfold.utils.rigid_utils import Rotation, Rigid
+from openfold.utils.loss import softmax_cross_entropy
 
 from typing import Dict, Optional
 
@@ -17,10 +18,12 @@ class XlRestraint():
 
 
 	def get( self, out, batch ):
-		if self.config.fape_xlr:
-			return lambda: self.fape_xl_restraint( out, **batch )
-		elif self.config.simple_xlr:
-			return lambda: self.simple_xl_restraint( out, **batch )
+		if self.config.type == "fape_xlr":
+			return lambda: self.fape_xl_restraint( out, batch["xl_res_mask"],batch["xl_max_bound"] )
+		elif self.config.type == "simple_xlr":
+			return lambda: self.simple_xl_restraint( out, batch["xl_res_mask"],batch["xl_max_bound"] )
+		elif self.config.type == "disto_xlr":
+			return lambda: self.disto_xl_restraint( out, **batch )
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
 
@@ -130,5 +133,47 @@ class XlRestraint():
 			loss = D*0 
 		
 		# Normalizing by the total no. of cross-linked residue pairs.
-		loss = torch.sum( loss )/ (self.eps + torch.sum( xl_res_mask ) )
+		denom = self.eps + torch.sum( xl_res_mask )
+		loss = torch.sum( loss )/ denom
 		return loss
+
+
+	def disto_xl_restraint( self, out: Dict[str, torch.Tensor],
+								xl_res_mask: torch.Tensor,
+								xl_max_bound: float,
+								gt_distogram: torch.Tensor,
+								cb_corr: float = 3.0 ):
+		"""
+		Calculate the cross-linking restraint as the softmax cross entropy loss betwee
+		the predicted and ground truth distogram.
+		Loss implementation is adapted from the OpenFold distogram_loss().
+		"""
+		assert torch.all( ( gt_distogram == 0 ) | ( gt_distogram == 1 ) ), "gt_distogram should be binary"
+		# Distogram is based on Ca distances. Correcting for Cb.
+		# 	Ca-Cb bond length = 1.54A so subtracting ~2*3.54.
+		xl_max_bound = xl_max_bound - cb_corr
+		
+		# Get predicted distogram logits.
+		logits = out["distogram_logits"]
+		
+		errors = softmax_cross_entropy(
+		    logits, gt_distogram )
+
+		# square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
+
+		# FP16-friendly sum.
+		# Here xl_res_mask is equivalent to square_mask in OpenFold implementation.
+		denom = self.eps + torch.sum( xl_res_mask, dim = ( -1, -2 ) )
+		mean = errors * xl_res_mask
+		# Penalizing only the violated cross-links.
+		viols = errors > xl_max_bound
+		mean = mean[viols]
+
+		mean = torch.sum( mean, dim = -1 )
+		mean = mean / denom[..., None]
+		mean = torch.sum( mean, dim = -1 )
+
+		# Average over the batch dimensions
+		mean = torch.mean(mean)
+
+		return mean

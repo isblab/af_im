@@ -8,7 +8,7 @@ from openfold.utils.loss import ( find_structural_violations,
 								# fape_loss,
 								supervised_chi_loss,
 								violation_loss,
-								chain_center_of_mass_loss
+								chain_center_of_mass_loss, distogram_loss
 								)
 
 from mod_openfold import fape_loss
@@ -65,6 +65,19 @@ class ChainCenterOfMassLoss():
 	def get( self, out, batch ):
 		return lambda: chain_center_of_mass_loss(
 								all_atom_pred_pos = out["final_atom_positions"],
+								**{**batch, **self.config},
+								)
+
+
+class DistogramLoss():
+	# Just a wrapper for the OpenFold Chain center of mass loss.
+	def __init__(  self, config ):
+		self.name = "distogram"
+		self.config = config
+
+	def get( self, out, batch ):
+		return lambda: distogram_loss(
+								logits = out["distogram_logits"],
 								**{**batch, **self.config},
 								)
 
@@ -146,8 +159,8 @@ class LossFunction( nn.Module ):
 			print( loss_name, "  ", loss, "  ", weight )
 
 			# Temp: For FAPE loss, if there are too many violations.
-			if loss_name == "fape":
-				loss = -1*loss
+			# if loss_name == "fape":
+			# 	loss = -1*loss
 			
 			if torch.isnan( loss ) or torch.isinf( loss ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
@@ -181,6 +194,9 @@ class LossFunction( nn.Module ):
 
 		if self.config.chain_center_of_mass.enabled:
 			loss_fns.append( ChainCenterOfMassLoss( self.config.chain_center_of_mass ) )
+
+		if self.config.distogram.enabled:
+			loss_fns.append( DistogramLoss( self.config.distogram ) )
 
 		if self.config.xlr.enabled:
 			loss_fns.append( XlRestraint( self.config.xlr ) )
