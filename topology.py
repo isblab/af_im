@@ -6,7 +6,7 @@ import copy
 import ml_collections as mlc
 
 
-def topology_dict():
+def topology_dict() -> mlc.ConfigDict:
 	c = copy.deepcopy( config )
 	return c
 
@@ -78,7 +78,7 @@ config = mlc.ConfigDict(
         },
         "violation": {
             "enabled": True,
-            "add_penalty": True,
+            "add_penalty": False,
             "violation_tolerance_factor": 12.0,
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
@@ -94,25 +94,26 @@ config = mlc.ConfigDict(
         },
             "distogram": {
                 "enabled": True,
-                "add_penalty": True,
-                "min_bin": 2.3125,
-                "max_bin": 21.6875,
+                "add_penalty": False,
+                "min_bin": 2.3125,   # From OpenFold
+                "max_bin": 21.6875,   # From OpenFold
                 "no_bins": 64,
                 "eps": 1e-8,  # 1e-6,
                 "weight": 0.3,
         },
         "xlr": {
                 "enabled": True,
-                "add_penalty": True,
+                "add_penalty": False,
                 "type": "disto_xlr", # fape_xlr, simple_xlr, disto_xlr
                 "weight": 0.5,
                 "eps": 1e-8
         },
     },
     "train": {
-        "version": 0,
+        "version": 0.1,
         "mode": "test",
         "max_epochs": 50,
+        "allow_mcpa": True,
         "allow_grad_update": False
     }
 }
