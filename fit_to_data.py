@@ -9,7 +9,7 @@ import time
 import copy
 import random
 
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from torch import nn
@@ -83,7 +83,7 @@ class FitToData():
 
 
 
-	def get_system_embeddings( self ):
+	def get_system_embeddings( self ) -> Dict[str, torch.Tensor]:
 		"""
 		Obtain the MSA, Pair, and Single representation from OpenFold.
 		These are stored in a .pkl file in the OpenFold output directory.
@@ -225,7 +225,8 @@ class FitToData():
 			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
 			# 	because the mapping between the predicted and ground-truth will become arbitrary.
 			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-			if self.is_multimer:
+			if self.is_multimer and self.sys_config.train.allow_mcpa:
+				# mcpa --> multi chain permutation align
 				print( "\nPerforming multi-chain permutation alignment..." )
 				batch = multi_chain_permutation_align( out = outputs,
 														features = batch,
@@ -241,14 +242,10 @@ class FitToData():
 
 
 
-	def compute_loss( self, out: Dict, batch: Dict, restraint_features: Dict ):
+	def compute_loss( self, out: Dict, batch: Dict, 
+						restraint_features: Dict ) -> Tuple[torch.Tensor, Dict[str, float]]:
 		"""
-		Calculates the cumulative loss which includes:
-			FAPE - backbone and sidechain
-			Supervised chi
-			Violation
-			Chain centre of mass
-			Restraints
+		Compute the loss and return the cumulative loss and a dict containing all loss terms per epoch.
 
 		"""
 		cum_loss, losses = self.loss_fn.forward( out, batch, restraint_features )
@@ -272,7 +269,9 @@ class FitToData():
 
 
 
-	def step( self, outputs: Dict, batch: Dict, restraint_features: Dict, optimizer ):
+	def step( self, outputs: Dict, batch: Dict, 
+				restraint_features: Dict, 
+				optimizer ) -> None:
 		"""
 		Compute the loss for the finetuned output (need to add that yet).
 		Keep track of per-epoch final loss and for each individual loss terms.
@@ -287,7 +286,8 @@ class FitToData():
 
 
 
-	def add_model( self, save_model_obj: SaveModels, outputs: Dict, epoch: int ):
+	def add_model( self, save_model_obj: SaveModels, 
+					outputs: Dict, epoch: int ):
 		"""
 		Create a Protein object using the predicted model output.
 		For pdb: write the model as a pdb string.
