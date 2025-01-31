@@ -3,8 +3,9 @@ import os
 import ml_collections as mlc
 from collections import OrderedDict
 import random
+from abc import ABC, abstractmethod
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import torch
 from torch import nn
@@ -18,8 +19,23 @@ from openfold.utils.loss import compute_plddt
 
 
 
+def get_model( model_name: str, system_features: mlc.ConfigDict, 
+						ofold_config: mlc.ConfigDict, 
+						mode: str, is_multimer: bool ):
+	"""
+	Return the required model.
+	"""
+	if model_name == "structure_module_finetuning":
+		return StructureModuleFineTuning( system_features, ofold_config, mode, is_multimer )
+	elif model_name == "pair_bias":
+		return PairBias( system_features, ofold_config, mode, is_multimer )
+	else:
+		raise Exception( "Incorrect model type specified..." ) 
+
+
 class LoadState():
 	def __init__( self, ofold_config: mlc.ConfigDict, mode: str, is_multimer: bool ):
+		super().__init__()
 		self.ofold_config = ofold_config
 		self.mode = mode
 		self.is_multimer = is_multimer
@@ -67,6 +83,7 @@ class LoadState():
 							for key in pretrained_weights.keys() if "aux_heads.distogram" in key 
 							)
 
+
 	def load_pretrained_models( self, layers: List ):
 		"""
 		Load the Structure module and the auxillary heads module.
@@ -105,11 +122,47 @@ class LoadState():
 
 
 
-class Model1( LoadState ):
+class Model( ABC ):
+	def __init__( self ):
+		super().__init__()
+	
+	@abstractmethod
+	def predict( self, evo_output: Dict[str, torch.Tensor], 
+					gt_features: Dict[str, torch.Tensor], 
+					batch: Dict[str, torch.Tensor] 
+			) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+		"""
+		Run the structure module and auxillary heads module.
+
+		Input:
+		----------
+		evo_output --> dict containing MSA, Pair, Single representtaions.
+		gt_features --> dict contaiining the ground truth features.
+
+		Returns:
+		----------
+		outputs --> dict containing the output from structure module and auxillary heads module.
+		"""
+		pass
+
+
+	@abstractmethod
+	def params( self 
+		) -> List[nn.Module]:
+
+		"""
+		Return a list of models for the optimizer.
+		"""
+		pass
+
+
+
+class StructureModuleFineTuning( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
 						mode: str, is_multimer: bool ):
-		super().__init__( ofold_config, mode, is_multimer )
+		LoadState.__init__( self, ofold_config, mode, is_multimer )
+		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
 		self.system_features = system_features
@@ -124,8 +177,7 @@ class Model1( LoadState ):
 		self.plddt.eval()
 
 
-
-	def predict( self, evo_output: Dict, gt_features: Dict, batch: Dict ):
+	def predict( self, evo_output, gt_features, batch ):
 		"""
 		Run the structure module and auxillary heads module.
 
@@ -136,7 +188,7 @@ class Model1( LoadState ):
 
 		Returns:
 		----------
-		outputs --> dict containing the output from structure module and auxillary heads module.
+		outputs --> dict containing the output from structure module and plddt head.
 		"""
 		outputs = {}
 		# Don't need the full Evoformer dict, just the Pair and Single representation.
@@ -163,15 +215,6 @@ class Model1( LoadState ):
 			# Required for relaxation later on
 			outputs["plddt"] = compute_plddt( lddt_logits )
 
-		# # This was used in training AF2 to permutes chains in ground truth before calculating the loss
-		# # 	because the mapping between the predicted and ground-truth will become arbitrary.
-		# # 	The model cannot be assumed to predict chains in the same order as the ground truth.
-		# if self.is_multimer:
-		# 	print( "\nPerforming multi-chain permutation alignment..." )
-		# 	batch = multi_chain_permutation_align( out = outputs,
-		# 											features = batch,
-		# 											ground_truth = gt_features )
-
 		return outputs, batch
 
 
@@ -183,50 +226,28 @@ class Model1( LoadState ):
 
 
 
-class PairBias( nn.Module ):
-	def __init__( self ):
-		super().__init__()
-		# Feature dim for pair rep (c_z) is 128.
-		self.linear = nn.Linear( in_features = 64, out_features = 128, bias = True )
-		self.activation = nn.ReLU()
-		self.lnorm = nn.LayerNorm( 128 )
-
-
-	def forward( self, x_in ):
-		o = self.linear( x_in )
-		o = self.activation( o )
-		o = self.lnorm( o )
-
-		return o
-
-
-
-class Model2( LoadState ):
+class PairBias( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
 						mode: str, is_multimer: bool ):
-		super().__init__( ofold_config, mode, is_multimer )
+		LoadState.__init__( self, ofold_config, mode, is_multimer )
+		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
 		self.system_features = system_features
 
-		layers = ["structure_module", "lddt", "distogram"]
+		layers = ["structure_module", "lddt"]
 		self.load_pretrained_models( layers )
 
-		# For embedding the input distogram.
-		self.pair_bias = PairBias()
-
 		# Not fine-tuning the structure module here.
-		self.structure_module.train()
+		self.structure_module.eval()
 
 		# Not fine-tuning lddt head.
 		self.plddt.eval()
-		# Fine-tuning distogram head.
-		self.distogram_head.train()
 
 
 
-	def predict( self, evo_output: Dict, gt_features: Dict, batch: Dict ):
+	def predict( self, evo_output, gt_features, batch ):
 		"""
 		Run the structure module and auxillary heads module.
 
@@ -237,22 +258,33 @@ class Model2( LoadState ):
 
 		Returns:
 		----------
-		outputs --> dict containing the output from structure module and auxillary heads module.
+		outputs --> dict containing the output from structure module and plddt head.
 		"""
 		outputs = {}
 		with torch.no_grad():
-			gt_distogram = self.system_features["restraint_features"]["xl_restraint"]["gt_distogram"]
-			xl_res_mask = self.system_features["restraint_features"]["xl_restraint"]["xl_res_mask"]
+			restraint_features = self.system_features.pop( "restraint_features", None )
+			gt_distogram = restraint_features["xl_restraint"]["gt_distogram"]
+			xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
+			bias_scale_factor = restraint_features["xl_restraint"]["xl_restraint"]
+			bias_type = restraint_features["xl_restraint"]["bias_type"]
+			
 			pair_rep = evo_output.pop( "pair", None )
 
-		# pair = self.pair_bias( gt_distogram )
-		evo_output["pair"] = pair + xl_res_mask
+		if bias_type == "additive":
+			evo_output["pair"] = pair_rep + xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+		elif bias_type == "multiplicative":
+			evo_output["pair"] = pair_rep + xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+		else:
+			raise Exception( f"Incorrect bias type: {bias_type} specified. " +
+								"Only 'additive' or 'multiplicative' bias allowed..." )
 
 		with torch.no_grad():
 			# Don't need the full Evoformer dict, just the Pair and Single representation.
-			outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output, 
-															aatype = gt_features["aatype"],
-															mask = self.system_features["seq_mask"].to( dtype = evo_output["single"].dtype ) )
+			outputs["sm"] = self.structure_module( evoformer_output_dict = evo_output, 
+													aatype = gt_features["aatype"],
+													mask = self.system_features["seq_mask"].to( 
+																			dtype = evo_output["single"].dtype )
+																			)
 
 			# The  dim=0 in all structure module outputs represents the no. of 
 			# 	structure module blocks (default = 8).
@@ -263,8 +295,8 @@ class Model2( LoadState ):
 			outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
 			outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
 
-			distogram_logits = self.distogram_head( evo_output["pair"] )
-			outputs["distogram_logits"] = distogram_logits
+			# distogram_logits = self.distogram_head( evo_output["pair"] )
+			# outputs["distogram_logits"] = distogram_logits
 
 			# The AuxillaryHeads module requires MSA, pair, Single representations in the output dict.
 			outputs.update( evo_output )
@@ -279,6 +311,23 @@ class Model2( LoadState ):
 		"""
 		Return a list of models for the optimizer.
 		"""
-		return [self.pair_bias, self.structure_module]
+		return []
 
+
+
+# class PairBias( nn.Module ):
+# 	def __init__( self ):
+# 		super().__init__()
+# 		# Feature dim for pair rep (c_z) is 128.
+# 		self.linear = nn.Linear( in_features = 64, out_features = 128, bias = True )
+# 		self.activation = nn.ReLU()
+# 		self.lnorm = nn.LayerNorm( 128 )
+
+
+# 	def forward( self, x_in ):
+# 		o = self.linear( x_in )
+# 		o = self.activation( o )
+# 		o = self.lnorm( o )
+
+# 		return o
 
