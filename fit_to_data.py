@@ -22,7 +22,7 @@ from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import protein
 
-from model import Model1, Model2
+from model import get_model
 from loss import LossFunction
 from optimizer import Optimizer
 from pdb_utils import SaveModels
@@ -61,7 +61,7 @@ class FitToData():
 		self.fit()
 
 
-	def load_feature_dict( self ):
+	def load_feature_dict( self ) -> None:
 		"""
 		Load the feature_dict saved as a .pkl file in the system's director.
 
@@ -94,10 +94,10 @@ class FitToData():
 
 		Returns:
 		----------
-		msa_rep --> MSA representation for the system [N, L, 256].
-		pair_rep --> Pair representation for the system [L, L, 128].
-		single_rep --> Single representation for the system [L, 384].
-		( N --> no. of seq in MSA; L --> no. of residues in system. )
+		msa_rep --> MSA representation for the system [n, r, 256].
+		pair_rep --> Pair representation for the system [r, r, 128].
+		single_rep --> Single representation for the system [r, 384].
+		( n --> no. of seq in MSA; r --> no. of residues in system. )
 		"""
 		print( "\nLoding evoformer output MSA, Pair, Single representations..." )
 		pkl_path = glob.glob( f"{self.ofold_output_dir}/predictions/*output_dict.pkl" )
@@ -123,7 +123,7 @@ class FitToData():
 		return evo_output
 
 
-	def add_batch_dim( self ):
+	def add_batch_dim( self ) -> None:
 		"""
 		Adds a singleton batch dimension to all tensors.
 
@@ -137,14 +137,6 @@ class FitToData():
 			Going through the code the only reason for this to happen can be the existence of a batch dim, 
 				that would exist while training in mini-batches but does not exist in our case.
 		****
-
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
-		None
 		"""
 		print( "\nAdding singleton batch dim to all tensors..." )
 
@@ -163,28 +155,20 @@ class FitToData():
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
 
-	def fit( self ):
+	def fit( self ) -> None:
 		"""
 		Fine-tune weights for the structure module for fit to data.
 		Get the Evoformer output: MSA, Single, Pair representations.
 			MSA representation not required though.
 		Add a singleton batch dim.
-		Temporary implemntation: Create XL restraint feature.
 		Initialize:
+			Model
 			A SaveModel object to add and save predicted models to a CIF file.
 			Optimizer
-		Run the finetuning for max_epochs.
+		Run the for max_epochs.
 			Get predicted output.
-			Add predicted model to model group.
 			Calculate loss and update parameters.
-
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
-		None
+			Save model to a PDB file.
 		"""
 		t = time.time()
 		evo_output = self.get_system_embeddings()
@@ -193,9 +177,8 @@ class FitToData():
 		self.add_batch_dim()
 		
 		batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
-		# Separate out the ground truth features.
+		# Separate out the ground truth features - as in OpenFold training_step.
 		gt_features = batch.pop( "gt_features", None )
-		gt_features_keys = gt_features.keys()
 		# Separate out the restraint features.
 		restraint_features = batch.pop( "restraint_features", None )
 
@@ -207,16 +190,16 @@ class FitToData():
 		save_model_obj.initialize_system()
 		
 		# Get model.
-		# model = Model1( self.system_features, self.ofold_config, self.mode, self.is_multimer )
-		model = Model2( self.system_features, self.ofold_config, self.mode, self.is_multimer )
+		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
+		model = get_model( self.sys_config.model.name,
+							self.system_features, self.ofold_config, 
+							self.mode, self.is_multimer )
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( model.params() )
 
-		# d = nn.Dropout1d( p = 0.05 )
-
 		for epoch in range( self.sys_config.train.max_epochs ):
-			print( f"Epoch: {epoch}" )
+			print( f"\nEpoch: {epoch} --------------------------" )
 
 			# evo_output["single"] = d( evo_output["single"] )
 			outputs, batch = model.predict( evo_output, gt_features, batch )
@@ -227,7 +210,7 @@ class FitToData():
 			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
 			if self.is_multimer and self.sys_config.train.allow_mcpa:
 				# mcpa --> multi chain permutation align
-				print( "\nPerforming multi-chain permutation alignment..." )
+				print( "--> Performing multi-chain permutation alignment..." )
 				batch = multi_chain_permutation_align( out = outputs,
 														features = batch,
 														ground_truth = gt_features )
@@ -242,8 +225,10 @@ class FitToData():
 
 
 
-	def compute_loss( self, out: Dict, batch: Dict, 
-						restraint_features: Dict ) -> Tuple[torch.Tensor, Dict[str, float]]:
+	def compute_loss( self, out: Dict[str, torch.Tensor], 
+						batch: Dict[str, torch.Tensor], 
+						restraint_features: Dict 
+				) -> Tuple[torch.Tensor, Dict[str, float]]:
 		"""
 		Compute the loss and return the cumulative loss and a dict containing all loss terms per epoch.
 
@@ -281,13 +266,15 @@ class FitToData():
 		self.update_loss_dict( losses )
 
 		if self.sys_config.train.allow_grad_update:
+			optimizer.zero_grad()
 			cum_loss.backward()
 			optimizer.step()
 
 
 
 	def add_model( self, save_model_obj: SaveModels, 
-					outputs: Dict, epoch: int ):
+					outputs: Dict[str, torch.Tensor], 
+					epoch: int ) -> None:
 		"""
 		Create a Protein object using the predicted model output.
 		For pdb: write the model as a pdb string.
@@ -305,7 +292,7 @@ class FitToData():
 
 
 
-	def save_model( self, save_model: SaveModels ):
+	def save_model( self, save_model: SaveModels ) -> None:
 		"""
 		Save to PDB or CIF file.
 		"""
