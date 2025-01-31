@@ -37,7 +37,7 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict, file_path: str ):
 	Save an mlc.Configdict object to JSON file.
 	"""
 	with open( file_path, "w" ) as w:
-		json.dump( config_dict.to_json(), w, indent = 4 )
+		json.dump( json.loads( config_dict.to_json() ), w, indent = 4 )
 
 
 def read_json( file_path: str ):

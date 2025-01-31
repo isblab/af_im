@@ -143,7 +143,7 @@ class LossFunction( nn.Module ):
 		# 					**restraint_features["xl_restraint"]
 		# 					) 
 
-		cum_loss = 0.
+		cum_loss = torch.tensor( [0] )
 		losses = {}
 		# Think
 		# if self.init_viol == None:
