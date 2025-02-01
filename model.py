@@ -21,24 +21,25 @@ from openfold.utils.loss import compute_plddt
 
 def get_model( model_name: str, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
-						mode: str, is_multimer: bool ):
+						mode: str, is_multimer: bool, device: str ):
 	"""
 	Return the required model.
 	"""
 	if model_name == "structure_module_finetuning":
-		return StructureModuleFineTuning( system_features, ofold_config, mode, is_multimer )
+		return StructureModuleFineTuning( system_features, ofold_config, mode, is_multimer, device )
 	elif model_name == "pair_bias":
-		return PairBias( system_features, ofold_config, mode, is_multimer )
+		return PairBias( system_features, ofold_config, mode, is_multimer, device )
 	else:
 		raise Exception( "Incorrect model type specified..." ) 
 
 
 class LoadState():
-	def __init__( self, ofold_config: mlc.ConfigDict, mode: str, is_multimer: bool ):
+	def __init__( self, ofold_config: mlc.ConfigDict, mode: str, is_multimer: bool, device: str ):
 		super().__init__()
 		self.ofold_config = ofold_config
 		self.mode = mode
 		self.is_multimer = is_multimer
+		self.device = device
 
 		self.weights_dict = {}
 
@@ -107,17 +108,18 @@ class LoadState():
 				self.structure_module = StructureModule(
 					is_multimer = self.is_multimer,
 					**self.ofold_config["model"]["structure_module"]
-				)
+				).to( self.device )
 
 				# Initialize the models with the pretrained weights.
 				self.structure_module.load_state_dict( self.weights_dict["structure_module"] )
+				self.structure_module
 
 			if layer == "lddt":
-				self.plddt = PerResidueLDDTCaPredictor( **self.ofold_config["model"]["heads"]["lddt"] )
+				self.plddt = PerResidueLDDTCaPredictor( **self.ofold_config["model"]["heads"]["lddt"] ).to( self.device )
 				self.plddt.load_state_dict( self.weights_dict["lddt"] )
 			
 			if layer == "distogram":
-				self.distogram_head = DistogramHead( **self.ofold_config["model"]["heads"]["distogram"] )
+				self.distogram_head = DistogramHead( **self.ofold_config["model"]["heads"]["distogram"] ).to( self.device )
 				self.distogram_head.load_state_dict( self.weights_dict["distogram"] )
 
 
@@ -129,7 +131,8 @@ class Model( ABC ):
 	@abstractmethod
 	def predict( self, evo_output: Dict[str, torch.Tensor], 
 					gt_features: Dict[str, torch.Tensor], 
-					batch: Dict[str, torch.Tensor] 
+					batch: Dict[str, torch.Tensor], 
+					device: str
 			) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
 		"""
 		Run the structure module and auxillary heads module.
@@ -160,8 +163,8 @@ class Model( ABC ):
 class StructureModuleFineTuning( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
-						mode: str, is_multimer: bool ):
-		LoadState.__init__( self, ofold_config, mode, is_multimer )
+						mode: str, is_multimer: bool, device: str ):
+		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
 		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
@@ -229,8 +232,8 @@ class StructureModuleFineTuning( LoadState, Model ):
 class PairBias( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
-						mode: str, is_multimer: bool ):
-		LoadState.__init__( self, ofold_config, mode, is_multimer )
+						mode: str, is_multimer: bool, device: str ):
+		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
 		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
