@@ -17,13 +17,15 @@ class XlRestraint():
 		self.eps = config.eps
 
 
-	def get( self, out, batch ):
+	def get( self, out, restraint_feature ):
 		if self.config.type == "fape_xlr":
-			return lambda: self.fape_xl_restraint( out, batch["xl_res_mask"],batch["xl_max_bound"] )
+			return lambda: self.fape_xl_restraint( out, restraint_feature["xl_res_mask"],
+													restraint_feature["xl_max_bound"] )
 		elif self.config.type == "simple_xlr":
-			return lambda: self.simple_xl_restraint( out, batch["xl_res_mask"],batch["xl_max_bound"] )
+			return lambda: self.simple_xl_restraint( out, restraint_feature["xl_res_mask"],
+													restraint_feature["xl_max_bound"] )
 		elif self.config.type == "disto_xlr":
-			return lambda: self.disto_xl_restraint( out, **batch )
+			return lambda: self.disto_xl_restraint( out, **restraint_feature )
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
 
@@ -144,7 +146,7 @@ class XlRestraint():
 								gt_distogram: torch.Tensor,
 								cb_corr: float = 3.0 ):
 		"""
-		Calculate the cross-linking restraint as the softmax cross entropy loss betwee
+		Calculate the cross-linking restraint as the softmax cross entropy loss between
 		the predicted and ground truth distogram.
 		Loss implementation is adapted from the OpenFold distogram_loss().
 		"""

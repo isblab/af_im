@@ -83,9 +83,9 @@ class DistogramLoss():
 
 
 class LossFunction( nn.Module ):
-	def __init__( self, config ):
+	def __init__( self, config, device: str ):
 		self.config = config
-		self.init_viol = None
+		self.device = device
 
 		self.loss_fns_included  =self.loss_included()
 
@@ -116,51 +116,15 @@ class LossFunction( nn.Module ):
 				loss_fns[name] = obj.get( out, batch )
 
 
-		# loss_fns = {
-		# 	"fape": lambda: fape_loss(
-		# 		out,
-		# 		batch,
-		# 		self.config.fape,
-		# 	),
-		# 	"supervised_chi": lambda: supervised_chi_loss(
-		# 						out["sm"]["angles"],
-		# 						out["sm"]["unnormalized_angles"],
-		# 						**{**batch, **self.config.supervised_chi},
-		# 	),
-		# 	"violation": lambda: violation_loss(
-		# 				out["violation"],
-		# 				**{**batch, **self.config.violation},
-		# 	),
-		# }
-		# if self.config.chain_center_of_mass.enabled:
-		# 	loss_fns["chain_center_of_mass"] = lambda: chain_center_of_mass_loss(
-		# 						all_atom_pred_pos = out["final_atom_positions"],
-		# 						**{**batch, **self.config.chain_center_of_mass},
-		# 	)
-
-		# loss_fns["xlr"] = lambda: xl_restraint( 
-		# 					out = out, 
-		# 					**restraint_features["xl_restraint"]
-		# 					) 
-
-		cum_loss = torch.tensor( [0] )
+		cum_loss = torch.tensor( [0] ).to( self.device )
 		losses = {}
-		# Think
-		# if self.init_viol == None:
-		# 	viol = loss_fns.get( "violation" )
-		# 	self.init_viol = viol()
-		# else:
-		# 	viol = loss_fns.get( "violation" )
 
+		# print_str = ""
 		for loss_name, loss_fn in loss_fns.items():
-			weight = self.config[loss_name].weight
+			weight = torch.tensor( self.config[loss_name].weight ).to( self.device )
 			loss = loss_fn()
 
-			print( loss_name, "  ", loss, "  ", weight )
-
-			# Temp: For FAPE loss, if there are too many violations.
-			# if loss_name == "fape":
-			# 	loss = -1*loss
+			# print_str += f"{loss_name}: {loss.item()} --> {weight}\t"
 			
 			if torch.isnan( loss ) or torch.isinf( loss ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
@@ -169,6 +133,9 @@ class LossFunction( nn.Module ):
 			if self.config[name]["add_penalty"]:
 				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
+		
+		# print( print_str )
+
 		losses["unscaled_loss"] = cum_loss.detach().clone()
 
 		return cum_loss, losses
@@ -202,3 +169,4 @@ class LossFunction( nn.Module ):
 			loss_fns.append( XlRestraint( self.config.xlr ) )
 
 		return loss_fns
+

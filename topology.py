@@ -12,8 +12,8 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-    "objective": "Adding the XL contact map as an additive bias to Pair rep. "+
-                    "No gradient update",
+    "objective": "Finetuning SM with XL restraint. "+
+                    "Deafult OpenFold weights. No optim.zero_grad()",
     "system": {},
 	"optimizer": {
 			"SGD": {
@@ -102,13 +102,13 @@ config = mlc.ConfigDict(
             "clash_overlap_tolerance": 1.5,
             "average_clashes": True,
             "eps": 1e-8,
-            "weight": 2.0
+            "weight": 0.03
         },
         "chain_center_of_mass": {
             "enabled": True,
             "add_penalty": True,
             "clamp_distance": -4.0,
-            "weight": 2.0,
+            "weight": 0.05,
             "eps": 1e-8
         },
         "distogram": {
@@ -128,10 +128,15 @@ config = mlc.ConfigDict(
                 "eps": 1e-8
         },
     },
+    "metrics": {
+        "xlr": {
+            "enabled": True
+        }
+    },
     "train": {
-        "version": "trial",
+        "version": 0,
         "mode": "test",
-        "max_epochs": 50,
+        "max_epochs": 500,
         "allow_mcpa": True,
         "allow_grad_update": True
     }
