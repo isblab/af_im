@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import torch
 import os
 import subprocess
@@ -15,7 +16,7 @@ from topology import topology_dict
 from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
-from create_plots import plot_loss
+from create_plots import plot_loss, plot_metrics
 from utils import read_configdict_from_json, write_configdict_to_json
 
 from typing import Dict
@@ -66,6 +67,7 @@ class IntegrativeLearning():
 
 	def forward( self ):
 		tic = time.time()
+		self.seed_worker()
 		# The base directory should exist.
 		if not os.path.exists( self.base_dir ):
 			raise Exception( f"Base dir: {self.base_dir}  does not exist..." )
@@ -106,16 +108,21 @@ class IntegrativeLearning():
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
 						output_dir = self.output_dir,
-						seed_worker = self.seed_worker )
+						seed_worker = self.seed_worker,
+						device = self.device )
 		fit.forward()
 
 		plot_loss( fit.loss_dict, self.loss_plot_file )
+		plot_metrics( fit.scalar_metric_dict, self.metric_plot_file )
 
 		self.save_topology_file()
 
+		self.save_loss_metrics( fit.loss_dict, fit.scalar_metric_dict, fit.other_metric_dict )
+		self.write_summary( fit.loss_dict, fit.scalar_metric_dict )
+
 
 		toc = time.time()
-		with open( f"./Time_taken.txt", "w" ) as w:
+		with open( os.path.join( self.output_dir, "Time_taken.txt" ), "w" ) as w:
 			w.writelines( f"Time taken: {( toc-tic )/3600} hours" )
 		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 
@@ -156,16 +163,44 @@ class IntegrativeLearning():
 		
 		self.output_dir = os.path.join( self.base_dir, f"{mode}/version_{version}" )
 
-		if not os.path.exists( self.output_dir ):
-			os.makedirs( self.output_dir )
+		self.output_dir_exists()
 
-		# File name for the loss plot.
-		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" ) # f"{self.base_dir}/Loss.png"
 		self.topology_file = os.path.join( self.output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.output_dir, f"objective_{version}.txt" )
 
+		# File path for the loss plot.
+		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" )
+		# File path for the metric plot.
+		self.metric_plot_file = os.path.join( self.output_dir, "Metrics.png" )
+
+		# File path for the loss dict.
+		self.loss_dict_file = os.path.join( self.output_dir, "Loss.npy" )
+		# File path for the metrics dict.
+		self.scalar_metric_dict_file = os.path.join( self.output_dir, "Metrics_scalar.npy" )
+		# File path for the metrics dict.
+		self.other_metric_dict_file = os.path.join( self.output_dir, "Metrics_other.npy" )
+
+		# Output summary file.
+		self.summary_file = os.path.join( self.output_dir, "Summary.csv" )
+
 		with open( self.objective_file, "w" ) as w:
 			w.writelines( self.topology.objective )
+
+
+	def output_dir_exists( self ):
+		"""
+		Check if the output directory exists or not.
+		Just to avoid accidently overwriting.
+		"""
+		if os.path.exists( self.output_dir ):
+			overwrite = input( f"Output directory: '{self.output_dir}' exists. Wanna continue (Y or n)? " )
+			if overwrite:
+				pass
+			else:
+				exit()
+		else:
+			os.makedirs( self.output_dir )
+
 
 
 	def save_topology_file( self ):
@@ -177,6 +212,30 @@ class IntegrativeLearning():
 								 )
 
 
+	def save_loss_metrics( self, loss_dict: Dict[str, float], 
+							scalar_metric_dict: Dict[str, float],
+							other_metric_dict: Dict[str, float] ):
+		"""
+		Save the loss and metric dict on disk.
+		"""
+		np.save( self.loss_dict_file, loss_dict, allow_pickle = True )
+		np.save( self.scalar_metric_dict_file, scalar_metric_dict, allow_pickle = True )
+		np.save( self.other_metric_dict_file, scalar_metric_dict, allow_pickle = True )
+
+
+
+	def write_summary( self, loss_dict: Dict[str, float], 
+							scalar_metric_dict: Dict[str, float] ):
+		"""
+		Write all relevant losses and metrics to a csv file.
+		"""
+		df = pd.DataFrame()
+		for k, v in loss_dict.items():
+			df[k] = v
+		for k, v in scalar_metric_dict.items():
+			df[k] = v
+
+		df.to_csv( self.summary_file, index = False )
 
 if __name__ == "__main__":
 	IntegrativeLearning().forward()
