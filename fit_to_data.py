@@ -9,7 +9,7 @@ import time
 import copy
 import random
 
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 import torch
 from torch import nn
@@ -24,9 +24,26 @@ from openfold.np import protein
 
 from model import get_model
 from loss import LossFunction
+from metrics import Metrics
 from optimizer import Optimizer
 from pdb_utils import SaveModels
 
+
+
+def parse_nested_dict( dict_: Dict, action: str, device: Optional[str] = "cuda" ):
+	for k in dict_:
+		if isinstance( dict_[k], Dict ):
+			dict_[k] = parse_nested_dict( dict_[k], action, device )
+		else:
+			if isinstance( dict_[k], torch.Tensor ):
+				if action == "add_dim":
+					dict_[k] = dict_[k].unsqueeze( 0 )
+				elif action == "add_to_device":
+					dict_[k] = dict_[k].to( device )
+				elif action == "detach":
+					dict_[k] = dict_[k].detach().cpu()
+
+	return dict_
 
 
 class FitToData():
@@ -36,20 +53,29 @@ class FitToData():
 					system_features: Dict, 
 					ofold_output_dir: str,
 					output_dir: str,
-					seed_worker ):
+					seed_worker,
+					device: str ):
 		self.ofold_config = ofold_config
 		self.sys_config = sys_config
 		self.is_multimer = self.ofold_config.globals.is_multimer,
 		self.mode = mode
+		self.prec = 4
+		self.device = device
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
 		self.models_file = os.path.join( self.output_dir, f"2ayo_output_models" )
 
-		self.loss_fn = LossFunction( self.sys_config["loss"] )
-		self.loss_dict = {}
-
 		seed_worker()
+
+		# Add a singleton batch dim.
+		self.add_batch_dim()
+
+		self.loss_fn = LossFunction( self.sys_config["loss"], self.device )
+		self.loss_dict = {}
+		self.metrics_fn = Metrics( self.sys_config["metrics"], self.system_features["restraint_features"] )
+		self.scalar_metric_dict = {}
+		self.other_metric_dict = {}
 
 
 	def forward( self ):
@@ -113,14 +139,14 @@ class FitToData():
 		pair_rep = ofold_output["pair"]
 		single_rep = ofold_output["single"]
 
-		evo_output = {
+		self.evo_output = {
 		"msa": torch.from_numpy( msa_rep ),
 		"pair": torch.from_numpy( pair_rep ),
 		"single": torch.from_numpy( single_rep )
 		}
 		print( f"MSA rep: {msa_rep.shape} \t Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
 
-		return evo_output
+		# return evo_output
 
 
 	def add_batch_dim( self ) -> None:
@@ -140,19 +166,44 @@ class FitToData():
 		"""
 		print( "\nAdding singleton batch dim to all tensors..." )
 
-		def parse_nested_dict( dict_: Dict ):
-			for k in dict_:
-				if isinstance( dict_[k], Dict ):
-					dict_[k] = parse_nested_dict( dict_[k] )
-				else:
-					if isinstance( dict_[k], torch.Tensor ):
-						dict_[k] = dict_[k].unsqueeze( 0 )
-			return dict_
+		# def parse_nested_dict( dict_: Dict, action: str ):
+		# 	for k in dict_:
+		# 		if isinstance( dict_[k], Dict ):
+		# 			dict_[k] = parse_nested_dict( dict_[k] )
+		# 		else:
+		# 			if isinstance( dict_[k], torch.Tensor ):
+		# 				if action == "add_dim":
+		# 					dict_[k] = dict_[k].unsqueeze( 0 )
+		# 				elif action == "add_to_device":
+		# 					dict_[k] = dict_[k].to( self.device )
+		# 				elif action == "detach":
+		# 					dict_[k] = dict_[k].detach()
+		# 	return dict_
 		
 		with torch.no_grad():
-			self.system_features = parse_nested_dict( self.system_features )
+			self.system_features = parse_nested_dict( self.system_features, "add_dim" )
 			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
+
+
+	def add_to_device( self ):
+		"""
+		Add all tensors to device.
+		"""
+		self.evo_output = parse_nested_dict( self.evo_output, "add_to_device", self.device )
+		self.system_features = parse_nested_dict( self.system_features, "add_to_device", self.device )
+
+
+	def remove_from_device( self, outputs: Dict[str, torch.Tensor] ):
+		"""
+		Add all tensors to device.
+		"""
+		self.evo_output = parse_nested_dict( self.evo_output, "detach" )
+		self.system_features = parse_nested_dict( self.system_features, "detach" )
+
+		outputs = parse_nested_dict( outputs, "detach" )
+
+		return outputs
 
 
 	def fit( self ) -> None:
@@ -171,16 +222,7 @@ class FitToData():
 			Save model to a PDB file.
 		"""
 		t = time.time()
-		evo_output = self.get_system_embeddings()
-
-		# Add a singleton batch dim.
-		self.add_batch_dim()
-		
-		batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
-		# Separate out the ground truth features - as in OpenFold training_step.
-		gt_features = batch.pop( "gt_features", None )
-		# Separate out the restraint features.
-		restraint_features = batch.pop( "restraint_features", None )
+		self.get_system_embeddings()
 
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = "2ayo", 
@@ -193,16 +235,25 @@ class FitToData():
 		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
 		model = get_model( self.sys_config.model.name,
 							self.system_features, self.ofold_config, 
-							self.mode, self.is_multimer )
+							self.mode, self.is_multimer, self.device )
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.sys_config.optimizer ).forward( model.params() )
 
 		for epoch in range( self.sys_config.train.max_epochs ):
+			t_start = time.time()
 			print( f"\nEpoch: {epoch} --------------------------" )
 
+			self.add_to_device()
+
+			batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
+			# Separate out the ground truth features - as in OpenFold training_step.
+			gt_features = batch.pop( "gt_features", None )
+			# Separate out the restraint features.
+			restraint_features = batch.pop( "restraint_features", None )
+
 			# evo_output["single"] = d( evo_output["single"] )
-			outputs, batch = model.predict( evo_output, gt_features, batch )
+			outputs, batch = model.predict( self.evo_output, gt_features, batch )
 			# outputs, batch = self.predict( batch, evo_output, gt_features )
 
 			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
@@ -216,12 +267,15 @@ class FitToData():
 														ground_truth = gt_features )
 
 			self.add_model( save_model_obj, outputs, epoch )
-			self.step( outputs, batch, restraint_features, optimizer )
+			self.step( outputs, batch, restraint_features, optimizer, epoch )
+			t_end = time.time()
+			t_ = time.time()
+			print( f"Time taken: {( t_end - t_start )}  seconds" )
 
 		self.save_model( save_model_obj )
 
 		t_ = time.time()
-		print( ( t_ - t ), " seconds" )
+		print( f"\n --> Time taken for fitting: {( t_ - t )}  seconds" )
 
 
 
@@ -237,7 +291,6 @@ class FitToData():
 		# print( losses )
 
 		return cum_loss, losses
-		# return cum_loss, np.array( [v.reshape( -1 ) for k, v in losses.items()] )
 
 
 
@@ -247,16 +300,58 @@ class FitToData():
 			terms and the cumulative loss.
 		"""
 		if self.loss_dict == {}:
-			self.loss_dict = {k:[v.item()] for k, v in losses.items()}
-		else:
-			for k, v in losses.items():
-				self.loss_dict[k].append( v.item() )
+			self.loss_dict = {k: [] for k in losses.keys()}
+			# self.loss_dict = {k:[round( v.item(), self.prec )] for k, v in losses.items()}
+		
+		str_ = ""
+		for k, v in losses.items():
+			v = round( v.item(), self.prec )
+			str_ += f"{k}: {v} \t"
+			self.loss_dict[k].append( v )
+		print( str_ )
 
 
 
-	def step( self, outputs: Dict, batch: Dict, 
+	def compute_metrics( self, out: Dict[str, torch.Tensor], 
+						batch: Dict[str, torch.Tensor], 
+						restraint_features: Dict,
+						last_epoch: bool
+				) -> Dict[str, Dict]:
+		"""
+		Compute all the required metrics.
+		"""
+		scalar_metric_dict = self.metrics_fn.forward( out, last_epoch )
+
+		return scalar_metric_dict
+
+
+	def update_metric_dict( self, scalar_metric_dict: Dict[str, float],
+								other_metric_dict: Dict ) -> None:
+		"""
+		Keep a tab on the metric values per epoch for all individual merics.
+		"""
+		if self.scalar_metric_dict == {}:
+			self.scalar_metric_dict = {k: [] for k in scalar_metric_dict.keys()}
+			# self.metric_dict = {k:[round( v.item(), self.prec )] for k, v in metric_dict.items()}
+
+		str_ = ""		
+		for k, v in scalar_metric_dict.items():
+			v = round( v.item(), self.prec )
+			str_ += f"{k}: {v} \t"
+			
+			self.scalar_metric_dict[k].append( v )
+		print( str_ )
+
+		for k, v in other_metric_dict.items():
+			self.other_metric_dict[k] = v
+
+
+
+	def step( self, outputs: Dict[str, torch.Tensor], 
+				batch: Dict[str, torch.Tensor], 
 				restraint_features: Dict, 
-				optimizer ) -> None:
+				optimizer,
+				epoch: int ) -> None:
 		"""
 		Compute the loss for the finetuned output (need to add that yet).
 		Keep track of per-epoch final loss and for each individual loss terms.
@@ -269,6 +364,20 @@ class FitToData():
 			optimizer.zero_grad()
 			cum_loss.backward()
 			optimizer.step()
+
+		# Detach and unload all tesnsors from device.
+		outputs = self.remove_from_device( outputs )
+		
+		if epoch == self.sys_config.train.max_epochs-1:
+			last_epoch = True
+		else:
+			last_epoch = False
+
+		scalar_metric_dict, other_metric_dict = self.compute_metrics( outputs, 
+																		batch, 
+																		restraint_features, 
+																		last_epoch )
+		self.update_metric_dict( scalar_metric_dict, other_metric_dict )
 
 
 
