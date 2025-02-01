@@ -137,8 +137,6 @@ class DataGathering():
 
 			sys_start = sys_end
 
-
-
 			# Get the chain IDs for all residues.
 			chain = chain.split( "_" )[-1]
 			# chains = [chain]*total
@@ -252,7 +250,8 @@ class DataGathering():
 
 		xl_df = self.map_residue_to_index( xl_df, res_idx_map )
 
-		# Create a 0-matrix for the XL-residue mask.
+		# Create a 0-matrix for the XL-residue mask [r,r].
+		# 	r -> total no. of residues.
 		xl_mask = torch.zeros( ( sys_len, sys_len ) )
 
 		r1 = xl_df["res1"]
