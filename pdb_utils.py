@@ -333,13 +333,15 @@ class SaveModels():
                 )
                 # pdb_lines.append(chain_termination_line)
                 self.system.append( chain_termination_line )
-                atom_index += 1
+                # atom_index += 1 # I believe this line is a big in OpenFold implementation. - Kartik -
+                # This will add an offset of 1 atom after every chain. - Kartik -
 
-                if(i != self.n - 1):
+                # I don't need it after every chain. - Kartik -
+                # if(i != self.n - 1):
                     # "prev" is a misnomer here. This happens at the beginning of
                     # each new chain.
                     # pdb_lines.extend(get_pdb_headers(prot, prev_chain_index))
-                    self.system.extend( get_pdb_headers( prot, prev_chain_index ) )
+                    # self.system.extend( get_pdb_headers( prot, prev_chain_index ) )
 
         # pdb_lines.append("ENDMDL")
         # pdb_lines.append("END")
