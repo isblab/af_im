@@ -13,7 +13,7 @@ def topology_dict() -> mlc.ConfigDict:
 config = mlc.ConfigDict(
 	{
     "objective": "Finetuning SM with XL restraint. "+
-                    "Deafult OpenFold weights. No optim.zero_grad()",
+                    "Deafult OpenFold weights. With optim.zero_grad()",
     "system": {},
 	"optimizer": {
 			"SGD": {
@@ -134,9 +134,9 @@ config = mlc.ConfigDict(
         }
     },
     "train": {
-        "version": 0,
+        "version": 0.1,
         "mode": "test",
-        "max_epochs": 500,
+        "max_epochs": 1000,
         "allow_mcpa": True,
         "allow_grad_update": True
     }

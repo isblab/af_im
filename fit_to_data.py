@@ -30,7 +30,8 @@ from pdb_utils import SaveModels
 
 
 
-def parse_nested_dict( dict_: Dict, action: str, device: Optional[str] = "cuda" ):
+def parse_nested_dict( dict_: Dict, action: str, 
+						device: Optional[str] = "cuda" ):
 	for k in dict_:
 		if isinstance( dict_[k], Dict ):
 			dict_[k] = parse_nested_dict( dict_[k], action, device )
@@ -42,24 +43,24 @@ def parse_nested_dict( dict_: Dict, action: str, device: Optional[str] = "cuda" 
 					dict_[k] = dict_[k].to( device )
 				elif action == "detach":
 					dict_[k] = dict_[k].detach().cpu()
-
 	return dict_
 
 
 class FitToData():
 	def __init__( self, ofold_config: mlc.ConfigDict, 
-					sys_config: mlc.ConfigDict, 
+					topology: mlc.ConfigDict, 
 					mode: str, 
 					system_features: Dict, 
 					ofold_output_dir: str,
 					output_dir: str,
+					prec: int,
 					seed_worker,
 					device: str ):
 		self.ofold_config = ofold_config
-		self.sys_config = sys_config
+		self.topology = topology
 		self.is_multimer = self.ofold_config.globals.is_multimer,
 		self.mode = mode
-		self.prec = 4
+		self.prec = prec
 		self.device = device
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
@@ -71,9 +72,9 @@ class FitToData():
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 
-		self.loss_fn = LossFunction( self.sys_config["loss"], self.device )
+		self.loss_fn = LossFunction( self.topology["loss"], self.device )
 		self.loss_dict = {}
-		self.metrics_fn = Metrics( self.sys_config["metrics"], self.system_features["restraint_features"] )
+		self.metrics_fn = Metrics( self.topology["metrics"], self.system_features["restraint_features"] )
 		self.scalar_metric_dict = {}
 		self.other_metric_dict = {}
 
@@ -233,14 +234,14 @@ class FitToData():
 		
 		# Get model.
 		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
-		model = get_model( self.sys_config.model.name,
+		model = get_model( self.topology.model.name,
 							self.system_features, self.ofold_config, 
 							self.mode, self.is_multimer, self.device )
 
 		# Initialize the specified optimizer.
-		optimizer = Optimizer( self.sys_config.optimizer ).forward( model.params() )
+		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
 
-		for epoch in range( self.sys_config.train.max_epochs ):
+		for epoch in range( self.topology.train.max_epochs ):
 			t_start = time.time()
 			print( f"\nEpoch: {epoch} --------------------------" )
 
@@ -259,7 +260,7 @@ class FitToData():
 			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
 			# 	because the mapping between the predicted and ground-truth will become arbitrary.
 			# 	The model cannot be assumed to predict chains in the same order as the ground truth.
-			if self.is_multimer and self.sys_config.train.allow_mcpa:
+			if self.is_multimer and self.topology.train.allow_mcpa:
 				# mcpa --> multi chain permutation align
 				print( "--> Performing multi-chain permutation alignment..." )
 				batch = multi_chain_permutation_align( out = outputs,
@@ -308,7 +309,7 @@ class FitToData():
 			v = round( v.item(), self.prec )
 			str_ += f"{k}: {v} \t"
 			self.loss_dict[k].append( v )
-		print( str_ )
+		print( f"Losses: {str_}" )
 
 
 
@@ -340,7 +341,7 @@ class FitToData():
 			str_ += f"{k}: {v} \t"
 			
 			self.scalar_metric_dict[k].append( v )
-		print( str_ )
+		print( f"Metrics: {str_}" )
 
 		for k, v in other_metric_dict.items():
 			self.other_metric_dict[k] = v
@@ -360,15 +361,15 @@ class FitToData():
 		cum_loss, losses = self.compute_loss( outputs, batch, restraint_features )
 		self.update_loss_dict( losses )
 
-		if self.sys_config.train.allow_grad_update:
+		if self.topology.train.allow_grad_update:
 			optimizer.zero_grad()
 			cum_loss.backward()
 			optimizer.step()
 
-		# Detach and unload all tesnsors from device.
+		# Detach and unload all tensors from device.
 		outputs = self.remove_from_device( outputs )
 		
-		if epoch == self.sys_config.train.max_epochs-1:
+		if epoch == self.topology.train.max_epochs-1:
 			last_epoch = True
 		else:
 			last_epoch = False
