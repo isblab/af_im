@@ -1,14 +1,11 @@
 import numpy as np
 import pandas as pd
-import torch
+import math
 import os
-import subprocess
-import glob
-import json
-import ml_collections as mlc
-import pickle as pkl
 import time
 import random
+
+import torch
 
 from openfold.config import model_config
 from topology import topology_dict
@@ -16,7 +13,7 @@ from topology import topology_dict
 from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
-from create_plots import plot_loss, plot_metrics
+from create_plots import plot_loss, plot_scalar_metrics, plot_xl_map
 from utils import read_configdict_from_json, write_configdict_to_json
 
 from typing import Dict
@@ -34,6 +31,7 @@ class IntegrativeLearning():
 		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 		# No. of CPU cores to be used.
 		self.cpu_cores = 4
+		self.prec = 4
 		# cpu/cuda
 		self.device = "cuda"
 		if self.pred_mode == "mono":
@@ -103,21 +101,24 @@ class IntegrativeLearning():
 
 		# Load the models and fit to data.
 		fit = FitToData( ofold_config = self.ofold_config, 
-						sys_config = self.topology,
+						topology = self.topology,
 						mode = self.pred_mode,
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
 						output_dir = self.output_dir,
+						prec = self.prec,
 						seed_worker = self.seed_worker,
 						device = self.device )
 		fit.forward()
 
-		plot_loss( fit.loss_dict, self.loss_plot_file )
-		plot_metrics( fit.scalar_metric_dict, self.metric_plot_file )
-
 		self.save_topology_file()
 
-		self.save_loss_metrics( fit.loss_dict, fit.scalar_metric_dict, fit.other_metric_dict )
+		self.save_metrics( fit.loss_dict, 
+							fit.scalar_metric_dict, 
+							fit.other_metric_dict )
+		self.plot_metrics( fit.loss_dict, 
+							fit.scalar_metric_dict, 
+							fit.other_metric_dict, restraint_features )
 		self.write_summary( fit.loss_dict, fit.scalar_metric_dict )
 
 
@@ -171,7 +172,9 @@ class IntegrativeLearning():
 		# File path for the loss plot.
 		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" )
 		# File path for the metric plot.
-		self.metric_plot_file = os.path.join( self.output_dir, "Metrics.png" )
+		self.scalar_metric_plot_file = os.path.join( self.output_dir, "Metrics.png" )
+		# File path for XL map plot.
+		self.xl_map_plot_file = os.path.join( self.output_dir, "XL_map.png" )
 
 		# File path for the loss dict.
 		self.loss_dict_file = os.path.join( self.output_dir, "Loss.npy" )
@@ -212,15 +215,30 @@ class IntegrativeLearning():
 								 )
 
 
-	def save_loss_metrics( self, loss_dict: Dict[str, float], 
+	def save_metrics( self, loss_dict: Dict[str, float], 
 							scalar_metric_dict: Dict[str, float],
 							other_metric_dict: Dict[str, float] ):
 		"""
 		Save the loss and metric dict on disk.
+		Also create their plots.
 		"""
 		np.save( self.loss_dict_file, loss_dict, allow_pickle = True )
 		np.save( self.scalar_metric_dict_file, scalar_metric_dict, allow_pickle = True )
-		np.save( self.other_metric_dict_file, scalar_metric_dict, allow_pickle = True )
+		np.save( self.other_metric_dict_file, other_metric_dict, allow_pickle = True )
+
+
+
+	def plot_metrics( self, loss_dict: Dict[str, float], 
+							scalar_metric_dict: Dict[str, float],
+							other_metric_dict: Dict[str, float],
+							restraint_features: Dict ):
+		"""
+		Create plots for all metrics.
+		"""
+		plot_loss( loss_dict, self.loss_plot_file )
+		plot_scalar_metrics( scalar_metric_dict, self.scalar_metric_plot_file )
+		xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
+		plot_xl_map( other_metric_dict["xlr"], xl_res_mask, self.xl_map_plot_file )
 
 
 
@@ -229,14 +247,36 @@ class IntegrativeLearning():
 		"""
 		Write all relevant losses and metrics to a csv file.
 		"""
-		df = pd.DataFrame()
-		for k, v in loss_dict.items():
-			df[k] = v
-		for k, v in scalar_metric_dict.items():
-			df[k] = v
+		df_dict = {"labels": []}
+		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1", "avg_last_0.1"]
 
+		df_dict.update( {k:[] for k in loss_dict.keys()} )
+		last_n = math.ceil( self.topology.train.max_epochs*0.9 )
+		first_n = math.ceil( self.topology.train.max_epochs*0.1 )
+		
+		for k, v in loss_dict.items():
+			df_dict[k].extend( 
+							[v[0],
+							v[-1],
+							round( np.mean( v ), self.prec ),
+							round( np.mean( v[:first_n] ), self.prec ),
+							round( np.mean( v[last_n:] ), self.prec )]
+							)
+		
+		df_dict.update( {f"{k}_metric":[] for k in scalar_metric_dict.keys()} )
+		for k, v in scalar_metric_dict.items():
+			df_dict[f"{k}_metric"].extend( 
+							[v[0],
+							v[-1],
+							np.mean( v ),
+							np.mean( v[:first_n] ),
+							np.mean( v[last_n:] )]
+							)
+
+		df = pd.DataFrame( df_dict )
 		df.to_csv( self.summary_file, index = False )
+		# df1.to_csv( self.last_epoch_metrics_file, index = False )
+		# df2.to_csv( self.avg_metrics_file, index = False )
 
 if __name__ == "__main__":
 	IntegrativeLearning().forward()
-
