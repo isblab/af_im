@@ -19,16 +19,18 @@ from openfold.utils.loss import compute_plddt
 
 
 
-def get_model( model_name: str, system_features: mlc.ConfigDict, 
+def get_model( model_config: mlc.ConfigDict, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
 						mode: str, is_multimer: bool, device: str ):
 	"""
 	Return the required model.
 	"""
-	if model_name == "structure_module_finetuning":
-		return StructureModuleFineTuning( system_features, ofold_config, mode, is_multimer, device )
-	elif model_name == "pair_bias":
-		return PairBias( system_features, ofold_config, mode, is_multimer, device )
+	if model_config.name == "structure_module_finetuning":
+		return StructureModuleFineTuning( system_features, ofold_config, model_config, 
+											mode, is_multimer, device )
+	elif model_config.name == "pair_bias":
+		return PairBias( system_features, ofold_config, model_config, 
+											mode, is_multimer, device )
 	else:
 		raise Exception( "Incorrect model type specified..." ) 
 
@@ -163,21 +165,37 @@ class Model( ABC ):
 class StructureModuleFineTuning( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
+						model_config: mlc.ConfigDict,
 						mode: str, is_multimer: bool, device: str ):
 		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
 		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
+		self.model_config = model_config
 		self.system_features = system_features
 
 		layers = ["structure_module", "lddt"]
 		self.load_pretrained_models( layers )
 
-		# Not fine-tuning the structure module here.
-		self.structure_module.train()
+		if self.model_config.mode.sm == "train":
+			print( "Uisng structure module in train mode" )
+			self.structure_module.train()
+		elif self.model_config.mode.sm == "eval":
+			print( "Uisng structure module in eval mode" )
+			self.structure_module.eval()
+		else:
+			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for structure module..." )
 
-		# Not fine-tuning lddt head.
-		self.plddt.eval()
+
+		if self.model_config.mode.plddt == "train":
+			print( "Uisng plddt head in train mode" )
+			self.plddt.train()
+		elif self.model_config.mode.plddt == "eval":
+			print( "Uisng plddt head in eval mode" )
+			self.plddt.eval()
+		else:
+			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for plddt head..." )
+
 
 
 	def predict( self, evo_output, gt_features, batch ):
@@ -232,21 +250,36 @@ class StructureModuleFineTuning( LoadState, Model ):
 class PairBias( LoadState, Model ):
 	def __init__( self, system_features: mlc.ConfigDict, 
 						ofold_config: mlc.ConfigDict, 
+						model_config: mlc.ConfigDict,
 						mode: str, is_multimer: bool, device: str ):
 		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
 		Model.__init__( self )
 		
 		self.ofold_config = ofold_config
+		self.model_config = model_config
 		self.system_features = system_features
 
 		layers = ["structure_module", "lddt"]
 		self.load_pretrained_models( layers )
 
-		# Not fine-tuning the structure module here.
-		self.structure_module.eval()
+		if self.model_config.mode.sm == "train":
+			print( "Uisng structure module in train mode" )
+			self.structure_module.train()
+		elif self.model_config.mode.sm == "eval":
+			print( "Uisng structure module in eval mode" )
+			self.structure_module.eval()
+		else:
+			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for structure module..." )
 
-		# Not fine-tuning lddt head.
-		self.plddt.eval()
+
+		if self.model_config.mode.plddt == "train":
+			print( "Uisng plddt head in train mode" )
+			self.plddt.train()
+		elif self.model_config.mode.plddt == "eval":
+			print( "Uisng plddt head in eval mode" )
+			self.plddt.eval()
+		else:
+			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for plddt head..." )
 
 
 

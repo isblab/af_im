@@ -13,7 +13,7 @@ def topology_dict() -> mlc.ConfigDict:
 config = mlc.ConfigDict(
 	{
     "objective": "Finetuning SM with XL restraint. "+
-                    "Deafult OpenFold weights. With optim.zero_grad()",
+                    "Using structure module in eval mode with all default weights.",
     "system": {},
 	"optimizer": {
 			"SGD": {
@@ -37,6 +37,11 @@ config = mlc.ConfigDict(
 	},
     "model": {
         "name": "structure_module_finetuning",
+        "mode": {
+            "sm": "eval",
+            "plddt": "eval",
+            "distogram": "eval"
+        },
         "biases": {
             "pair_bias_type": "additive",
             "pair_bias_scale_factor": 1.0,
@@ -62,14 +67,14 @@ config = mlc.ConfigDict(
             "backbone": {
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 1.0 # 0.5
+                "weight": 0.5
             },
             # For multimer.
             "intra_chain_backbone": {
             	"enabled": True,
                 "clamp_distance": 10.0,
                 "loss_unit_distance": 10.0,
-                "weight": 1.0
+                "weight": 0.5
             },
             # For multimer.
             "interface_backbone": {
@@ -134,7 +139,7 @@ config = mlc.ConfigDict(
         }
     },
     "train": {
-        "version": 0.1,
+        "version": 1,
         "mode": "test",
         "max_epochs": 1000,
         "allow_mcpa": True,

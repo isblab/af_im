@@ -234,9 +234,11 @@ class FitToData():
 		
 		# Get model.
 		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
-		model = get_model( self.topology.model.name,
-							self.system_features, self.ofold_config, 
-							self.mode, self.is_multimer, self.device )
+		model = get_model( self.topology.model,
+							self.system_features, 
+							self.ofold_config,
+							self.mode, self.is_multimer, 
+							self.device )
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
