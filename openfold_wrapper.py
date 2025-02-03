@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import math
 import os
+import subprocess
 import time
 import random
 
@@ -119,12 +120,14 @@ class IntegrativeLearning():
 		self.plot_metrics( fit.loss_dict, 
 							fit.scalar_metric_dict, 
 							fit.other_metric_dict, restraint_features )
-		self.write_summary( fit.loss_dict, fit.scalar_metric_dict )
+		self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
+							fit.other_metric_dict, restraint_features )
 
 
 		toc = time.time()
 		with open( os.path.join( self.output_dir, "Time_taken.txt" ), "w" ) as w:
 			w.writelines( f"Time taken: {( toc-tic )/3600} hours" )
+		print( "May the Force be with you.." )
 		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 
 
@@ -186,8 +189,14 @@ class IntegrativeLearning():
 		# Output summary file.
 		self.summary_file = os.path.join( self.output_dir, "Summary.csv" )
 
+		# Write down the system used, date, and objective of the simulation.
 		with open( self.objective_file, "w" ) as w:
-			w.writelines( self.topology.objective )
+			proc = subprocess.Popen( "hostname", shell = True, stdout = subprocess.PIPE )
+			system = proc.communicate()[0]
+			proc = subprocess.Popen( "date", shell = True, stdout = subprocess.PIPE )
+			sys_date = proc.communicate()[0]
+			w.writelines( f"System = {system} \t Date = {sys_date}\n" )
+			w.writelines( f"Objective: {self.topology.objective}" )
 
 
 	def output_dir_exists( self ):
@@ -243,12 +252,14 @@ class IntegrativeLearning():
 
 
 	def write_summary( self, loss_dict: Dict[str, float], 
-							scalar_metric_dict: Dict[str, float] ):
+							scalar_metric_dict: Dict[str, float],
+							other_metric_dict: Dict,
+							restraint_features ):
 		"""
 		Write all relevant losses and metrics to a csv file.
 		"""
 		df_dict = {"labels": []}
-		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1", "avg_last_0.1"]
+		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1", "avg_last_0.1", "global_xl_satisfied"]
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
 		last_n = math.ceil( self.topology.train.max_epochs*0.9 )
@@ -260,17 +271,26 @@ class IntegrativeLearning():
 							v[-1],
 							round( np.mean( v ), self.prec ),
 							round( np.mean( v[:first_n] ), self.prec ),
-							round( np.mean( v[last_n:] ), self.prec )]
+							round( np.mean( v[last_n:] ), self.prec ),
+							""]
 							)
 		
 		df_dict.update( {f"{k}_metric":[] for k in scalar_metric_dict.keys()} )
 		for k, v in scalar_metric_dict.items():
+			if k == "xlr":
+				global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
+				xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
+				total_xls = int( torch.count_nonzero( xl_res_mask ) )
+				print( global_xl_satisfied, "  ", total_xls )
+				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
+
 			df_dict[f"{k}_metric"].extend( 
 							[v[0],
 							v[-1],
 							np.mean( v ),
 							np.mean( v[:first_n] ),
-							np.mean( v[last_n:] )]
+							np.mean( v[last_n:] ),
+							global_xl_satisfied]
 							)
 
 		df = pd.DataFrame( df_dict )
