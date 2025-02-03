@@ -109,11 +109,11 @@ class LossFunction( nn.Module ):
 		# Iteratively calculate the loss for all included terms.
 		loss_fns = {}
 		for obj in self.loss_fns_included:
-			name = obj.name
-			if name == "xlr":
-				loss_fns[name] = obj.get( out, restraint_features["xl_restraint"] )
+			loss_name = obj.name
+			if loss_name == "xlr":
+				loss_fns[loss_name] = obj.get( out, restraint_features["xl_restraint"] )
 			else:
-				loss_fns[name] = obj.get( out, batch )
+				loss_fns[loss_name] = obj.get( out, batch )
 
 
 		cum_loss = torch.tensor( [0] ).to( self.device )
@@ -130,7 +130,7 @@ class LossFunction( nn.Module ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
 				loss = loss.new_tensor( 0., requires_grad = True )
 			# If add_penalty is False, the loss will not be included for backprop.
-			if self.config[name]["add_penalty"]:
+			if self.config[loss_name]["add_penalty"]:
 				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
 		
