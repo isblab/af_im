@@ -24,6 +24,51 @@ PDB_MAX_CHAINS = len(PDB_CHAIN_IDS)
 assert(PDB_MAX_CHAINS == 62)
 
 
+
+def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
+    """
+    Convert a .pdb file to a .cif file.
+
+    Input:
+    ----------
+    pdb_file_path --> Path to the .pdb file.
+    cif_file_path --> Path to the .cif file.
+
+    Returns:
+    ----------
+    None
+    """
+    struct = gemmi.read_structure( pdb_file_path )
+
+    cif_doc = struct.make_mmcif_document()
+
+    with open( cif_file_path, "w" ) as w:
+        w.write( cif_doc.as_string() )
+
+
+
+def pdb_to_cif_bio( pdb_file_path: str, cif_file_path: str ):
+    """
+    Convert a .pdb file to a .cif file.
+    Biopython does not preserve all the info while dumping to a .cif file.
+
+    Input:
+    ----------
+    pdb_file_path --> Path to the .pdb file.
+    cif_file_path --> Path to the .cif file.
+
+    Returns:
+    ----------
+    None
+    """
+    struct = PDBParser().get_structure( "pdb", pdb_file_path )
+
+    cif = MMCIFIO()
+    cif.set_structure( struct )
+    cif.save( cif_file_path )
+
+
+
 class SaveModels():
     def __init__( self, title: str, output_format: str, output_path: str ):
         self.title = title
