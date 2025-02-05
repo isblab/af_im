@@ -37,7 +37,6 @@ def get_model( model_config: mlc.ConfigDict, system_features: mlc.ConfigDict,
 
 class LoadState():
 	def __init__( self, ofold_config: mlc.ConfigDict, mode: str, is_multimer: bool, device: str ):
-		super().__init__()
 		self.ofold_config = ofold_config
 		self.mode = mode
 		self.is_multimer = is_multimer
@@ -67,6 +66,7 @@ class LoadState():
 			pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
 
 		for layer in layers:
+			for key in pretrained_weights.keys():
 			if layer == "structure_module":
 				# Obtain weights for the structure module only.
 				self.weights_dict[layer] = OrderedDict( 
@@ -309,7 +309,7 @@ class PairBias( LoadState, Model ):
 		if bias_type == "additive":
 			evo_output["pair"] = pair_rep + xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
 		elif bias_type == "multiplicative":
-			evo_output["pair"] = pair_rep + xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+			evo_output["pair"] = pair_rep * xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
 		else:
 			raise Exception( f"Incorrect bias type: {bias_type} specified. " +
 								"Only 'additive' or 'multiplicative' bias allowed..." )
