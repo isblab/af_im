@@ -1,22 +1,25 @@
 import numpy as np
 import io
 import string
+import os
+import time
 
-from Bio.PDB import PDBParser
-import modelcif
-import modelcif.model
-import modelcif.dumper
-import modelcif.reference
-import modelcif.protocol
-import modelcif.alignment
-import modelcif.qa_metric
+import Bio
+from Bio.PDB import PDBParser, Structure, Model, Residue
+# import modelcif
+# import modelcif.model
+# import modelcif.dumper
+# import modelcif.reference
+# import modelcif.protocol
+# import modelcif.alignment
+# import modelcif.qa_metric
 
-from typing import Any, Sequence, Mapping, Optional, Dict
+from typing import Dict, Tuple, Iterator
 
-from openfold.utils.script_utils import prep_output
-from openfold.np.protein import Protein, get_pdb_headers, _chain_end
-from openfold.np import residue_constants
-from openfold.data import feature_pipeline
+# from openfold.utils.script_utils import prep_output
+# from openfold.np.protein import Protein, get_pdb_headers, _chain_end
+# from openfold.np import residue_constants
+# from openfold.data import feature_pipeline
 
 # Taken from openfold.np.protein.py
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -69,6 +72,105 @@ def pdb_to_cif_bio( pdb_file_path: str, cif_file_path: str ):
 
 
 
+class Parser():
+    def __init__( self, pdb_file: str ):
+        # I just want a parser class to read from the simulation output file.
+        # As we are using PDB format only, CIF compatibility is not required for now.
+        self.pdb_file = pdb_file
+
+        # Biopython Structure object.
+        self.structure = self.get_structure( 
+                                    self.get_parser()
+                                     )
+
+    def get_parser( self ) -> Bio.PDB.PDBParser:
+        """
+        Get the required parser (PDB/CIF) for the input file.
+        """
+        ext = os.path.splitext( self.pdb_file )[1]
+
+        if "pdb" in ext:
+            parser = PDBParser()
+        else:
+            raise Exception( "Incorrect file format.. Only .pdb format supported for now..." )
+
+        return parser
+
+
+    def get_structure( self, parser: Bio.PDB.PDBParser ) -> Structure.Structure:
+        """
+        Return the Biopython Structure object for the input file.
+        """
+        basename = os.path.basename( self.pdb_file )
+        structure = parser.get_structure( basename, self.pdb_file )
+        
+        return structure
+
+
+
+    def get_models( self ) -> Iterator[Model.Model]:
+        """
+        Yield models in the structure.
+        """
+        for model in self.structure:
+            yield model
+
+
+
+    def get_residues( self, model ) -> Iterator[Tuple[Residue.Residue, str]]:
+        """
+        Get all residues in the model.
+        """
+        coords = []
+        # for model in self.structure:
+        for chain in model:
+            chain_id = chain.id[0]
+            for residue in chain:
+                yield residue, chain_id
+
+
+
+    def extract_perresidue_quantity( self, residue: Residue, quantity: str ): 
+        """
+        Given the Biopython residue object, return the specified quantity:
+            1. residue position
+            2. Ca-coordinate
+        """
+        symbol = residue.get_resname()
+        rep_atom = "CA"
+
+        if quantity == "res_pos":
+            return residue.id[1]
+
+        elif quantity == "coords":
+            coords = residue[rep_atom].coord
+            return coords
+        
+        else:
+            raise Exception( f"Specified quantity: {quantity} does not exist..." )
+
+
+    def get_coordinates( self ) -> np.array:
+        """
+        Extract coordinates from all models in the structure.
+        """
+        for model in self.get_models():
+            coords_dict = {}
+            
+            for residue, chain_id in self.get_residues( model ):
+                coords = self.extract_perresidue_quantity( residue, "coords" )
+                
+                if chain_id not in coords_dict.keys():
+                    coords_dict[chain_id] = np.array( coords )
+                else:
+                    coords_dict[chain_id] = np.append( coords_dict[chain_id], coords )
+
+            coords_dict = {k: v.reshape( -1, 3 ) for k, v in coords_dict.items()}
+
+            yield coords_dict
+
+
+'''
 class SaveModels():
     def __init__( self, title: str, output_format: str, output_path: str ):
         self.title = title
@@ -96,12 +198,12 @@ class SaveModels():
 
 
     def create_system( self ):
-    	"""
-    	Instantiate a modelCIF.System object to which 
+        """
+        Instantiate a modelCIF.System object to which 
             all predicted structures will be added.
-    	"""
-    	system = modelcif.System( title = self.title )
-    	return system
+        """
+        system = modelcif.System( title = self.title )
+        return system
 
 
     def create_model_group( self ):
@@ -518,6 +620,6 @@ class SaveModels():
             
             with open( f"{self.output_path}.cif", 'w' ) as fp:
                 fp.write( fh.getvalue() )
-
+'''
 
 
