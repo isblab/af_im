@@ -6,20 +6,20 @@ import time
 
 import Bio
 from Bio.PDB import PDBParser, Structure, Model, Residue
-# import modelcif
-# import modelcif.model
-# import modelcif.dumper
-# import modelcif.reference
-# import modelcif.protocol
-# import modelcif.alignment
-# import modelcif.qa_metric
+import modelcif
+import modelcif.model
+import modelcif.dumper
+import modelcif.reference
+import modelcif.protocol
+import modelcif.alignment
+import modelcif.qa_metric
 
 from typing import Dict, Tuple, Iterator
 
-# from openfold.utils.script_utils import prep_output
-# from openfold.np.protein import Protein, get_pdb_headers, _chain_end
-# from openfold.np import residue_constants
-# from openfold.data import feature_pipeline
+from openfold.utils.script_utils import prep_output
+from openfold.np.protein import Protein, get_pdb_headers, _chain_end
+from openfold.np import residue_constants
+from openfold.data import feature_pipeline
 
 # Taken from openfold.np.protein.py
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -82,6 +82,14 @@ class Parser():
         self.structure = self.get_structure( 
                                     self.get_parser()
                                      )
+
+
+    def get_model_ids( self ):
+        """
+        Get a list of all model IDs.
+        """
+        return [model.id for model in self.structure]
+
 
     def get_parser( self ) -> Bio.PDB.PDBParser:
         """
@@ -170,7 +178,7 @@ class Parser():
             yield coords_dict
 
 
-'''
+
 class SaveModels():
     def __init__( self, title: str, output_format: str, output_path: str ):
         self.title = title
@@ -620,6 +628,6 @@ class SaveModels():
             
             with open( f"{self.output_path}.cif", 'w' ) as fp:
                 fp.write( fh.getvalue() )
-'''
+
 
 
