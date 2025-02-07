@@ -14,7 +14,8 @@ from topology import topology_dict
 from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
-from create_plots import plot_loss, plot_scalar_metrics, plot_xl_map
+from assay import Assay
+from create_plots import create_plot_from_dict, plot_scalar_metrics, plot_xl_map
 from utils import read_configdict_from_json, write_configdict_to_json
 
 from typing import Dict
@@ -31,7 +32,7 @@ class IntegrativeLearning():
 		# Path for the OpenFold inference script.
 		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 		# No. of CPU cores to be used.
-		self.cpu_cores = 4
+		self.cpu_cores = 16
 		self.prec = 4
 		# cpu/cuda
 		self.device = "cuda"
@@ -73,6 +74,10 @@ class IntegrativeLearning():
 		# Move to the base directory.
 		os.chdir( self.base_dir )
 
+		print( "\n----------------------------------------------------------------------\n" +
+				"--------------------------- Data gathering ---------------------------\n" +
+				"----------------------------------------------------------------------\n" )
+
 		# Get the restraint features.
 		data_gathering = DataGathering( sys_name = self.sys_name,
 									 		base_dir = self.base_dir,
@@ -81,6 +86,10 @@ class IntegrativeLearning():
 		data_gathering.forward()
 		restraint_features = data_gathering.restraint_features
 
+
+		print( "\n----------------------------------------------------------------------\n" +
+				"----------------------- System representation ------------------------\n" +
+				"----------------------------------------------------------------------\n" )
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation( sys_name = self.sys_name,
 											ofold_dir = self.openfold_dir, 
@@ -100,6 +109,10 @@ class IntegrativeLearning():
 		# Move back to base dir.
 		os.chdir( self.base_dir )
 
+
+		print( "\n----------------------------------------------------------------------\n" +
+				"---------------------------- Fit to Data -----------------------------\n" +
+				"----------------------------------------------------------------------\n" )
 		# Load the models and fit to data.
 		fit = FitToData( ofold_config = self.ofold_config, 
 						topology = self.topology,
@@ -110,18 +123,34 @@ class IntegrativeLearning():
 						prec = self.prec,
 						seed_worker = self.seed_worker,
 						device = self.device )
-		fit.forward()
 
-		self.save_topology_file()
+		# If the simulation output doesn;t already exist.
+		if not fit.ensemble_exists():
+			fit.forward()
 
-		self.save_metrics( fit.loss_dict, 
-							fit.scalar_metric_dict, 
-							fit.other_metric_dict )
-		self.plot_metrics( fit.loss_dict, 
-							fit.scalar_metric_dict, 
-							fit.other_metric_dict, restraint_features )
-		self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
-							fit.other_metric_dict, restraint_features )
+			self.save_topology_file()
+
+			self.save_metrics( fit.loss_dict, 
+								fit.scalar_metric_dict, 
+								fit.other_metric_dict )
+			self.plot_metrics( fit.loss_dict, 
+								fit.scalar_metric_dict, 
+								fit.other_metric_dict, restraint_features )
+			self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
+								fit.other_metric_dict, restraint_features )
+
+
+		print( "\n----------------------------------------------------------------------\n" +
+				"-------------------------- \033[9m Analysis \033[0m Assay --------------------------\n"
+				"----------------------------------------------------------------------\n" )
+		Assay( 
+			sys_name = self.sys_name, 
+			base_dir  =self.base_dir, 
+			cores = self.cpu_cores, 
+			prec = self.prec, 
+			ensmeble_file = f"{fit.ensemble_file}.pdb",
+			output_dir = self.output_dir
+		 ).forward()
 
 
 		toc = time.time()
@@ -150,11 +179,11 @@ class IntegrativeLearning():
 		self.topology.system = sys_conf["System1"]
 
 		# Directory containing the fasta file for the system to be modeled.
-		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" ) # os.path.abspath( f"{self.base_dir}/fasta_dir/" )
+		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" )
 		# Output directory path for OpenFold output.
-		self.ofold_output_dir = os.path.join( self.base_dir, f"{self.sys_name}_output" ) # os.path.abspath( f"{self.base_dir}/{self.sys_name}_output/" )
+		self.ofold_output_dir = os.path.join( self.base_dir, f"{self.sys_name}_output" )
 		# Directory storing the precomputed alignments.
-		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" ) # os.path.abspath( f"{self.output_dir}/alignments/" )
+		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" )
 
 		# Create directory to store output.
 		# 	separate directory is created for mode = test/prod.
@@ -244,7 +273,7 @@ class IntegrativeLearning():
 		"""
 		Create plots for all metrics.
 		"""
-		plot_loss( loss_dict, self.loss_plot_file )
+		create_plot_from_dict( loss_dict, self.loss_plot_file )
 		plot_scalar_metrics( scalar_metric_dict, self.scalar_metric_plot_file )
 		xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
 		plot_xl_map( other_metric_dict["xlr"], xl_res_mask, self.xl_map_plot_file )
@@ -295,8 +324,7 @@ class IntegrativeLearning():
 
 		df = pd.DataFrame( df_dict )
 		df.to_csv( self.summary_file, index = False )
-		# df1.to_csv( self.last_epoch_metrics_file, index = False )
-		# df2.to_csv( self.avg_metrics_file, index = False )
+
 
 if __name__ == "__main__":
 	IntegrativeLearning().forward()
