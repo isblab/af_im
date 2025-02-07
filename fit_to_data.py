@@ -65,7 +65,7 @@ class FitToData():
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
-		self.models_file = os.path.join( self.output_dir, f"2ayo_output_models" )
+		self.ensemble_file = os.path.join( self.output_dir, f"2ayo_output_models" )
 
 		seed_worker()
 
@@ -79,13 +79,21 @@ class FitToData():
 		self.other_metric_dict = {}
 
 
+
 	def forward( self ):
 		"""
 		"""
 		self.load_feature_dict()
-		# Now loading the models.
-		# self.load_models()
 		self.fit()
+
+
+	def ensemble_exists( self ):
+		"""
+		Check if the ensemble file already exists.
+			If exists --> Do not run the finetuning process
+		"""
+		return os.path.exists( f"{self.ensemble_file}.pdb" )
+
 
 
 	def load_feature_dict( self ) -> None:
@@ -228,7 +236,7 @@ class FitToData():
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = "2ayo", 
 									output_format = "pdb",
-									output_path = self.models_file )
+									output_path = self.ensemble_file )
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 		
