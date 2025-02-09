@@ -178,20 +178,20 @@ class StructureModuleFineTuning( LoadState, Model ):
 		self.load_pretrained_models( layers )
 
 		if self.model_config.mode.sm == "train":
-			print( "Uisng structure module in train mode" )
+			print( "Using structure module in train mode" )
 			self.structure_module.train()
 		elif self.model_config.mode.sm == "eval":
-			print( "Uisng structure module in eval mode" )
+			print( "Using structure module in eval mode" )
 			self.structure_module.eval()
 		else:
 			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for structure module..." )
 
 
 		if self.model_config.mode.plddt == "train":
-			print( "Uisng plddt head in train mode" )
+			print( "Using plddt head in train mode" )
 			self.plddt.train()
 		elif self.model_config.mode.plddt == "eval":
-			print( "Uisng plddt head in eval mode" )
+			print( "Using plddt head in eval mode" )
 			self.plddt.eval()
 		else:
 			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for plddt head..." )
@@ -263,20 +263,20 @@ class PairBias( LoadState, Model ):
 		self.load_pretrained_models( layers )
 
 		if self.model_config.mode.sm == "train":
-			print( "Uisng structure module in train mode" )
+			print( "Using structure module in train mode" )
 			self.structure_module.train()
 		elif self.model_config.mode.sm == "eval":
-			print( "Uisng structure module in eval mode" )
+			print( "Using structure module in eval mode" )
 			self.structure_module.eval()
 		else:
 			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for structure module..." )
 
 
 		if self.model_config.mode.plddt == "train":
-			print( "Uisng plddt head in train mode" )
+			print( "Using plddt head in train mode" )
 			self.plddt.train()
 		elif self.model_config.mode.plddt == "eval":
-			print( "Uisng plddt head in eval mode" )
+			print( "Using plddt head in eval mode" )
 			self.plddt.eval()
 		else:
 			raise Exception( f"Incorrect mode: {self.model_config.mode.sm} for plddt head..." )
