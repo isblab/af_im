@@ -180,12 +180,13 @@ class Parser():
 
 
 class SaveModels():
-    def __init__( self, title: str, output_format: str, output_path: str ):
+    def __init__( self, title: str, output_format: str, ensemble_dir: str ):
         self.title = title
-        self.output_format = output_format
-        self.output_path = output_path
         self.entities_map = {}
         self.asym_unit_map = {}
+        self.output_format = output_format
+        self.ensemble_dir = ensemble_dir
+        # self.output_path = output_path
 
         if self.output_format not in ["pdb", "cif"]:
             raise Exception( "Invalid output format specified. Use 'pdb' or 'cif'... " )
@@ -246,7 +247,7 @@ class SaveModels():
             feature_processor,  # feature_processor
             config_preset = None,
             multimer_ri_gap = 1,
-            subtract_plddt = False
+            subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
         )
 
         return unrelaxed_protein
@@ -358,11 +359,19 @@ class SaveModels():
         self.create_attributes( prot )
 
         if self.output_format == "pdb":
-            self.add_to_pdb( prot = prot, epoch = epoch  )
+            system = self.add_to_pdb( prot = prot, epoch = epoch  )
         else:
+            # Currently not using this.
             if epoch == 0:
                 self.create_entity_asym_unit( prot = prot )
             self.add_to_modelcif( prot = prot, epoch = epoch  )
+
+        # Add to the global system storing all models.
+        self.system.extend( system )
+
+        self.save( system, 
+                    os.path.join( self.ensemble_dir, f"model_{epoch}" )
+                     )
 
 
 
@@ -379,6 +388,7 @@ class SaveModels():
         Returns:
           PDB string.
         """
+        system = []
         # - Kartik - Using the epoch as Model index.
         model_index = epoch
         # restypes = residue_constants.restypes + ["X"]
@@ -413,7 +423,7 @@ class SaveModels():
         #     self.system.extend(headers)
 
         # pdb_lines.append("MODEL     1")
-        self.system.append( f"MODEL     {model_index}" )
+        system.append( f"MODEL     {model_index}" )
         # n = aatype.shape[0]
         atom_index = 1
         last_chain_index = self.chain_index[0]
@@ -425,7 +435,7 @@ class SaveModels():
             # Close the previous chain if in a multichain PDB.
             if last_chain_index != self.chain_index[i]:
                 # pdb_lines.append
-                self.system.append(
+                system.append(
                     _chain_end(
                         atom_index, 
                         res_1to3( self.aatype[i - 1] ), 
@@ -469,7 +479,7 @@ class SaveModels():
                     f"{element:>2}{charge:>2}"
                 )
                 # pdb_lines.append(atom_line)
-                self.system.append( atom_line )
+                system.append( atom_line )
                 atom_index += 1
 
             should_terminate = (i == self.n - 1)
@@ -487,7 +497,7 @@ class SaveModels():
                     f"{chain_tag:>1}{self.residue_index[i]:>4}"
                 )
                 # pdb_lines.append(chain_termination_line)
-                self.system.append( chain_termination_line )
+                system.append( chain_termination_line )
                 # atom_index += 1 # I believe this line is a big in OpenFold implementation. - Kartik -
                 # This will add an offset of 1 atom after every chain. - Kartik -
 
@@ -500,11 +510,12 @@ class SaveModels():
 
         # pdb_lines.append("ENDMDL")
         # pdb_lines.append("END")
-        self.system.append("ENDMDL")
+        system.append("ENDMDL")
 
         # Pad all lines to 80 characters
         # pdb_lines = [line.ljust(80) for line in pdb_lines]
         # return '\n'.join(pdb_lines) + '\n' # Add terminating newline.
+        return system
 
 
 
@@ -612,22 +623,21 @@ class SaveModels():
         return fh
 
 
-    def save( self ):
+    def save( self, system: str, output_path: str ):
         """
         Save the models on disk as per the format.
         """
         if self.output_format == "pdb":
             # Pad all lines to 80 characters
-            self.system.append("END")
-            self.system = [line.ljust(80) for line in self.system]
-            self.system = "\n".join( self.system ) + "\n"
-            with open( f"{self.output_path}.pdb", 'w' ) as fp:
-                fp.write( self.system )
+            system.append("END")
+            system = [line.ljust(80) for line in system]
+            system = "\n".join( system ) + "\n"
+            with open( f"{output_path}.pdb", 'w' ) as fp:
+                fp.write( system )
         else:
             fh = self.to_mmcif_string()
             
-            with open( f"{self.output_path}.cif", 'w' ) as fp:
+            with open( f"{output_path}.cif", 'w' ) as fp:
                 fp.write( fh.getvalue() )
-
 
 
