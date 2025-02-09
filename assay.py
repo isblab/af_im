@@ -17,28 +17,32 @@ from create_plots import create_plot_from_dict
 
 class Assay():
 	def __init__( self, sys_name: str, base_dir, cores: int, prec: int, 
-						ensmeble_file: str, output_dir: str ):
+						model_ids: np.array,
+						ensmeble_dir: str, output_dir: str ):
 		self.sys_name = "2ayo"
 		self.base_dir = base_dir
 		self.cores = 5
 		self.chain_break_threshold = 4.0
 		self.prec = 4
-		self.ensmeble_file = ensmeble_file
+		self.selection_statistic = "mean"
+		self.model_ids = model_ids
+		self.ensmeble_dir = ensmeble_dir
 		
 		self.output_dir = output_dir
 		self.analysis_dir = os.path.join( self.output_dir, "analysis" )
 		
-		self.parser = Parser( self.ensmeble_file )
+		# self.parser = Parser( self.ensmeble_file )
 
 		self.full_val_dict = {}
 		self.full_val_dict_file = os.path.join( self.analysis_dir, "full_validation_dict.npy" )
 		self.full_val_plot_file = os.path.join( self.analysis_dir, "full_validation_plots.png" )
-		self.full_val_csv = os.path.join( self.analysis_dir, "full_validation_plots.csv" )
+		self.full_val_csv = os.path.join( self.analysis_dir, "full_validation_report.csv" )
 
-		self.selected_val_dict = {}
-		self.selected_val_dict_file = os.path.join( self.analysis_dir, "selected_validation_dict.npy" )
-		self.selected_val_plot_file = os.path.join( self.analysis_dir, "selected_validation_plots.png" )
-		self.selected_val_csv = os.path.join( self.analysis_dir, "selected_validation_plots.csv" )
+		# self.selected_val_dict = {}
+		# self.selected_val_dict_file = os.path.join( self.analysis_dir, "selected_validation_dict.npy" )
+		# self.selected_val_plot_file = os.path.join( self.analysis_dir, "selected_validation_plots.png" )
+		# self.selected_val_csv = os.path.join( self.analysis_dir, "selected_validation_report.csv" )
+		# self.selected_avg_csv_file = os.path.join( self.analysis_dir, "selected_val_avg.csv" )
 
 
 
@@ -57,11 +61,23 @@ class Assay():
 		else:
 			self.full_val_dict = np.load( self.full_val_dict_file, allow_pickle = True ).item()
 
-		self.filter_models()
 
-		self.plot()
+		self.write_full_val_dict()
 
-		self.write_to_csv()
+		for stat in ["mean", "median"]:
+			self.selection_statistic = stat
+			self.selected_val_dict = {}
+			self.selected_val_dict_file = os.path.join( self.analysis_dir, f"selected_validation_dict_{stat}.npy" )
+			self.selected_val_plot_file = os.path.join( self.analysis_dir, f"selected_validation_plots_{stat}.png" )
+			self.selected_val_csv = os.path.join( self.analysis_dir, f"selected_validation_report_{stat}.csv" )
+			self.selected_avg_csv_file = os.path.join( self.analysis_dir, f"selected_val_avg_{stat}.csv" )
+
+			self.filter_models()
+			self.write_selected_val_dict()
+
+			# self.plot()
+
+			# self.write_to_csv()
 
 		self.remove_tmp_dir()
 
@@ -90,11 +106,26 @@ class Assay():
 
 
 
-	def write_model_to_pdb( self, model_id: str, model: Model, model_file: str ):
+	# def write_model_to_pdb( self, model_id: str, model: Model, model_file: str ):
+	# 	"""
+	# 	Write a model to PDB file.
+	# 	Required to run Molprobity on all models separately.
+	# 	"""
+	# 	io = PDBIO()
+
+	# 	struct = Structure.Structure( f"Model_{model_id}" )
+	# 	struct.add( model )
+
+	# 	io.set_structure( struct )
+	# 	io.save( model_file )
+
+
+	def split_ensemble( self, model_id: str, model: Model, model_file: str ):
 		"""
-		Write a model to PDB file.
-		Required to run Molprobity on all models separately.
+		Split the multi-model PDB into separate PDB files.
+		This would avoid loading the structure on disk.
 		"""
+
 		io = PDBIO()
 
 		struct = Structure.Structure( f"Model_{model_id}" )
@@ -105,20 +136,23 @@ class Assay():
 
 
 
-	def validation_pipeline( self, entry ):
+	def validation_pipeline( self, model_id ):
 		"""
 		Compute the no. of chain breaks.
 		Perform Molprobity validation.
 		"""
-		model_id, model = list( entry )
-		model_file = os.path.join( self.tmp_dir, f"{self.sys_name}_{model_id}.pdb" )
+		# model_id, model = list( entry )
+		# model_file = os.path.join( self.tmp_dir, f"{self.sys_name}_{model_id}.pdb" )
+		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
 		molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
 
-		self.write_model_to_pdb( model_id, model, model_file )
+		# self.write_model_to_pdb( model_id, model, model_file )
 
 		self.run_molprobity( model_file, molprob_output_dir )
-		summary_dict = self.get_molprobity_validation_summary( molprob_output_dir )
-		summary_dict.update( {"model_id": model_id} )
+		summary_dict = {}
+		summary_dict[model_id] = self.get_molprobity_validation_summary( molprob_output_dir )
+		# summary_dict = self.get_molprobity_validation_summary( molprob_output_dir )
+		# summary_dict.update( {"model_id": model_id} )
 
 		files_to_remove = glob.glob( f"{molprob_output_dir}*" )
 		cmd = ["rm", "-r"] + files_to_remove
@@ -132,15 +166,18 @@ class Assay():
 		"""
 		Parse all models in parallel and perform all the required validations.
 		"""
-		structure = self.parser.structure
-		model_ids = self.parser.get_model_ids()
+		# structure = self.parser.structure
+		# model_ids = self.parser.get_model_ids()
+		# entry_list = list( zip( model_ids, structure ) )
 
 		with Pool( self.cores ) as p:
-			for result in p.imap_unordered( self.validation_pipeline, zip( model_ids, structure ) ):
+			for result in p.imap_unordered( self.validation_pipeline, self.model_ids ):
+			# for result in p.imap_unordered( self.validation_pipeline, entry_list ):
 				summary_dict = result
 
-				for k, v in summary_dict.items():
-					self.full_val_dict.setdefault( k, [] ).append( v )
+				self.full_val_dict.update( summary_dict )
+				# for k, v in summary_dict.items():
+				# 	self.full_val_dict.setdefault( k, [] ).append( v )
 
 
 
@@ -219,13 +256,32 @@ class Assay():
 		Here we use the Molprobity score as a criterion for assessing model quality.
 		Select the good scoring models.
 		"""
-
 		selected_models = self.get_good_models()
 
-		for model_id in self.full_val_dict["model_id"]:
+		keys = ["model_id"] + list( self.full_val_dict[0].keys() )
+		for model_id in self.full_val_dict.keys():
 			if model_id in selected_models:
-				for k, v in self.full_val_dict.items():
+				# self.selected_val_dict["model_id"].append( model_id )
+
+				for k in keys:
+					if k == "model_id":
+						v = model_id
+					else:
+						v = self.full_val_dict[model_id][k]
 					self.selected_val_dict.setdefault( k, [] ).append( v )
+
+		# for model_id in self.full_val_dict["model_id"]:
+		# 	if model_id in selected_models:
+				# for k, v in self.full_val_dict.items():
+				# 	self.selected_val_dict.setdefault( k, [] ).append( v )
+
+
+
+	# def cluster( self ):
+	# 	"""
+	# 	Use HDBSCAN for clustering models based on the Molprobity validation metrics.
+	# 	"""
+
 
 
 
@@ -233,55 +289,140 @@ class Assay():
 		"""
 		To filter out bad models we consider the median Molprobity score.
 			Median because mean is sensitive to outliers.
-		We remove models with a Molprobity score higher than 2*MAD (median absolute deviation).
+		We remove models with a Molprobity score higher than 1*MAD (median absolute deviation).
 		"""
-		molprob_scores = self.full_val_dict["MolProbity score"]
+		molprob_scores = [self.full_val_dict[k]["MolProbity score"] for k in self.full_val_dict.keys()]
 
-		median_score = np.median( molprob_scores )
-
-		# Compute the abolsute deviations from the median.
-		abs_dev = np.abs( molprob_scores - median_score )
-		mad = np.median( abs_dev )
+		multiplier = 1
+		if self.selection_statistic == "mean":
+			mean_score = np.mean( molprob_scores )
+			# Compute the standard deviation.
+			sd = np.std( molprob_scores )
+			
+			the_score = mean_score
+			dev = sd
+		
+		elif self.selection_statistic == "median":
+			median_score = np.median( molprob_scores )
+			# Compute the abolsute deviations from the median.
+			abs_dev = np.abs( molprob_scores - median_score )
+			mad = np.median( abs_dev )
+			
+			the_score = median_score
+			dev = mad
 
 		selected_models = []
-		for i in range( len( molprob_scores ) ):
-			model_id = self.full_val_dict["model_id"]
 
+		# for i in range( len( molprob_scores ) ):
+			# model_id = self.full_val_dict["model_id"][i]
+		for model_id in self.full_val_dict.keys():
+			score = self.full_val_dict[model_id]["MolProbity score"]
 			# Calculate the lower and upper median bounds.
-			lb = median_score - 2*mad
-			ub = median_score + 2*mad
+			lb = the_score - multiplier*dev
+			ub = the_score + multiplier*dev
 
-			if molprob_scores[i] >= lb and molprob_scores[i] <= ub:
+			if score >= lb and score <= ub:
 				selected_models.append( model_id )
 
 		return selected_models
 
 
 
-	def write_to_csv( self ):
+	def write_full_val_dict( self ):
 		"""
-		Write validation dicts to csv file.
+		Save the full validation dict on disk.
+		Save as a .csv file.
+		Plot the metrics.
 		"""
-		df = pd.DataFrame()
-		for k, v in self.full_val_dict.items():
-			df[k] = v
+		tmp_dict = {}
+		# Need the dict to be storing lists.
+		keys = ["model_id"] + list( self.full_val_dict[0].keys() )
+		for model_id in self.full_val_dict.keys():
+			for k in keys:
+				if k == "model_id":
+					v = model_id
+				else:
+					v = self.full_val_dict[model_id][k]
+				tmp_dict.setdefault( k, [] ).append( v )
+	
+		df = pd.DataFrame( tmp_dict )
+		# for k, v in tmp_dict.items():
+		# 	df[k] = v
 		df.to_csv( self.full_val_csv, index = False )
 
-		df = pd.DataFrame()
-		for k, v in self.selected_val_dict.items():
-			df[k] = v
+		_ = tmp_dict.pop( "model_id", None )
+		create_plot_from_dict( tmp_dict, self.full_val_plot_file )
+
+
+	def write_selected_val_dict( self ):
+		"""
+		Save the selected validation dict on disk.
+		Save as a .csv file.
+		Plot the metrics.
+		"""		
+		df = pd.DataFrame( self.selected_val_dict )
 
 		df.to_csv( self.selected_val_csv, index = False )
 
-
-	def plot( self ):
-		tmp_dict = self.full_val_dict.copy()
-		_ = tmp_dict.pop( "model_id", None )
-		create_plot_from_dict( tmp_dict, self.full_val_plot_file )
+		df = pd.DataFrame()
+		for k, v in self.selected_val_dict.items():
+			if k != "model_id":
+				df[k] = [round( np.mean( v ), self.prec )]
+		df.to_csv( self.selected_avg_csv_file, index = False )
 
 		tmp_dict = self.selected_val_dict.copy()
 		_ = tmp_dict.pop( "model_id", None )
 		create_plot_from_dict( tmp_dict, self.selected_val_plot_file )
+
+
+
+	# def write_to_csv( self ):
+	# 	"""
+	# 	Write validation dicts to csv file.
+	# 	"""
+	# 	tmp_dict = {}
+	# 	# Need the dict to be storing lists.
+	# 	keys = ["model_id"] + list( self.full_val_dict[0].keys() )
+	# 	for model_id in self.full_val_dict.keys():
+	# 		for k in keys:
+	# 			if k == "model_id":
+	# 				v = model_id
+	# 			else:
+	# 				v = self.full_val_dict[model_id][k]
+	# 			tmp_dict.setdefault( k, [] ).append( v )
+	
+	# 	df = pd.DataFrame( tmp_dict )
+	# 	# for k, v in tmp_dict.items():
+	# 	# 	df[k] = v
+	# 	df.to_csv( self.full_val_csv, index = False )
+
+	# 	df = pd.DataFrame( self.selected_val_dict )
+
+	# 	df.to_csv( self.selected_val_csv, index = False )
+
+	# 	df = pd.DataFrame()
+	# 	for k, v in self.selected_val_dict.items():
+	# 		if k != "model_id":
+	# 			df[k] = [round( np.mean( v ), self.prec )]
+	# 	df.to_csv( self.selected_avg_csv_file, index = False )
+
+
+
+	# def plot( self ):
+	# 	tmp_dict = {}
+	# 	# Need the dict to be storing lists.
+	# 	keys = list( self.full_val_dict[0].keys() )
+	# 	for model_id in self.full_val_dict.keys():
+	# 		for k in keys:
+	# 				v = self.full_val_dict[model_id][k]
+	# 				tmp_dict.setdefault( k, [] ).append( v )
+	# 	# tmp_dict = self.full_val_dict.copy()
+	# 	# _ = tmp_dict.pop( "model_id", None )
+	# 	create_plot_from_dict( tmp_dict, self.full_val_plot_file )
+
+	# 	tmp_dict = self.selected_val_dict.copy()
+	# 	_ = tmp_dict.pop( "model_id", None )
+	# 	create_plot_from_dict( tmp_dict, self.selected_val_plot_file )
 
 
 
@@ -315,6 +456,7 @@ class Assay():
 	# 			chain_breaks_dict[chain]["total_bonds"] += 1
 
 	# 	return chain_breaks_dict
+
 
 
 
