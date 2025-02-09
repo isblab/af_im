@@ -46,6 +46,7 @@ class OpenfoldCommand():
 		["--save_outputs"],
 		["--cpus", f"{self.cpu_cores}"],
 		["--model_device", self.device],
+		["--subtract_plddt"],
 		["--cif_output"]
 		]
 
