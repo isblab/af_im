@@ -143,19 +143,25 @@ class IntegrativeLearning():
 		print( "\n----------------------------------------------------------------------\n" +
 				"-------------------------- \033[9m Analysis \033[0m Assay --------------------------\n"
 				"----------------------------------------------------------------------\n" )
+		# Model IDs are just the epoch numbers.
+		models_ids = np.arange( 0, self.topology.train.max_epochs, 1 )
 		Assay( 
 			sys_name = self.sys_name, 
 			base_dir  =self.base_dir, 
 			cores = self.cpu_cores, 
 			prec = self.prec, 
-			ensmeble_file = f"{fit.ensemble_file}.pdb",
+			model_ids = models_ids,
+			ensmeble_dir = fit.ensemble_dir,
+			# ensmeble_file = f"{fit.ensemble_file}.pdb",
 			output_dir = self.output_dir
 		 ).forward()
 
 
 		toc = time.time()
-		with open( os.path.join( self.output_dir, "Time_taken.txt" ), "w" ) as w:
-			w.writelines( f"Time taken: {( toc-tic )/3600} hours" )
+		time_file = os.path.join( self.output_dir, "Time_taken.txt" )
+		if not os.path.exists( time_file ):
+			with open( time_file, "w" ) as w:
+				w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 		print( "May the Force be with you.." )
 		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 
