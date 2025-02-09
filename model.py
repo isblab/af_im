@@ -67,24 +67,24 @@ class LoadState():
 
 		for layer in layers:
 			for key in pretrained_weights.keys():
-			if layer == "structure_module":
-				# Obtain weights for the structure module only.
-				self.weights_dict[layer] = OrderedDict( 
-							( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
-							for key in pretrained_weights.keys() if "structure_module" in key 
-							)
-			if layer == "lddt":
-				# Obtain weights for the plddt head from auxillary heads module.
-				self.weights_dict[layer] = OrderedDict( 
-							( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
-							for key in pretrained_weights.keys() if "aux_heads.plddt" in key 
-							)
-			if layer == "distogram":
-				# Obtain weights for the distogram head from auxillary heads module.
-				self.weights_dict[layer] = OrderedDict( 
-							( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
-							for key in pretrained_weights.keys() if "aux_heads.distogram" in key 
-							)
+				if layer == "structure_module":
+					# Obtain weights for the structure module only.
+					self.weights_dict[layer] = OrderedDict( 
+								( ".".join( key.split( "." )[1:] ), pretrained_weights[key] ) 
+								for key in pretrained_weights.keys() if "structure_module" in key 
+								)
+				if layer == "lddt":
+					# Obtain weights for the plddt head from auxillary heads module.
+					self.weights_dict[layer] = OrderedDict( 
+								( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
+								for key in pretrained_weights.keys() if "aux_heads.plddt" in key 
+								)
+				if layer == "distogram":
+					# Obtain weights for the distogram head from auxillary heads module.
+					self.weights_dict[layer] = OrderedDict( 
+								( ".".join( key.split( "." )[2:] ), pretrained_weights[key] ) 
+								for key in pretrained_weights.keys() if "aux_heads.distogram" in key 
+								)
 
 
 	def load_pretrained_models( self, layers: List ):
