@@ -141,7 +141,7 @@ config = mlc.ConfigDict(
     "train": {
         "version": 1,
         "mode": "test",
-        "max_epochs": 1000,
+        "max_epochs": 250,
         "allow_mcpa": True,
         "allow_grad_update": True
     }
