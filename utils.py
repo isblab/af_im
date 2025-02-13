@@ -19,15 +19,31 @@ from typing import List, Mapping, Sequence, Any, Dict
 # MmCIFDict = Mapping[str, Sequence[str]]
 
 
+def read_json( self, file_path: str ):
+	"""
+	Read a JSON file and return the dict.
+	"""
+	with open( file_path, 'r' ) as f:
+		dict_ = json.load( f )
+	return dict_
+
+
+def write_json( self, dict_: Dict, file_path: str ):
+	"""
+	Save dict to a JSON file.
+	"""
+	with open( file_path, "w" ) as w:
+		json.dump( dict_, w, indent = 4 )
+
+
+
 def read_configdict_from_json( file_path: str ):
 	"""
 	Read from a mlc.ConfigDict saved JSON file and 
 		return mlc.ConfigDict object.
 	"""
 	with open( file_path, 'r' ) as f:
-		config_dict = json.loads( 
-							json.load( f )
-							 )
+		config_dict = json.load( f )
 	return mlc.ConfigDict( config_dict )
 
 
