@@ -19,7 +19,7 @@ from typing import List, Mapping, Sequence, Any, Dict
 # MmCIFDict = Mapping[str, Sequence[str]]
 
 
-def read_json( self, file_path: str ):
+def read_json( file_path: str ):
 	"""
 	Read a JSON file and return the dict.
 	"""
@@ -28,7 +28,7 @@ def read_json( self, file_path: str ):
 	return dict_
 
 
-def write_json( self, dict_: Dict, file_path: str ):
+def write_json( dict_: Dict, file_path: str ):
 	"""
 	Save dict to a JSON file.
 	"""
@@ -42,8 +42,9 @@ def read_configdict_from_json( file_path: str ):
 	Read from a mlc.ConfigDict saved JSON file and 
 		return mlc.ConfigDict object.
 	"""
-	with open( file_path, 'r' ) as f:
-		config_dict = json.load( f )
+	# with open( file_path, 'r' ) as f:
+	# 	config_dict = json.load( f )
+	config_dict = read_json( file_path )
 	return mlc.ConfigDict( config_dict )
 
 
@@ -52,8 +53,9 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict, file_path: str ):
 	"""
 	Save an mlc.Configdict object to JSON file.
 	"""
-	with open( file_path, "w" ) as w:
-		json.dump( json.loads( config_dict.to_json() ), w, indent = 4 )
+	# with open( file_path, "w" ) as w:
+	# 	json.dump( json.loads( config_dict.to_json() ), w, indent = 4 )
+	write_json( json.loads( config_dict.to_json() ), file_path )
 
 
 def read_json( file_path: str ):
