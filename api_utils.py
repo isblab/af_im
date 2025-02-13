@@ -1,7 +1,10 @@
 import requests
 import xml.etree.ElementTree as ET
+from io import StringIO
+from Bio import SeqIO
+import re
 
-
+from typing import Dict
 
 
 ####################################################################################
@@ -124,6 +127,29 @@ def send_request( url, _format = "json", max_trials = 10, wait_time = 5 ):
 				return "not_found"
 
 
+def write_content_to_file( response: requests.Response, file_name: str ) -> None:
+	"""
+	Given a Response object, write to a file.
+	"""
+	open( f"{file_name}", "wb" ).write( response.content )
+
+
+
+def read_fasta_from_response( response: requests.Response ) -> Dict:
+	"""
+	Given a FASTA file as a str, obtain the sequences for all chains.
+	"""
+	fasta_content = StringIO( response.content.decode( "utf-8" ) )
+
+	fasta_dict = {}
+	idx = 0
+	for record in SeqIO.parse( fasta_content, "fasta" ):
+		fasta_dict[idx] = str( record.seq )
+		idx += 1
+
+	return fasta_dict
+
+
 
 ##################################### UniProt ######################################
 ####----------------------------------------------------------------------------####
@@ -234,7 +260,8 @@ def download_pdb( pdb_id: str, ext: str, max_trials: int = 5, wait_time: int = 5
     	success = True
 
     	file_name = f"./{pdb_id}.{ext}"
-    	open( f"{file_name}", "wb" ).write( response.content )
+    	write_content_to_file( response, file_name )
+    	# open( f"{file_name}", "wb" ).write( response.content )
 
     else:
     	success = False
@@ -320,5 +347,27 @@ def parse_sifts_xml( file: str ):
 											sifts_dict[chain_id]["resolved"]["Uniprot ID"].append( data["dbAccessionId"] )
 											sifts_dict[chain_id]["resolved"]["Uniprot Residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( data["dbResNum"] )
+
+
+####################################### CASP #######################################
+####----------------------------------------------------------------------------####
+def get_casp_entry( casp_id: str, max_trials: int = 5, wait_time: int = 5 ):
+	"""
+	Get the FASTA sequence and the structure for the required CASP entry.
+	Return the entry sequences and structure file as string.
+	"""
+	fasta_url = f"https://predictioncenter.org/casp15/target.cgi?target={casp_id}&view=sequence"
+	struct_url = f"https://predictioncenter.org/casp15/target.cgi?target={casp_id}&view=template"
+
+	fasta_response = send_request( fasta_url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	if fasta_response in ["not_found", "bad_request"]:
+		raise Exception( f"FASTA file for {casp_id} could not be obtained..." )
+
+	struct_response = send_request( struct_url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	if fasta_response in ["not_found", "bad_request"]:
+		raise Exception( f"Structure file for {casp_id} could not be obtained..." )
+
+	return fasta_response, struct_response
+
 
 
