@@ -119,19 +119,48 @@ class LossFunction( nn.Module ):
 		cum_loss = torch.tensor( [0] ).to( self.device )
 		losses = {}
 
-		# print_str = ""
+		adaptive_weight = {}
+		total_weight = torch.tensor( 0.0, device = self.device )
+		# calculating adaptive weights.
 		for loss_name, loss_fn in loss_fns.items():
-			weight = torch.tensor( self.config[loss_name].weight ).to( self.device )
+			loss = loss_fn()
+			if self.config[loss_name]["add_penalty"]:
+				if loss.item() == 0:
+					w = 0
+				else:
+					w = torch.tensor( 1/loss.item() + 1e-8, device = self.device )
+				adaptive_weight[loss_name] = w
+				total_weight = total_weight + w
+
+		print( adaptive_weight )
+		# weights_tensor = torch.stack(
+		#     [adaptive_weight[name] for name in adaptive_weight.keys()]
+		# ).to( self.device )
+
+		# Normalize weights using Softmax.
+		# adaptive_weight_softmax = nn.functional.softmax( weights_tensor, dim = 0 )
+		# print( adaptive_weight_softmax )
+
+		# exit()
+
+		# Normalize all weights.
+		for loss_name in adaptive_weight:
+			adaptive_weight[loss_name] = adaptive_weight[loss_name]/ total_weight
+		print( adaptive_weight )
+		# exit()
+		for loss_name, loss_fn in loss_fns.items():
+			weight = torch.tensor( self.config[loss_name].weight, device = self.device )
 			loss = loss_fn()
 
 			# print_str += f"{loss_name}: {loss.item()} --> {weight}\t"
-			
+
 			if torch.isnan( loss ) or torch.isinf( loss ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
 				loss = loss.new_tensor( 0., requires_grad = True )
 			# If add_penalty is False, the loss will not be included for backprop.
 			if self.config[loss_name]["add_penalty"]:
-				cum_loss = cum_loss + weight * loss
+
+				cum_loss = cum_loss + adaptive_weight[loss_name] * weight * loss
 			losses[loss_name] = loss.detach().clone()
 		
 		# print( print_str )
