@@ -143,7 +143,8 @@ class Assay():
 		"""
 		# model_id, model = list( entry )
 		# model_file = os.path.join( self.tmp_dir, f"{self.sys_name}_{model_id}.pdb" )
-		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
+		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
+		# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
 		molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
 
 		# self.write_model_to_pdb( model_id, model, model_file )

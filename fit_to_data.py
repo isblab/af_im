@@ -21,6 +21,7 @@ from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import protein
+from openfold.np.relax import relax
 
 from model import get_model
 from loss import LossFunction
@@ -65,8 +66,22 @@ class FitToData():
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
+		self.use_relaxation = True
+		# PDB file contaiing all predicted models.
 		self.ensemble_file = os.path.join( self.output_dir, f"2ayo_output_models" )
+		# Directory to store each predicted model as separate PDB file.
+		self.ensemble_dir = os.path.join( self.output_dir, f"2ayo_ensemble" )
+		# Directory to store each relaxed predicted model as separate PDB file.
+		self.relax_ensemble_dir = os.path.join( self.output_dir, f"2ayo_relax_ensemble" )
 
+		if not os.path.exists( self.ensemble_dir ):
+			os.makedirs( self.ensemble_dir )
+
+		if self.use_relaxation:
+			if not os.path.exists( self.relax_ensemble_dir ):
+				os.makedirs( self.relax_ensemble_dir )
+		
+		# Set the seeds.
 		seed_worker()
 
 		# Add a singleton batch dim.
@@ -236,7 +251,8 @@ class FitToData():
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = "2ayo", 
 									output_format = "pdb",
-									output_path = self.ensemble_file )
+									ensemble_dir = self.ensemble_dir )
+									# output_path = self.ensemble_file
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 		
@@ -392,6 +408,51 @@ class FitToData():
 
 
 
+	def relaxation( self, unrelaxed_protein, epoch: int ):
+		"""
+		Perform AMBER relaxation for the predicted structure.
+		# Taken from openfold.utils.script_utils.py.
+		"""
+		# Not making too many changes.
+		model_device = self.device
+		cif_output = False
+		output_directory = self.relax_ensemble_dir
+		output_name = f"model_{epoch}"
+		config = self.ofold_config
+		
+		amber_relaxer = relax.AmberRelaxation(
+			use_gpu=(model_device != "cpu"),
+			**config.relax,
+		)
+
+		t = time.perf_counter()
+		visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", default="")
+		if "cuda" in model_device:
+			device_no = model_device.split(":")[-1]
+			os.environ["CUDA_VISIBLE_DEVICES"] = device_no
+		# the struct_str will contain either a PDB-format or a ModelCIF format string
+		struct_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein, cif_output=cif_output)
+		os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
+		relaxation_time = time.perf_counter() - t
+
+		# logger.info(f"Relaxation time: {relaxation_time}")
+		# update_timings({"relaxation": relaxation_time}, os.path.join(output_directory, "timings.json"))
+
+		# Save the relaxed PDB.
+		suffix = "_relaxed.pdb"
+		if cif_output:
+			suffix = "_relaxed.cif"
+		relaxed_output_path = os.path.join(
+			output_directory, f'{output_name}{suffix}'
+		)
+		with open(relaxed_output_path, 'w') as fp:
+			fp.write(struct_str)
+
+		print( f"Relaxed output written to {relaxed_output_path}..." )
+		# logger.info(f"Relaxed output written to {relaxed_output_path}...")
+
+
+
 	def add_model( self, save_model_obj: SaveModels, 
 					outputs: Dict[str, torch.Tensor], 
 					epoch: int ) -> None:
@@ -410,12 +471,16 @@ class FitToData():
 		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
 		save_model_obj.add_model( prot = unrelaxed_protein, epoch = epoch )
 
+		# Relax the predicted model.
+		if self.use_relaxation:
+			self.relaxation( unrelaxed_protein, epoch )
+
 
 
 	def save_model( self, save_model: SaveModels ) -> None:
 		"""
 		Save to PDB or CIF file.
 		"""
-		save_model.save()
+		save_model.save( save_model.system, self.ensemble_file )
 
 
