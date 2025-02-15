@@ -16,7 +16,7 @@ from system_representation import SystemRepresentation
 from fit_to_data import FitToData
 from assay import Assay
 from create_plots import create_plot_from_dict, plot_scalar_metrics, plot_xl_map
-from utils import read_configdict_from_json, write_configdict_to_json
+from utils import read_json, write_configdict_to_json
 
 from typing import Dict
 
@@ -24,7 +24,7 @@ from typing import Dict
 class IntegrativeLearning():
 	def __init__( self ):
 		# Name of the system to be modeled.
-		self.sys_name = "2ayo"
+		self.sys_name = "2ayo" # H1129
 		# Main directory for the modeled system.
 		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/{self.sys_name}/" ) )
 		# mono/multi
@@ -151,7 +151,7 @@ class IntegrativeLearning():
 			cores = self.cpu_cores, 
 			prec = self.prec, 
 			model_ids = models_ids,
-			ensmeble_dir = fit.ensemble_dir,
+			ensmeble_dir = fit.relax_ensemble_dir,
 			# ensmeble_file = f"{fit.ensemble_file}.pdb",
 			output_dir = self.output_dir
 		 ).forward()
@@ -178,11 +178,12 @@ class IntegrativeLearning():
 								os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
 								)
 		# Load the system specific configs.
-		sys_conf = read_configdict_from_json( 
-									os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
-									 )
+		sys_conf = read_json( 
+							os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
+							)
 		# Add system specific config to the topology dict.
-		self.topology.system = sys_conf["System1"]
+		sys_name = list( sys_conf.keys() )[0]
+		self.topology.system = sys_conf[sys_name]
 
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" )
