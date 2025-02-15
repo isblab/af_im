@@ -1,11 +1,19 @@
-import requests
+"""
+This script contains functions for handling API requests, downloading files.
+"""
+
+import time
 import xml.etree.ElementTree as ET
 from io import StringIO
+import warnings
+import requests
 from Bio import SeqIO
-import re
+from Bio.PDB import PDBParser, MMCIFParser
+from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from typing import Dict
+from utils import write_to_file
 
+warnings.filterwarnings("ignore")
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
@@ -22,47 +30,49 @@ def aa_3_to_1( aa ):
 	1-letter code for amino acid.
 	"""
 	if aa in ["ALA", "Ala", "ala"]:
-		return "A"
+		symbol = "A"
 	elif aa in ["ARG", "Arg", "arg"]:
-		return "R"
+		symbol = "R"
 	elif aa in ["ASN", "Asn", "asn"]:
-		return "N"
+		symbol = "N"
 	elif aa in ["ASP", "Asp", "asp"]:
-		return "D"
+		symbol = "D"
 	elif aa in ["CYS", "Cys", "cys"]:
-		return "C"
+		symbol = "C"
 	elif aa in ["GLN", "Gln", "gln"]:
-		return "Q"
+		symbol = "Q"
 	elif aa in ["GLU", "Glu", "glu"]:
-		return "E"
+		symbol = "E"
 	elif aa in ["GLY", "Gly", "gly"]:
-		return "G"
+		symbol = "G"
 	elif aa in ["HIS", "His", "his"]:
-		return "H"
+		symbol = "H"
 	elif aa in ["ILE", "Ile", "ile"]:
-		return "I"
+		symbol = "I"
 	elif aa in ["LEU", "Leu", "leu"]:
-		return "L"
+		symbol = "L"
 	elif aa in ["LYS", "Lys", "lys"]:
-		return "K"
+		symbol = "K"
 	elif aa in ["MET", "Met", "met"]:
-		return "M"
+		symbol = "M"
 	elif aa in ["PHE", "Phe", "phe"]:
-		return "F"
+		symbol = "F"
 	elif aa in ["PRO", "Pro", "pro"]:
-		return "P"
+		symbol = "P"
 	elif aa in ["SER", "Ser", "ser"]:
-		return "S"
+		symbol = "S"
 	elif aa in ["THR", "Thr", "thr"]:
-		return "T"
+		symbol = "T"
 	elif aa in ["TRP", "Trp", "trp"]:
-		return "W"
+		symbol = "W"
 	elif aa in ["TYR", "Tyr", "tyr"]:
-		return "Y"
+		symbol = "Y"
 	elif aa in ["VAL", "Val", "val"]:
-		return "V"
+		symbol = "V"
 	else:
-		return "X"
+		symbol = "X"
+
+	return symbol
 
 
 ####################################################################################
@@ -92,62 +102,39 @@ def send_request( url, _format = "json", max_trials = 10, wait_time = 5 ):
 	"""
 	for trial in range( 0, max_trials ):
 		try:
-			response = requests.get( url )
+			response = requests.get( url, timeout = 300 )
 
 			# Resource not found.
 			if response.status_code == 404:
+				# Try till half the no. of max_trials.
+				# 	Don't want it stuck for too long if the URL doesn't actually exist.
 				if trial > ( max_trials/2 ):
-					continue
-				else:
 					return "not_found"
+				time.sleep( wait_time )
 
 			# Bad request.
 			elif response.status_code == 400:
-				if trial != ( max_trials - 1 ):
-					continue
-				else:
+				if trial == ( max_trials - 1 ):
 					return "bad_request"
+				time.sleep( wait_time )
 
 			elif response.status_code == 200:
-				if _format == None:
-					return response
+
+				if _format is None:
+					send_response = response
 				elif _format == "json":
-					return response.json()
+					send_response = response.json()
 				else:
-					return response.text
+					send_response = response.text
+
+				return send_response
 				break
-			
+
 			else:
-				raise Exception( f"--> Encountered status code: {response.status_code}\n" )
-		except Exception as e:
-			if trial != max_trials-1:
-			# 	print( f"Trial {trial}: Exception {e} \t --> {url}" )
-				continue
-			else:
-				return "not_found"
+				raise requests.HTTPError( f"--> Encountered status code: {response.status_code}\n" )
 
-
-def write_content_to_file( response: requests.Response, file_name: str ) -> None:
-	"""
-	Given a Response object, write to a file.
-	"""
-	open( f"{file_name}", "wb" ).write( response.content )
-
-
-
-def read_fasta_from_response( response: requests.Response ) -> Dict:
-	"""
-	Given a FASTA file as a str, obtain the sequences for all chains.
-	"""
-	fasta_content = StringIO( response.content.decode( "utf-8" ) )
-
-	fasta_dict = {}
-	idx = 0
-	for record in SeqIO.parse( fasta_content, "fasta" ):
-		fasta_dict[idx] = str( record.seq )
-		idx += 1
-
-	return fasta_dict
+		except requests.HTTPError:
+			return "not_found"
 
 
 
@@ -170,26 +157,28 @@ def get_uniprot_seq( uni_id, max_trials = 5, wait_time = 5, return_id = False ):
 	An empty list will be returned if couldn't find the sequence for the given Uni ID.
 	"""
 	url = f"http://www.uniprot.org/uniprot/{uni_id}.fasta"
-	
+
 	data = send_request( url, _format = "text", max_trials = max_trials, wait_time = wait_time )
-	if data == "not_found" or data == "bad_request":
-		return [uni_id, []] if return_id else []
-	
+	if data in ["not_found", "bad_request"]:
+		response = [uni_id, []] if return_id else []
+
 	else:
 		seq_record = [str( record.seq ) for record in SeqIO.parse( StringIO( data ), 'fasta' )]
 
 		if seq_record == []:
-			return [uni_id, []] if return_id else []
+			response = [uni_id, []] if return_id else []
 		else:
-			return [uni_id, seq_record[0]] if return_id else seq_record[0]
+			response = [uni_id, seq_record[0]] if return_id else seq_record[0]
+
+	return response
 
 
 
 ######################################## PDB #######################################
 ####----------------------------------------------------------------------------####
 def pdb_valid( file_name: str, ext: str ):
-    """
-    Check if a valid PDB file has been downloaded.
+	"""
+	Check if a valid PDB file has been downloaded.
     PDB file is valid if:
         Can be read with Biopython Parser.
         Contains at least 1 model.
@@ -204,79 +193,83 @@ def pdb_valid( file_name: str, ext: str ):
     ----------
     True if PDB file is valid else False.
     """
+	success = False
+	try:
+		if ext == "cif":
+			models = MMCIFParser().get_structure( "cif", file_name )
+			if len( models ) == 0:
+				success = False
+			else:
+				success = True
 
-    try:
-        if ext == "cif":
-            models = MMCIFParser().get_structure( "cif", file_name )
-            if len( models ) == 0:
-                return False
-            else:
-                return True
-            
-        elif ext == "pdb":
-            models = PDBParser().get_structure( "pdb", file_name )
-            if len( models ) == 0:
-                return False
-            else:
-                return True
+		elif ext == "pdb":
+			models = PDBParser().get_structure( "pdb", file_name )
+			if len( models ) == 0:
+				success = False
+			else:
+				success = True
 
-    except:
-        return False
+		return success
+
+	except PDBConstructionException:
+		return success
 
 
-def download_pdb( pdb_id: str, ext: str, max_trials: int = 5, wait_time: int = 5, return_id: bool = True ):
-    """
-    Download the PDB entry in the specified format.
 
-    Input:
-    ----------
-    pdb_id --> PDB ID to be downloaded.
-    ext --> pdb or cif.
-    max_trial --> in case retrieval fails, try again uptil max_trials.
-    wait_time --> wait some time before sending another request to the server.
-    return_id --> return thr pdb_id if True.
+def download_pdb( pdb_id: str, ext: str, max_trials: int = 5, wait_time: int = 5,
+					return_id: bool = True ):
+	"""
+	Download the PDB entry in the specified format.
 
-    Returns:
-    ----------
-    pdb_id --> same as input.
-    """
-    import warnings
-    warnings.filterwarnings("ignore")
-    
-    pdb_id = pdb_id.lower()
+	Input:
+	----------
+	pdb_id --> PDB ID to be downloaded.
+	ext --> pdb or cif.
+	max_trial --> in case retrieval fails, try again uptil max_trials.
+	wait_time --> wait some time before sending another request to the server.
+	return_id --> return thr pdb_id if True.
 
-    if ext =="cif":
-        url = f"https://files.rcsb.org/download/{pdb_id}.cif"
+	Returns:
+	----------
+	pdb_id --> same as input.
+	"""
+	pdb_id = pdb_id.lower()
 
-    elif ext == "pdb":
-        url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
+	if ext =="cif":
+		url = f"https://files.rcsb.org/download/{pdb_id}.cif"
 
-    else:
-        raise Exception( "Incorrect file format (Choose .pdb/,cif)..." )
+	elif ext == "pdb":
+		url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
 
-    response = send_request( url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	else:
+		raise ValueError( "Incorrect file format (Choose .pdb/,cif)..." )
 
-    if response not in ["not_found", "bad_request"]:
-    	success = True
+	response = send_request( url, _format = None, max_trials = max_trials, wait_time = wait_time )
 
-    	file_name = f"./{pdb_id}.{ext}"
-    	write_content_to_file( response, file_name )
-    	# open( f"{file_name}", "wb" ).write( response.content )
+	if response not in ["not_found", "bad_request"]:
+		success = True
 
-    else:
-    	success = False
+		file_name = f"./{pdb_id}.{ext}"
+		write_to_file( response.content, file_name, "wb" )
 
-    if success:
-        if pdb_valid( file_name, ext ):
-            return pdb_id if return_id else None
-        else:
-            return pdb_id if return_id else None
+	else:
+		success = False
+
+	if success:
+		if pdb_valid( file_name, ext ):
+			result = pdb_id if return_id else None
+		else:
+			result = pdb_id if return_id else None
+	else:
+		result = False
+
+	return result
 
 
 
 ####################################### SIFTS ######################################
 ####----------------------------------------------------------------------------####
-def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5, return_id: bool = False ):
+def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5 ):
 	"""
 	Fetch the PDB to UniProt mapping from SIFTS.
 	Save as an XML file.
@@ -286,7 +279,7 @@ def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5
 
 	if response not in ["not_found", "bad_request"]:
 		success = True
-		open( f"{pdb_id}.xml", "wb" ).write( response.content )
+		write_to_file( response.content, f"{pdb_id}.xml", "wb" )
 	else:
 		success = False
 
@@ -304,7 +297,7 @@ def parse_sifts_xml( file: str ):
 
 	sifts_dict = {}
 
-	for i, parent in enumerate( root ):
+	for parent in root:
 		if "entity" in parent.tag:
 			for child in parent:
 				if "segment" in child.tag:
@@ -314,18 +307,19 @@ def parse_sifts_xml( file: str ):
 								is_null = False
 								for res_detail in leaf:
 									data = res_detail.attrib
-									
+
 									if data["dbSource"] == "PDB":
 										chain_id = data["dbChainId"]
-										
-										if chain_id not in sifts_dict.keys():
+
+										if chain_id not in sifts_dict:
 											sifts_dict[chain_id] = {k: {} for k in ["resolved", "missing", "sequence"]}
-											for key in sifts_dict[chain_id].keys():
+											for key in sifts_dict[chain_id]:
 												if key == "sequence":
 													sifts_dict[chain_id][key] = {"PDB": [], "Uniprot": []}
 												else:
-													sifts_dict[chain_id][key] = {k:[] for k in 
-																	["PDB Residue", "PDB position", "Uniprot ID", "Uniprot Residue", "Uniprot position"]
+													sifts_dict[chain_id][key] = {k:[] for k in
+																	["PDB Residue", "PDB position",
+																		"Uniprot ID", "Uniprot Residue", "Uniprot position"]
 																	}
 
 										sifts_dict[chain_id]["sequence"]["PDB"].append( aa_3_to_1( data["dbResName"] ) )
@@ -359,15 +353,14 @@ def get_casp_entry( casp_id: str, max_trials: int = 5, wait_time: int = 5 ):
 	fasta_url = f"https://predictioncenter.org/casp15/target.cgi?target={casp_id}&view=sequence"
 	struct_url = f"https://predictioncenter.org/casp15/target.cgi?target={casp_id}&view=template"
 
-	fasta_response = send_request( fasta_url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	fasta_response = send_request( fasta_url, _format = None, max_trials = max_trials,
+									wait_time = wait_time )
 	if fasta_response in ["not_found", "bad_request"]:
-		raise Exception( f"FASTA file for {casp_id} could not be obtained..." )
+		raise requests.HTTPError( f"FASTA file for {casp_id} could not be obtained..." )
 
-	struct_response = send_request( struct_url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	struct_response = send_request( struct_url, _format = None, max_trials = max_trials,
+									wait_time = wait_time )
 	if fasta_response in ["not_found", "bad_request"]:
-		raise Exception( f"Structure file for {casp_id} could not be obtained..." )
+		raise requests.HTTPError( f"Structure file for {casp_id} could not be obtained..." )
 
 	return fasta_response, struct_response
-
-
-

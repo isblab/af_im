@@ -1,30 +1,31 @@
-import ml_collections as mlc
+"""
+This script contains general purpose accessory functions.
+"""
+
 import json
 import subprocess
-from Bio.PDB import PDBParser, MMCIFIO
-import gemmi
+from io import StringIO
+from typing import List, Dict
+from Bio import SeqIO
+import requests
+import ml_collections as mlc
 
-from typing import List, Mapping, Sequence, Any, Dict
 
-# from openfold.data.mmcif_parsing import (
-# 		_get_first_model, _get_protein_chains,
-# 		_get_atom_site_list, ParsingResult, MmcifObject,
-# 		ResidueAtPosition, ResiduePosition,
-# 		mmcif_loop_to_list, _is_set )
-
-# ChainId = str
-# PdbHeader = Mapping[str, Any]
-# PdbStructure = PDB.Structure.Structure
-# SeqRes = str
-# MmCIFDict = Mapping[str, Sequence[str]]
+def open_file_handler( file_path: str, mode: str ):
+	"""
+	Open a file handler in the desired mode.
+	"""
+	with open( file_path, mode, encoding = "utf-8" ) as fh:
+		return fh
 
 
 def read_json( file_path: str ):
 	"""
 	Read a JSON file and return the dict.
 	"""
-	with open( file_path, 'r' ) as f:
-		dict_ = json.load( f )
+	# with open( file_path, "r", encoding = "utf-8" ) as f:
+	f = open_file_handler( file_path, "r" )
+	dict_ = json.load( f )
 	return dict_
 
 
@@ -32,8 +33,9 @@ def write_json( dict_: Dict, file_path: str ):
 	"""
 	Save dict to a JSON file.
 	"""
-	with open( file_path, "w" ) as w:
-		json.dump( dict_, w, indent = 4 )
+	# with open( file_path, "w", encoding = "utf-8" ) as w:
+	w = open_file_handler( file_path, "r" )
+	json.dump( dict_, w, indent = 4 )
 
 
 
@@ -42,10 +44,8 @@ def read_configdict_from_json( file_path: str ):
 	Read from a mlc.ConfigDict saved JSON file and 
 		return mlc.ConfigDict object.
 	"""
-	# with open( file_path, 'r' ) as f:
-	# 	config_dict = json.load( f )
 	config_dict = read_json( file_path )
-	return mlc.ConfigDict( config_dict )
+	return mlc.ConfigDict( json.loads( config_dict ) )
 
 
 
@@ -53,26 +53,31 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict, file_path: str ):
 	"""
 	Save an mlc.Configdict object to JSON file.
 	"""
-	# with open( file_path, "w" ) as w:
-	# 	json.dump( json.loads( config_dict.to_json() ), w, indent = 4 )
 	write_json( json.loads( config_dict.to_json() ), file_path )
 
 
-def read_json( file_path: str ):
+def write_to_file( content: str, file_name: str, mode: str ) -> None:
 	"""
-	Parser for a JSON file, given the file path.
+	Given a Response object, write to a file.
 	"""
-	with open( file_path, "r" ) as f:
-		data = json.load( f )
-	return data
+	# with open( f"{file_name}", mode, encoding = "utf-8" ) as w:
+	w = open_file_handler( file_name, mode )
+	w.write( content )
 
 
-def write_json( data: Dict,  file_path: str ):
+def read_fasta_from_response( response: requests.Response ) -> Dict:
 	"""
-	Write a dict to a JSON file, given the file path.
+	Given a FASTA file as a str, obtain the sequences for all chains.
 	"""
-	with open( file_path, "w" ) as w:
-		json.dump( data, w )
+	fasta_content = StringIO( response.content.decode( "utf-8" ) )
+
+	fasta_dict = {}
+	idx = 0
+	for record in SeqIO.parse( fasta_content, "fasta" ):
+		fasta_dict[idx] = str( record.seq )
+		idx += 1
+
+	return fasta_dict
 
 
 def run_subprocess( command: List ):
@@ -87,9 +92,8 @@ def run_subprocess( command: List ):
 	----------
 	None
 	"""
-	if len( command ) == 0:
-		raise Exception( "Command cannot be empty..." )
-	else:
+	if len( command ) != 0:
 		subprocess.call( command )
-
+	else:
+		raise ValueError( "Command cannot be empty..." )
 
