@@ -1,10 +1,20 @@
-import numpy as np
-import pandas as pd
+"""
+Contains a wrapper class that runs all the stages of integrative modeling pipeline.
+	1. Data gathering
+	2 System representation
+	3. Sampling --> Fit to data
+	4. Analysis
+"""
+
 import math
-import os
-import subprocess
 import time
 import random
+from typing import Dict
+import os
+import sys
+import subprocess
+import numpy as np
+import pandas as pd
 
 import torch
 
@@ -16,12 +26,13 @@ from system_representation import SystemRepresentation
 from fit_to_data import FitToData
 from assay import Assay
 from create_plots import create_plot_from_dict, plot_scalar_metrics, plot_xl_map
-from utils import read_json, write_configdict_to_json
-
-from typing import Dict
+from utils import read_json, write_configdict_to_json, open_file_handler
 
 
 class IntegrativeLearning():
+	"""
+	A wrapper class that runs all the stages of integrative modeling pipeline.
+	"""
 	def __init__( self ):
 		# Name of the system to be modeled.
 		self.sys_name = "2ayo" # H1129
@@ -45,7 +56,7 @@ class IntegrativeLearning():
 			self.config_preset = "model_1_multimer_v3"
 			self.ckpt_path = None
 		else:
-			raise Exception( f"Invalid mode = {self.pred_mode} specififed..." )
+			raise ValueError( f"Invalid mode = {self.pred_mode} specififed..." )
 
 		# Load OpenFold configs file.
 		self.ofold_config = model_config( self.config_preset )
@@ -56,7 +67,9 @@ class IntegrativeLearning():
 
 
 	def seed_worker( self ):
-		# Seed for PRNG.
+		"""
+		Seed for PRNG.
+		"""
 		seed = 1
 		torch.manual_seed( seed )
 		# torch.cuda.manual_seed( worker_seed )
@@ -66,11 +79,14 @@ class IntegrativeLearning():
 
 
 	def forward( self ):
+		"""
+		Serially run all the stages of the pipeline.
+		"""
 		tic = time.time()
 		self.seed_worker()
 		# The base directory should exist.
 		if not os.path.exists( self.base_dir ):
-			raise Exception( f"Base dir: {self.base_dir}  does not exist..." )
+			raise FileNotFoundError( f"Base dir: {self.base_dir}  does not exist..." )
 		# Move to the base directory.
 		os.chdir( self.base_dir )
 
@@ -92,18 +108,18 @@ class IntegrativeLearning():
 				"----------------------------------------------------------------------\n" )
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation( sys_name = self.sys_name,
-											ofold_dir = self.openfold_dir, 
+											ofold_dir = self.openfold_dir,
 											ofold_script = self.script,
-											fasta_dir = self.fasta_dir, 
-											alignment_dir = self.alignment_dir, 
+											fasta_dir = self.fasta_dir,
+											alignment_dir = self.alignment_dir,
 											ofold_output_dir = self.ofold_output_dir,
-											config_preset = self.config_preset, 
+											config_preset = self.config_preset,
 											ckpt_path = self.ckpt_path,
 											mode = self.pred_mode,
 											cpu_cores = self.cpu_cores,
 											seed_worker = self.seed_worker,
 											device = self.device ).forward()
-		
+
 		# Add restraint features to system features dict.
 		system_features["restraint_features"] = restraint_features
 		# Move back to base dir.
@@ -114,7 +130,7 @@ class IntegrativeLearning():
 				"---------------------------- Fit to Data -----------------------------\n" +
 				"----------------------------------------------------------------------\n" )
 		# Load the models and fit to data.
-		fit = FitToData( ofold_config = self.ofold_config, 
+		fit = FitToData( ofold_config = self.ofold_config,
 						topology = self.topology,
 						mode = self.pred_mode,
 						system_features = system_features,
@@ -130,11 +146,11 @@ class IntegrativeLearning():
 
 			self.save_topology_file()
 
-			self.save_metrics( fit.loss_dict, 
-								fit.scalar_metric_dict, 
+			self.save_metrics( fit.loss_dict,
+								fit.scalar_metric_dict,
 								fit.other_metric_dict )
-			self.plot_metrics( fit.loss_dict, 
-								fit.scalar_metric_dict, 
+			self.plot_metrics( fit.loss_dict,
+								fit.scalar_metric_dict,
 								fit.other_metric_dict, restraint_features )
 			self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
 								fit.other_metric_dict, restraint_features )
@@ -145,11 +161,11 @@ class IntegrativeLearning():
 				"----------------------------------------------------------------------\n" )
 		# Model IDs are just the epoch numbers.
 		models_ids = np.arange( 0, self.topology.train.max_epochs, 1 )
-		Assay( 
-			sys_name = self.sys_name, 
-			base_dir  =self.base_dir, 
-			cores = self.cpu_cores, 
-			prec = self.prec, 
+		Assay(
+			sys_name = self.sys_name,
+			base_dir  =self.base_dir,
+			cores = self.cpu_cores,
+			prec = self.prec,
 			model_ids = models_ids,
 			ensmeble_dir = fit.relax_ensemble_dir,
 			# ensmeble_file = f"{fit.ensemble_file}.pdb",
@@ -160,8 +176,8 @@ class IntegrativeLearning():
 		toc = time.time()
 		time_file = os.path.join( self.output_dir, "Time_taken.txt" )
 		if not os.path.exists( time_file ):
-			with open( time_file, "w" ) as w:
-				w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+			w = open_file_handler( time_file, "w" )
+			w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 		print( "May the Force be with you.." )
 		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 
@@ -174,11 +190,11 @@ class IntegrativeLearning():
 		# Path to the OpenFold dir.
 		self.openfold_dir = os.path.join( os.path.abspath( "./openfold/" ) )
 		# Path to the OpenFold params to be used.
-		self.openfold_params = os.path.join( 
+		self.openfold_params = os.path.join(
 								os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
 								)
 		# Load the system specific configs.
-		sys_conf = read_json( 
+		sys_conf = read_json(
 							os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
 							)
 		# Add system specific config to the topology dict.
@@ -199,8 +215,8 @@ class IntegrativeLearning():
 
 		dir_ = os.path.join( self.base_dir, f"{mode}" )
 		if not os.path.exists( dir_ ):
-			os.makedirs( dir_ )		
-		
+			os.makedirs( dir_ )
+
 		self.output_dir = os.path.join( self.base_dir, f"{mode}/version_{version}" )
 
 		self.output_dir_exists()
@@ -226,13 +242,13 @@ class IntegrativeLearning():
 		self.summary_file = os.path.join( self.output_dir, "Summary.csv" )
 
 		# Write down the system used, date, and objective of the simulation.
-		with open( self.objective_file, "w" ) as w:
-			proc = subprocess.Popen( "hostname", shell = True, stdout = subprocess.PIPE )
+		w = open_file_handler( self.objective_file, "w" )
+		with subprocess.Popen( "hostname", shell = True, stdout = subprocess.PIPE ) as proc:
 			system = proc.communicate()[0]
-			proc = subprocess.Popen( "date", shell = True, stdout = subprocess.PIPE )
+		with subprocess.Popen( "date", shell = True, stdout = subprocess.PIPE ) as proc:
 			sys_date = proc.communicate()[0]
-			w.writelines( f"System = {system} \t Date = {sys_date}\n" )
-			w.writelines( f"Objective: {self.topology.objective}" )
+		w.writelines( f"System = {system} \t Date = {sys_date}\n" )
+		w.writelines( f"Objective: {self.topology.objective}" )
 
 
 	def output_dir_exists( self ):
@@ -245,7 +261,7 @@ class IntegrativeLearning():
 			if overwrite:
 				pass
 			else:
-				exit()
+				sys.exit()
 		else:
 			os.makedirs( self.output_dir )
 
@@ -255,12 +271,12 @@ class IntegrativeLearning():
 		"""
 		Save the topology file in the output directory.
 		"""
-		write_configdict_to_json( self.topology, 
+		write_configdict_to_json( self.topology,
 									self.topology_file
 								 )
 
 
-	def save_metrics( self, loss_dict: Dict[str, float], 
+	def save_metrics( self, loss_dict: Dict[str, float],
 							scalar_metric_dict: Dict[str, float],
 							other_metric_dict: Dict[str, float] ):
 		"""
@@ -273,7 +289,7 @@ class IntegrativeLearning():
 
 
 
-	def plot_metrics( self, loss_dict: Dict[str, float], 
+	def plot_metrics( self, loss_dict: Dict[str, float],
 							scalar_metric_dict: Dict[str, float],
 							other_metric_dict: Dict[str, float],
 							restraint_features: Dict ):
@@ -287,7 +303,7 @@ class IntegrativeLearning():
 
 
 
-	def write_summary( self, loss_dict: Dict[str, float], 
+	def write_summary( self, loss_dict: Dict[str, float],
 							scalar_metric_dict: Dict[str, float],
 							other_metric_dict: Dict,
 							restraint_features ):
@@ -295,14 +311,15 @@ class IntegrativeLearning():
 		Write all relevant losses and metrics to a csv file.
 		"""
 		df_dict = {"labels": []}
-		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1", "avg_last_0.1", "global_xl_satisfied"]
+		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1",
+								"avg_last_0.1", "global_xl_satisfied"]
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
 		last_n = math.ceil( self.topology.train.max_epochs*0.9 )
 		first_n = math.ceil( self.topology.train.max_epochs*0.1 )
-		
+
 		for k, v in loss_dict.items():
-			df_dict[k].extend( 
+			df_dict[k].extend(
 							[v[0],
 							v[-1],
 							round( np.mean( v ), self.prec ),
@@ -310,7 +327,7 @@ class IntegrativeLearning():
 							round( np.mean( v[last_n:] ), self.prec ),
 							""]
 							)
-		
+
 		df_dict.update( {f"{k}_metric":[] for k in scalar_metric_dict.keys()} )
 		for k, v in scalar_metric_dict.items():
 			if k == "xlr":
@@ -320,7 +337,7 @@ class IntegrativeLearning():
 				print( global_xl_satisfied, "  ", total_xls )
 				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
 
-			df_dict[f"{k}_metric"].extend( 
+			df_dict[f"{k}_metric"].extend(
 							[v[0],
 							v[-1],
 							np.mean( v ),
