@@ -108,7 +108,8 @@ class DataGathering():
 		"""
 		Parse the .csv file containing the XL data.
 		"""
-		xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
+		# xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
+		xl_df = pd.read_csv( os.path.abspath( self.sys_config["data_gathering"]["xl_restraint"]["file_name"] ) )
 
 		return xl_df
 
