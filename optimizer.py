@@ -1,9 +1,13 @@
-import torch
-from torch import  nn
+"""
+This script provides a class that can be used to instantiate the required optimizer.
+"""
 from torch import optim
 
 
-class Optimizer( nn.Module ):
+class Optimizer():
+	"""
+	Wrapper class that returns the required optimizer.
+	"""
 	def __init__( self, config ):
 		self.config = config
 
@@ -41,6 +45,6 @@ class Optimizer( nn.Module ):
 									 )
 
 		else:
-			raise Exception( "No optimizer specified..." )
+			raise ValueError( "No optimizer specified..." )
 
 		return optimizer
