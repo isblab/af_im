@@ -15,8 +15,8 @@ def open_file_handler( file_path: str, mode: str ):
 	"""
 	Open a file handler in the desired mode.
 	"""
-	with open( file_path, mode, encoding = "utf-8" ) as fh:
-		return fh
+	fh = open( file_path, mode, encoding = "utf-8" )
+	return fh
 
 
 def read_json( file_path: str ):
@@ -26,6 +26,7 @@ def read_json( file_path: str ):
 	# with open( file_path, "r", encoding = "utf-8" ) as f:
 	f = open_file_handler( file_path, "r" )
 	dict_ = json.load( f )
+	f.close()
 	return dict_
 
 
@@ -36,7 +37,7 @@ def write_json( dict_: Dict, file_path: str ):
 	# with open( file_path, "w", encoding = "utf-8" ) as w:
 	w = open_file_handler( file_path, "r" )
 	json.dump( dict_, w, indent = 4 )
-
+	w.close()
 
 
 def read_configdict_from_json( file_path: str ):
@@ -63,6 +64,7 @@ def write_to_file( content: str, file_name: str, mode: str ) -> None:
 	# with open( f"{file_name}", mode, encoding = "utf-8" ) as w:
 	w = open_file_handler( file_name, mode )
 	w.write( content )
+	w.close()
 
 
 def read_fasta_from_response( response: requests.Response ) -> Dict:
