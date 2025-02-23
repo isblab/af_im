@@ -141,19 +141,13 @@ class Assay():
 		Compute the no. of chain breaks.
 		Perform Molprobity validation.
 		"""
-		# model_id, model = list( entry )
-		# model_file = os.path.join( self.tmp_dir, f"{self.sys_name}_{model_id}.pdb" )
-		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
-		# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
+		# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
+		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
 		molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
-
-		# self.write_model_to_pdb( model_id, model, model_file )
 
 		self.run_molprobity( model_file, molprob_output_dir )
 		summary_dict = {}
 		summary_dict[model_id] = self.get_molprobity_validation_summary( molprob_output_dir )
-		# summary_dict = self.get_molprobity_validation_summary( molprob_output_dir )
-		# summary_dict.update( {"model_id": model_id} )
 
 		files_to_remove = glob.glob( f"{molprob_output_dir}*" )
 		cmd = ["rm", "-r"] + files_to_remove

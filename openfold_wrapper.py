@@ -167,7 +167,7 @@ class IntegrativeLearning():
 			cores = self.cpu_cores,
 			prec = self.prec,
 			model_ids = models_ids,
-			ensmeble_dir = fit.relax_ensemble_dir,
+			ensmeble_dir = fit.ensemble_dir,
 			# ensmeble_file = f"{fit.ensemble_file}.pdb",
 			output_dir = self.output_dir
 		 ).forward()

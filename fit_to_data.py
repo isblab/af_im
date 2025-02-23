@@ -66,7 +66,7 @@ class FitToData():
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
-		self.use_relaxation = True
+		self.use_relaxation = False
 		# PDB file contaiing all predicted models.
 		self.ensemble_file = os.path.join( self.output_dir, f"2ayo_output_models" )
 		# Directory to store each predicted model as separate PDB file.
