@@ -24,10 +24,13 @@ class XlRestraint():
 		elif self.config.type == "simple_xlr":
 			return lambda: self.simple_xl_restraint( out, restraint_feature["xl_res_mask"],
 													restraint_feature["xl_max_bound"] )
-
 		# Same as simple_xlr, just modular.
 		elif self.config.type == "mse_xlr":
 			return lambda: self.mse_xl_restraint( out, restraint_feature["xl_res_mask"],
+													restraint_feature["xl_max_bound"] )
+		# Same as simple_xlr, just modular.
+		elif self.config.type == "rmse_xlr":
+			return lambda: self.rmse_xl_restraint( out, restraint_feature["xl_res_mask"],
 													restraint_feature["xl_max_bound"] )
 		elif self.config.type == "disto_xlr":
 			return lambda: self.disto_xl_restraint( out, **restraint_feature )
@@ -239,6 +242,30 @@ class XlRestraint():
 		denom = self.eps + torch.sum( xl_res_mask )
 		mse = torch.sum( squared_diff )/ denom
 		return mse
+
+
+	def rmse_xl_restraint( self, out: Dict[str, torch.Tensor],
+							xl_res_mask: torch.tensor,
+							xl_max_bound: float ) -> torch.Tensor:
+		"""
+		Using root mean squared error (RMSE) as the XL restraint.
+			Read doc string for mse_xl_restraint.
+
+		Input:
+		----------
+		out --> output dict from the model.
+		xl_res_mask --> binary mask indicating cross-linked residue pairs.
+		xl_max_bound --> max distance between the cross-licked residues.
+
+		Returns:
+		----------
+		loss --> root mean squared loss.
+		"""
+		mse = self.mse_xl_restraint( out, xl_res_mask, xl_max_bound )
+
+		rmse = torch.sqrt( mse )
+
+		return rmse
 
 
 	def simple_xl_restraint( self, out: Dict[str, torch.Tensor],
