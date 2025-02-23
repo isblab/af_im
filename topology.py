@@ -16,7 +16,7 @@ def topology_dict() -> mlc.ConfigDict:
 config = mlc.ConfigDict(
 	{
 	"objective": "Finetuning SM with XL restraint. "+
-		"Using structure module in eval mode with all default weights.",
+		"Modified XL restraint implementation. Sanity check..",
 	"system": {},
 	"optimizer": {
 		"SGD": {
@@ -65,7 +65,7 @@ config = mlc.ConfigDict(
 	"loss": {
 		"fape": {
 			"enabled": True,
-			"add_penalty": True,
+			"add_penalty": False,
 			# For monomer.
 			"backbone": {
 				"clamp_distance": 10.0,
@@ -97,7 +97,7 @@ config = mlc.ConfigDict(
 		},
 		"supervised_chi": {
 			"enabled": True,
-			"add_penalty": True,
+			"add_penalty": False,
 			"chi_weight": 0.5,
 			"angle_norm_weight": 0.01,
 			"eps": 1e-8,
@@ -131,7 +131,7 @@ config = mlc.ConfigDict(
 		"xlr": {
 				"enabled": True,
 				"add_penalty": True,
-				"type": "simple_xlr", # fape_xlr, simple_xlr, disto_xlr
+				"type": "mse_xlr", # fape_xlr, mse_xlr, rmse_xlr, disto_xlr
 				"weight": 0.5,
 				"eps": 1e-8
 		},
@@ -142,7 +142,7 @@ config = mlc.ConfigDict(
 		}
 	},
 	"train": {
-		"version": 1,
+		"version": 8.1,
 		"mode": "test",
 		"max_epochs": 250,
 		"allow_mcpa": True,

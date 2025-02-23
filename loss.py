@@ -119,20 +119,20 @@ class LossFunction( nn.Module ):
 		cum_loss = torch.tensor( [0] ).to( self.device )
 		losses = {}
 
-		adaptive_weight = {}
-		total_weight = torch.tensor( 0.0, device = self.device )
-		# calculating adaptive weights.
-		for loss_name, loss_fn in loss_fns.items():
-			loss = loss_fn()
-			if self.config[loss_name]["add_penalty"]:
-				if loss.item() == 0:
-					w = 0
-				else:
-					w = torch.tensor( 1/loss.item() + 1e-8, device = self.device )
-				adaptive_weight[loss_name] = w
-				total_weight = total_weight + w
+		# adaptive_weight = {}
+		# total_weight = torch.tensor( 0.0, device = self.device )
+		# # calculating adaptive weights.
+		# for loss_name, loss_fn in loss_fns.items():
+		# 	loss = loss_fn()
+		# 	if self.config[loss_name]["add_penalty"]:
+		# 		if loss.item() == 0:
+		# 			w = 0
+		# 		else:
+		# 			w = torch.tensor( 1/loss.item() + 1e-8, device = self.device )
+		# 		adaptive_weight[loss_name] = w
+		# 		total_weight = total_weight + w
 
-		print( adaptive_weight )
+		# print( adaptive_weight )
 		# weights_tensor = torch.stack(
 		#     [adaptive_weight[name] for name in adaptive_weight.keys()]
 		# ).to( self.device )
@@ -144,9 +144,9 @@ class LossFunction( nn.Module ):
 		# exit()
 
 		# Normalize all weights.
-		for loss_name in adaptive_weight:
-			adaptive_weight[loss_name] = adaptive_weight[loss_name]/ total_weight
-		print( adaptive_weight )
+		# for loss_name in adaptive_weight:
+		# 	adaptive_weight[loss_name] = adaptive_weight[loss_name]/ total_weight
+		# print( adaptive_weight )
 		# exit()
 		for loss_name, loss_fn in loss_fns.items():
 			weight = torch.tensor( self.config[loss_name].weight, device = self.device )
@@ -160,7 +160,8 @@ class LossFunction( nn.Module ):
 			# If add_penalty is False, the loss will not be included for backprop.
 			if self.config[loss_name]["add_penalty"]:
 
-				cum_loss = cum_loss + adaptive_weight[loss_name] * weight * loss
+				# cum_loss = cum_loss + adaptive_weight[loss_name] * weight * loss
+				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
 		
 		# print( print_str )
