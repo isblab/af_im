@@ -110,7 +110,7 @@ def write_to_file( content: str, file_name: str, mode: str ) -> None:
 	None
 	"""
 	w = open_file_handler( file_name, mode )
-	w.write( content )
+	w.write( content.text )
 	w.close()
 
 
