@@ -1,12 +1,13 @@
-import numpy as np
-import pandas as pd
-import subprocess
 import os
 import glob
-import ml_collections as mlc
+import copy
 import re
-
+import subprocess
+import warnings
 from typing import List, Dict
+import numpy as np
+import pandas as pd
+import ml_collections as mlc
 
 from utils import ( run_subprocess, read_json, write_json )
 from utils import ( write_to_file, 
@@ -45,6 +46,7 @@ class CreateBenchmark():
 		self.get_seq_n_struct( casp_dict )
 		self.create_sys_config_dict( casp_dict )
 		self.simulate_xl_data( casp_dict )
+		
 		exit()
 		# for name in ["2ayo"]:
 		for name in ["H1129"]:
@@ -69,6 +71,7 @@ class CreateBenchmark():
 			Oligo.State (3): Stoichiometry.
 			Description (9): Contains the PDB ID where available.
 		"""
+		print( "Parsing CASP input file..." )
 		with open( self.casp_input_csv, "r" ) as f:
 			casp = f.readlines()
 
@@ -81,15 +84,15 @@ class CreateBenchmark():
 			type_ = line[1]
 			if all( [x not in type_ for x in ["RNA", "Ligand"]] ):
 				stoichiometry = line[3]
+				# No monomers.
 				if len( stoichiometry ) > 2:
-					if stop > 4:
-						break
-					stop += 1
+					# if stop > 4:
+					# 	break
+					# stop += 1
 					casp_id = line[0]
 					casp_dict[casp_id] = {}
 					casp_dict[casp_id]["stoichiometry"] = stoichiometry
 					casp_dict[casp_id]["pdb_id"] = line[9]
-
 		return casp_dict
 
 
@@ -98,6 +101,7 @@ class CreateBenchmark():
 		"""
 		Create directories for all benchmark systems.
 		"""
+		print( "Creating system directories..." )
 		for casp_id in casp_dict:
 			sys_dir = os.path.join( self.base_dir, f"{casp_id}" )
 			if not os.path.exists( sys_dir ):
@@ -109,6 +113,7 @@ class CreateBenchmark():
 		"""
 		Get the sequence and structure for the CASP entry.
 		"""
+		print( "Downloading sequence and structure files for CASP entries..." )
 		for casp_id in casp_dict:
 			seq_file = os.path.join( self.base_dir, f"{casp_id}/{casp_id}_seq.json" )
 			pdb_file = os.path.join( self.base_dir, f"{casp_id}/{casp_id}.pdb" )
@@ -121,7 +126,7 @@ class CreateBenchmark():
 				seq_dict = read_fasta_from_response( fasta_response )
 				write_json( seq_dict, seq_file )
 
-				write_to_file( struct_response, pdb_file )
+				write_to_file( struct_response, pdb_file, "w" )
 
 			self.benchmark_seq_dict[casp_id] = seq_dict
 
@@ -198,18 +203,42 @@ class CreateBenchmark():
 		return sys_dict
 
 
-
 	def create_sys_config_dict( self, casp_dict: Dict ):
 		"""
 		For all the benchmark entries create a config dict.
 		We use the CASP ID as the system name.
 		"""
 
-		for idx, sys_name in enumerate( casp_dict ):
+		casp_dict_copy = copy.deepcopy( casp_dict )
+		for idx, sys_name in enumerate( casp_dict_copy ):
 			print( sys_name )
 			config_file = os.path.join( self.base_dir, f"{sys_name}/sys_conf_{sys_name}.json" )
 			seq_dict = self.benchmark_seq_dict[sys_name]
 			stoichiometry = self.get_stoichiometry( casp_dict[sys_name]["stoichiometry"] )
+
+			# If the no. of chains in FASTA is not the same as stoichiometry specified.
+			if len( stoichiometry ) != len( seq_dict.keys() ):
+				warnings.warn( f"Warning: The no. of sequences in FASTA file is not the same as" +
+								f"the specified stoichiometry for {sys_name}..." )
+				run_subprocess( ["rm", "-r", f"{os.path.join( self.base_dir, sys_name )}"] )
+				casp_dict.pop( sys_name )
+				continue
+
+			# Remove all but dimers for now.
+			if len( stoichiometry ) > 2:
+				print( f"{sys_name}: not a dimer" )
+				print( stoichiometry )
+				run_subprocess( ["rm", "-r", f"{os.path.join( self.base_dir, sys_name )}"] )
+				casp_dict.pop( sys_name )
+				continue
+
+			# Remove all homomers for now.
+			if not all( [s == 1 for s in stoichiometry] ):
+				print( f"{sys_name}: homomer" )
+				run_subprocess( ["rm", "-r", f"{os.path.join( self.base_dir, sys_name )}"] )
+				casp_dict.pop( sys_name )
+				continue
+
 			entities = self.get_entities( seq_dict, stoichiometry )
 			sys_dict = self.create_sys_dict_entry( idx, sys_name, entities )
 
@@ -301,6 +330,7 @@ class CreateBenchmark():
 		----------
 		None
 		"""
+		print( "Simulating XL data..." )
 		for casp_id in casp_dict:
 			sys_dir = os.path.join( self.base_dir, f"{casp_id}/" )
 			os.chdir( sys_dir )
