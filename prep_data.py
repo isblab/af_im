@@ -161,7 +161,7 @@ class CreateBenchmark():
 					"copy_num": copy_num,
 					"start": start,
 					"end": end,
-					"seq": seq
+					"sequence": seq
 				}
 			 )
 
@@ -186,7 +186,7 @@ class CreateBenchmark():
 		sys_dict = {
 					f"System_{sys_idx}": {
 							"name": sys_name,
-							"entities": entities,
+							"entity": entities,
 							"data_gathering": {
 								"xl_restraint": {
 									"xl_max_bound": self.xl_length,
@@ -207,7 +207,7 @@ class CreateBenchmark():
 
 		for idx, sys_name in enumerate( casp_dict ):
 			print( sys_name )
-			config_file = os.path.join( self.base_dir, f"{sys_name}/{sys_name}.json" )
+			config_file = os.path.join( self.base_dir, f"{sys_name}/sys_conf_{sys_name}.json" )
 			seq_dict = self.benchmark_seq_dict[sys_name]
 			stoichiometry = self.get_stoichiometry( casp_dict[sys_name]["stoichiometry"] )
 			entities = self.get_entities( seq_dict, stoichiometry )
