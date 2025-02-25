@@ -136,11 +136,12 @@ class LoadState():
 
 
 
-class Model( ABC ):
+class Model( nn.Module, ABC ):
 	"""
 	Base class for all model classes to specify the necessary methods.
 	"""
 	def __init__( self ):
+		super( Model, self ).__init__()
 		pass
 
 	@abstractmethod
