@@ -3,7 +3,7 @@ Contains a wrapper class that runs all the stages of integrative modeling pipeli
 	1. Data gathering
 	2 System representation
 	3. Sampling --> Fit to data
-	4. Analysis
+	4. Analysis --> Assay
 """
 
 import math
@@ -114,6 +114,7 @@ class IntegrativeLearning():
 											alignment_dir = self.alignment_dir,
 											ofold_output_dir = self.ofold_output_dir,
 											config_preset = self.config_preset,
+											init_model_prefix = self.topology.init_model_prefix,
 											ckpt_path = self.ckpt_path,
 											mode = self.pred_mode,
 											cpu_cores = self.cpu_cores,
@@ -140,7 +141,7 @@ class IntegrativeLearning():
 						seed_worker = self.seed_worker,
 						device = self.device )
 
-		# If the simulation output doesn;t already exist.
+		# If the simulation output doesn't already exist.
 		if not fit.ensemble_exists():
 			fit.forward()
 

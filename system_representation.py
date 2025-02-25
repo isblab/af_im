@@ -63,6 +63,7 @@ class SystemRepresentation():
 					fasta_dir: str, alignment_dir: str, 
 					ofold_output_dir: str, config_preset: str, 
 					ckpt_path: Optional[str], mode: str,
+					init_model_prefix: str,
 					# init_struct_pdb: str, init_struct_cif: str,
 					cpu_cores: int, seed_worker, device: str = "cpu" ):
 		self.sys_name = sys_name
@@ -72,6 +73,7 @@ class SystemRepresentation():
 		self.alignment_dir = alignment_dir
 		self.ofold_output_dir = ofold_output_dir
 		self.config_preset = config_preset
+		self.init_model_prefix = init_model_prefix
 		self.ckpt_path = ckpt_path
 		self.cpu_cores = cpu_cores
 		self.device = device
@@ -81,16 +83,18 @@ class SystemRepresentation():
 
 
 	def forward( self ):
-		if len( glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" ) ) != 0:
+		if len( glob.glob( f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif" ) ) != 0:
 			print( "\nInitial structure for the system exists..." )
-			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" )[0]
+			print( f"Using {self.init_model_prefix} model as inital model..." )
+			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif" )[0]
 		
 		else:
 			print( "\nPredicting the initial structure for the system..." )
-			if not os.path.exists( os.path.abspath( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" ) ):
+			if not os.path.exists( os.path.abspath( f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif" ) ):
 				self.get_initial_structure()
 			# OpenFold predicted initial structure in CIF format.
-			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*unrelaxed.cif" )[0]
+			print( f"Using {self.init_model_prefix} model as inital model..." )
+			self.init_struct_cif = glob.glob( f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif" )[0]
 
 		print( "\nCreating ground truth features from the initial structure..." )
 		data = self.get_feature_from_init_struct()
