@@ -255,7 +255,10 @@ class FitToData():
 									# output_path = self.ensemble_file
 		# Initialize the System object.
 		save_model_obj.initialize_system()
-		
+
+		# Change the no. of blocks in SM.
+		self.ofold_config.model.structure_module.no_blocks = self.topology.model.update_params.sm_no_blocks
+
 		# Get model.
 		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
 		model = get_model( self.topology.model,
@@ -263,7 +266,7 @@ class FitToData():
 							self.ofold_config,
 							self.mode, self.is_multimer, 
 							self.device )
-
+		
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
 
