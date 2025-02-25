@@ -15,9 +15,10 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "Finetuning SM with XL restraint. "+
-		"Modified XL restraint implementation. Sanity check..",
+	"objective": "2ayo with rmse_xlr. "+
+		"Sanity check for changing sm_no_blocks.",
 	"system": {},
+	"init_model_prefix": "_unrelaxed",
 	"optimizer": {
 		"SGD": {
 			"enabled": False,
@@ -44,6 +45,9 @@ config = mlc.ConfigDict(
 			"sm": "eval",
 			"plddt": "eval",
 			"distogram": "eval"
+		},
+		"update_params": {
+			"sm_no_blocks": 8,
 		},
 		"biases": {
 			"pair_bias_type": "additive",
@@ -110,7 +114,7 @@ config = mlc.ConfigDict(
 			"clash_overlap_tolerance": 1.5,
 			"average_clashes": True,
 			"eps": 1e-8,
-			"weight": 0.03
+			"weight": 0.3
 		},
 		"chain_center_of_mass": {
 			"enabled": True,
@@ -142,7 +146,7 @@ config = mlc.ConfigDict(
 		}
 	},
 	"train": {
-		"version": 8.1,
+		"version": 9,
 		"mode": "test",
 		"max_epochs": 250,
 		"allow_mcpa": True,
