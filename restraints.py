@@ -203,7 +203,7 @@ class XlRestraint():
 		D = D*xl_res_mask
 
 		# Identify Xl violations.
-		viols_mask = D > xl_max_bound
+		viols_mask = D > scaled_xl_max_bound
 		return viols_mask
 
 
@@ -263,7 +263,7 @@ class XlRestraint():
 		"""
 		mse = self.mse_xl_restraint( out, xl_res_mask, xl_max_bound )
 
-		rmse = torch.sqrt( mse )
+		rmse = torch.sqrt( mse + self.eps )
 
 		return rmse
 

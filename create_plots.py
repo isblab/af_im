@@ -75,6 +75,7 @@ def plot_xl_map( aggregate_map: torch.Tensor, gt_map: torch.Tensor, file_name ) 
 	gt_map = gt_map.squeeze( 0 )
 
 	m = aggregate_map != 0
+	print( "XLs satisfied across all epochs..." )
 	print( aggregate_map[m] )
 
 	_, ax = plt.subplots( 1, 2, figsize = ( 20, 10 ) )
