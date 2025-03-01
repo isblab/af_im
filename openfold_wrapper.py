@@ -120,7 +120,6 @@ class IntegrativeLearning():
 											cpu_cores = self.cpu_cores,
 											seed_worker = self.seed_worker,
 											device = self.device ).forward()
-
 		# Add restraint features to system features dict.
 		system_features["restraint_features"] = restraint_features
 		# Move back to base dir.
@@ -162,16 +161,17 @@ class IntegrativeLearning():
 				"----------------------------------------------------------------------\n" )
 		# Model IDs are just the epoch numbers.
 		models_ids = np.arange( 0, self.topology.train.max_epochs, 1 )
-		Assay(
-			sys_name = self.sys_name,
-			base_dir  =self.base_dir,
-			cores = self.cpu_cores,
-			prec = self.prec,
-			model_ids = models_ids,
-			ensmeble_dir = fit.ensemble_dir,
-			# ensmeble_file = f"{fit.ensemble_file}.pdb",
-			output_dir = self.output_dir
-		 ).forward()
+		# Assay(
+		# 	sys_name = self.sys_name,
+		# 	# base_dir  =self.base_dir,
+		# 	model_ids = models_ids,
+		# 	model_dir = fit.ensemble_dir,
+		# 	# ensmeble_file = f"{fit.ensemble_file}.pdb",
+		# 	output_dir = self.output_dir,
+		# 	seed_worker = self.seed_worker,
+		# 	cores = self.cpu_cores,
+		# 	prec = self.prec
+		#  ).forward()
 
 
 		toc = time.time()
@@ -218,6 +218,7 @@ class IntegrativeLearning():
 		if not os.path.exists( dir_ ):
 			os.makedirs( dir_ )
 
+		# Dir to store all modeling results.
 		self.output_dir = os.path.join( self.base_dir, f"{mode}/version_{version}" )
 
 		self.output_dir_exists()
@@ -335,7 +336,7 @@ class IntegrativeLearning():
 				global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
 				xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
 				total_xls = int( torch.count_nonzero( xl_res_mask ) )
-				print( global_xl_satisfied, "  ", total_xls )
+				# print( global_xl_satisfied, "  ", total_xls )
 				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
 
 			df_dict[f"{k}_metric"].extend(

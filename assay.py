@@ -1,103 +1,75 @@
+"""
+Script to perform analysis for the set of models obtained after fine-tuning.
+Select models based on their loss.
+	Use HDBSCAN for clustering.
+	Select the largest cluster.
+	Alternatively, 
+"""
+import os
+import glob
+from typing import List, Dict, Iterator
+from multiprocessing import Pool
 import numpy as np
 import pandas as pd
 from scipy.spatial import distance_matrix
-from multiprocessing import Pool
-import os
-import glob
-
+from sklearn.preprocessing import StandardScaler
+import hdbscan
 from Bio.PDB import PDBParser, PDBIO, Structure, Model
 
-from utils import run_subprocess
+from utils import open_file_handler, run_subprocess
 from pdb_utils import Parser
-
-from typing import Dict, Iterator
-
 from create_plots import create_plot_from_dict
 
 
-class Assay():
-	def __init__( self, sys_name: str, base_dir, cores: int, prec: int, 
-						model_ids: np.array,
-						ensmeble_dir: str, output_dir: str ):
-		self.sys_name = "2ayo"
-		self.base_dir = base_dir
-		self.cores = 5
-		self.chain_break_threshold = 4.0
-		self.prec = 4
-		self.selection_statistic = "mean"
+
+class Molprobity():
+	"""
+	Perform Molprobity validation on a set of models.
+	"""
+	def __init__( self, sys_name: str, model_ids: int, base_dir: str, model_dir: str ):
+		self.sys_name = sys_name
+		# Path to the Molprobity dir.
+		self.molprob_dir = os.path.join( base_dir, "molprobity_output" )
+		# Dit containing PDB files for models.
+		self.model_dir = model_dir
+		# Identifier for a model.
 		self.model_ids = model_ids
-		self.ensmeble_dir = ensmeble_dir
-		
-		self.output_dir = output_dir
-		self.analysis_dir = os.path.join( self.output_dir, "analysis" )
-		
-		# self.parser = Parser( self.ensmeble_file )
-
-		self.full_val_dict = {}
-		self.full_val_dict_file = os.path.join( self.analysis_dir, "full_validation_dict.npy" )
-		self.full_val_plot_file = os.path.join( self.analysis_dir, "full_validation_plots.png" )
-		self.full_val_csv = os.path.join( self.analysis_dir, "full_validation_report.csv" )
-
-		# self.selected_val_dict = {}
-		# self.selected_val_dict_file = os.path.join( self.analysis_dir, "selected_validation_dict.npy" )
-		# self.selected_val_plot_file = os.path.join( self.analysis_dir, "selected_validation_plots.png" )
-		# self.selected_val_csv = os.path.join( self.analysis_dir, "selected_validation_report.csv" )
-		# self.selected_avg_csv_file = os.path.join( self.analysis_dir, "selected_val_avg.csv" )
-
+		# Dict to store Molprobity validation metrics.
+		self.molprob_val_dict = {}
+		# Note the time taken.
+		self.time_file = os.path.join( self.molprob_dir, "Time_taken_molprob.txt" )
 
 
 	def forward( self ):
-		# idx = 0
-		# chain_breaks_dict = {}
-		# for coords_dict in self.parser.get_coordinates():
-		# 	chain_breaks_dict[idx] = self.get_chain_breaks( coords_dict )
-		# 	idx += 1
-
-		# self.quantify_chain_breaks( chain_breaks_dict )
-		self.create_required_dir()
-		if not os.path.exists( self.full_val_dict_file ):
-			self.parallelize_validation_pipeline()
-			np.save( self.full_val_dict_file, self.full_val_dict )
-		else:
-			self.full_val_dict = np.load( self.full_val_dict_file, allow_pickle = True ).item()
-
-
-		self.write_full_val_dict()
-
-		for stat in ["mean", "median"]:
-			self.selection_statistic = stat
-			self.selected_val_dict = {}
-			self.selected_val_dict_file = os.path.join( self.analysis_dir, f"selected_validation_dict_{stat}.npy" )
-			self.selected_val_plot_file = os.path.join( self.analysis_dir, f"selected_validation_plots_{stat}.png" )
-			self.selected_val_csv = os.path.join( self.analysis_dir, f"selected_validation_report_{stat}.csv" )
-			self.selected_avg_csv_file = os.path.join( self.analysis_dir, f"selected_val_avg_{stat}.csv" )
-
-			self.filter_models()
-			self.write_selected_val_dict()
-
-			# self.plot()
-
-			# self.write_to_csv()
-
-		self.remove_tmp_dir()
-
-
-
-	def create_required_dir( self ):
 		"""
-		Create the following directories:
-			analysis
-				tmp
-		Temporary directory is used for storing the intermediate files 
+		"""
+		# Do not redo molprobity validation if already done.
+		# 	Using the time_file as a marker.
+		if not os.path.exists( self.time_file ):
+			tic = time.time()
+			# Create a temporary dir to store output files.
+			self.create_dir()
+
+			self.parallelize_molprobity_validation()
+			toc = time.time()
+
+			fh = open_file_handler( self.time_file, "w" )
+			fh.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+		else:
+			print( "Molprobity validation already done..." )
+
+
+	def create_dir( self ):
+		"""
+		Temporary directory is used for storing the intermediate files
 			from running Molprobity validation.
 		"""
-		if not os.path.exists( self.analysis_dir ):
-			os.makedirs( self.analysis_dir )
+		if not os.path.exists( self.molprob_dir ):
+			os.makedirs( self.molprob_dir )
 
-		self.tmp_dir = os.path.join( self.analysis_dir, "tmp" )
+		self.tmp_dir = os.path.join( self.molprob_dir, "tmp" )
 		if not os.path.exists( self.tmp_dir ):
 			os.makedirs( self.tmp_dir )
-
 
 
 	def remove_tmp_dir( self ):
@@ -105,44 +77,13 @@ class Assay():
 		run_subprocess( cmd )
 
 
-
-	# def write_model_to_pdb( self, model_id: str, model: Model, model_file: str ):
-	# 	"""
-	# 	Write a model to PDB file.
-	# 	Required to run Molprobity on all models separately.
-	# 	"""
-	# 	io = PDBIO()
-
-	# 	struct = Structure.Structure( f"Model_{model_id}" )
-	# 	struct.add( model )
-
-	# 	io.set_structure( struct )
-	# 	io.save( model_file )
-
-
-	def split_ensemble( self, model_id: str, model: Model, model_file: str ):
+	def validate( self, model_id: int ) -> Dict[str, float]:
 		"""
-		Split the multi-model PDB into separate PDB files.
-		This would avoid loading the structure on disk.
-		"""
-
-		io = PDBIO()
-
-		struct = Structure.Structure( f"Model_{model_id}" )
-		struct.add( model )
-
-		io.set_structure( struct )
-		io.save( model_file )
-
-
-
-	def validation_pipeline( self, model_id ):
-		"""
-		Compute the no. of chain breaks.
 		Perform Molprobity validation.
+		Get the Molprobity metrics.
 		"""
 		# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
-		model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
+		model_file = os.path.join( self.model_dir, f"model_{model_id}.pdb" )
 		molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
 
 		self.run_molprobity( model_file, molprob_output_dir )
@@ -156,27 +97,19 @@ class Assay():
 		return summary_dict
 
 
-
-	def parallelize_validation_pipeline( self ):
+	def parallelize_molprobity_validation( self ):
 		"""
-		Parse all models in parallel and perform all the required validations.
+		Perfom Molprobity validation on the given set of models in parallel.
 		"""
-		# structure = self.parser.structure
-		# model_ids = self.parser.get_model_ids()
-		# entry_list = list( zip( model_ids, structure ) )
-
 		with Pool( self.cores ) as p:
-			for result in p.imap_unordered( self.validation_pipeline, self.model_ids ):
-			# for result in p.imap_unordered( self.validation_pipeline, entry_list ):
+			for result in p.imap_unordered( self.validate, self.model_ids ):
 				summary_dict = result
 
-				self.full_val_dict.update( summary_dict )
-				# for k, v in summary_dict.items():
-				# 	self.full_val_dict.setdefault( k, [] ).append( v )
+				self.molprob_val_dict.update( summary_dict )
 
 
-
-	def get_molprobity_validation_summary( self, output_dir: str ):
+	def get_molprobity_validation_summary( self, output_dir: str
+										) -> Dict[str, float]:
 		"""
 		Molprobity can provide detailed information about:
 			Ramachandran outliers
@@ -224,7 +157,6 @@ class Assay():
 		return summary_dict
 
 
-
 	def run_molprobity( self, model_file: str, output_dir: str ) -> None:
 		"""
 		Run Molprobity validation using Phenix.
@@ -246,128 +178,463 @@ class Assay():
 
 
 
-	def filter_models( self ):
+class Assay():
+	def __init__( self, sys_name: str, model_ids: np.array,
+						loss_dict: Dict[str, float],
+						metrics_dict: Dict[str, float],
+						model_dir: str, output_dir: str,
+						seed_worker,
+						cores: int, prec: int ):
+		seed_worker()
+		# Name of the system to be modeled.
+		self.sys_name = sys_name
+		# Identifier for each model (just the epoch no.).
+		self.model_ids = model_ids
+		# Dir containing PDb files for all models.
+		self.model_dir = model_dir
+		# Dir to store the modeling result.
+		self.output_dir = output_dir
+		# Dict containing per epoch loss values.
+		self.loss_dict = loss_dict
+		# Dict containing per epoch metric values.
+		self.metrics_dict = metrics_dict
+		# No. of CPU cores to use.
+		self.cores = 5
+		# precision for floats.
+		self.prec = 4
+
+		## HDBSCAN parameters.
+		# Minimum no. of data points to be considered a cluster.
+		self.min_cluster_size = 5 # default
+		# Miimum no. of neighbors to consider a data point as core point.
+		self.min_samples = 5 # default
+
+		self.chain_break_threshold = 4.0
+		self.selection_statistic = "mean"
+
+		self.full_val_dict = {}
+		self.full_val_dict_file = os.path.join( self.analysis_dir, "full_validation_dict.npy" )
+		self.full_val_plot_file = os.path.join( self.analysis_dir, "full_validation_plots.png" )
+		self.full_val_csv = os.path.join( self.analysis_dir, "full_validation_report.csv" )
+
+
+	def forward( self ):
+		# idx = 0
+		# chain_breaks_dict = {}
+		# for coords_dict in self.parser.get_coordinates():
+		# 	chain_breaks_dict[idx] = self.get_chain_breaks( coords_dict )
+		# 	idx += 1
+
+		# self.quantify_chain_breaks( chain_breaks_dict )
+		# Create the analysis dir.
+		self.create_analysis_dir()
+
+		unclustered_models, selected_models = self.model_filtering()
+
+		# Save loss and metrics for selected and unclustered models on disk.
+		self.save_loss_n_metrics( unclustered_models, "unclustered" )
+		self.save_loss_n_metrics( selected_models, "selected" )
+
+		# Structural clustering or Molprobity validation?
+
+
+		# if not os.path.exists( self.full_val_dict_file ):
+		# 	self.parallelize_validation_pipeline()
+		# 	np.save( self.full_val_dict_file, self.full_val_dict )
+		# else:
+		# 	self.full_val_dict = np.load( self.full_val_dict_file, allow_pickle = True ).item()
+
+		# self.write_full_val_dict()
+
+		# for stat in ["mean", "median"]:
+		# 	self.selection_statistic = stat
+		# 	self.selected_val_dict = {}
+		# 	self.selected_val_dict_file = os.path.join( self.analysis_dir, f"selected_validation_dict_{stat}.npy" )
+		# 	self.selected_val_plot_file = os.path.join( self.analysis_dir, f"selected_validation_plots_{stat}.png" )
+		# 	self.selected_val_csv = os.path.join( self.analysis_dir, f"selected_validation_report_{stat}.csv" )
+		# 	self.selected_avg_csv_file = os.path.join( self.analysis_dir, f"selected_val_avg_{stat}.csv" )
+
+		# 	self.filter_models()
+		# 	self.write_selected_val_dict()
+
+		# self.remove_tmp_dir()
+
+
+	def create_analysis_dir( self ):
 		"""
-		Here we use the Molprobity score as a criterion for assessing model quality.
-		Select the good scoring models.
+		Create a dir to store analysis results.
 		"""
-		selected_models = self.get_good_models()
+		self.analysis_dir = os.path.join( self.output_dir, "analysis" )
+		if not os.path.exists( self.analysis_dir ):
+			os.makedirs( self.analysis_dir )
 
-		keys = ["model_id"] + list( self.full_val_dict[0].keys() )
-		for model_id in self.full_val_dict.keys():
-			if model_id in selected_models:
-				# self.selected_val_dict["model_id"].append( model_id )
-
-				for k in keys:
-					if k == "model_id":
-						v = model_id
-					else:
-						v = self.full_val_dict[model_id][k]
-					self.selected_val_dict.setdefault( k, [] ).append( v )
-
-		# for model_id in self.full_val_dict["model_id"]:
-		# 	if model_id in selected_models:
-				# for k, v in self.full_val_dict.items():
-				# 	self.selected_val_dict.setdefault( k, [] ).append( v )
+	# 	self.tmp_dir = os.path.join( self.analysis_dir, "tmp" )
+	# 	if not os.path.exists( self.tmp_dir ):
+	# 		os.makedirs( self.tmp_dir )
 
 
 
-	# def cluster( self ):
+	def prep_data( self ) -> np.array:
+		"""
+		Given the dict containing loss and metrics, do
+			Select the following:
+				Violation loss, CCOM loss, restraint loss.
+				Restraint metrics
+			Stack together in an array.
+		"""
+		# Convert all metric values to -- (1 - metric).
+		# 	Lower (1 - metric) the better -- same as loss.
+		metrics = {}
+		for k in self.metrics_dict:
+			metrics[k] = 1 - np.array( self.metrics_dict )
+
+		data = np.stack( 
+				[
+					self.loss_dict["violation"],
+					self.loss_dict["chain_center_of_mass"],
+					self.loss_dict["xlr"],
+					metrics
+				],
+				axis = 1
+		)
+
+		return data
+
+
+	def get_scaled_data( self, data: np.array ) -> np.array:
+		"""
+		Perform standard scaling.
+		"""
+		scaler = StandardScaler()
+		scaled_data = scaler.fit_transform( data )
+
+		return scaled_data
+
+
+	def get_hdbscan_clusters( self, data: np.array ) -> Dict[int, List[int]]:
+		"""
+		Run HDBSCAN clustering the return dict for all clusters.
+		"""
+		hdb = hdbscan.HDBSCAN( min_cluster_size = self.min_cluster_size,
+								min_samples = self.min_samples )
+		hdb.fit( scaled_data )
+
+		# Get cluster labels for each data point.
+		labels = hdb.labels_
+
+		hdb_clusters = {}
+		for label in np.unique(labels):
+			# Get indices for all data points having a label.
+			hdb_clusters[label] = np.array( 
+									np.where( labels == label )[0]
+									)
+
+		return hdb_clusters
+
+
+	def model_filtering( self ) -> List:
+		"""
+		Remove outlier models from the given set of models.
+		Use HDBSCAN to identify such noise models (unclustered).
+			Consider the all except the unclustered models for further analysis.
+			Use violation loss, CCOM loss, restraint loss, and 
+				restraint metrics for clustering.
+		"""
+		data = self.prep_data()
+		# The model at epoch 0 will be kept.
+		scaled_data = self.get_scaled_data( data[1:, :] )
+
+		clusters = self.hdb_clusters( scaled_data )
+
+		# Add the epoch 0 model.
+		selected_models = [0]
+		# Add 1 to all cluster indices to correct for the 
+		# 	numbering due to removing the epoch 0 model.
+		for label in clusters:
+			clusters[label] += 1
+
+			if label == -1:
+				unclustered_models = clusters[label]
+			else:
+				# Ignore the unclustered models.
+				selected_models.extend( clusters[label] )
+
+		selected_models = sorted( selected_models )
+		return unclustered_models, selected_models
+
+
+	def save_loss_metrics( self, model_ids: List[int], file_name: str ):
+		"""
+		Select the loss and metric values for the given model IDs and save on disk.
+		"""
+		df_dict = {"model_id": model_ids}
+		for k in self.loss_dict:
+			v = np.array( self.loss_dict[k] )
+			df_dict[k] = v[model_ids]
+
+		for k in self.metrics_dict:
+			v = np.array( self.metrics_dict[k] )
+			df_dict[f"{k}_metric"] = np.round( 
+											np.mean( v[model_ids]), 
+											self.prec
+											)
+		file_name = os.path.join( self.analysis_dir, f"summary_{file_name}.csv" )
+		df.to_csv( file_name, index = False )
+
+	# def remove_tmp_dir( self ):
+	# 	cmd = ["rm", "-r", f"{self.tmp_dir}"]
+	# 	run_subprocess( cmd )
+
+
+
+	# def write_model_to_pdb( self, model_id: str, model: Model, model_file: str ):
 	# 	"""
-	# 	Use HDBSCAN for clustering models based on the Molprobity validation metrics.
+	# 	Write a model to PDB file.
+	# 	Required to run Molprobity on all models separately.
+	# 	"""
+	# 	io = PDBIO()
+
+	# 	struct = Structure.Structure( f"Model_{model_id}" )
+	# 	struct.add( model )
+
+	# 	io.set_structure( struct )
+	# 	io.save( model_file )
+
+
+	# def split_ensemble( self, model_id: str, model: Model, model_file: str ):
+	# 	"""
+	# 	Split the multi-model PDB into separate PDB files.
+	# 	This would avoid loading the structure on disk.
 	# 	"""
 
+	# 	io = PDBIO()
+
+	# 	struct = Structure.Structure( f"Model_{model_id}" )
+	# 	struct.add( model )
+
+	# 	io.set_structure( struct )
+	# 	io.save( model_file )
 
 
 
-	def get_good_models( self ):
-		"""
-		To filter out bad models we consider the median Molprobity score.
-			Median because mean is sensitive to outliers.
-		We remove models with a Molprobity score higher than 1*MAD (median absolute deviation).
-		"""
-		molprob_scores = [self.full_val_dict[k]["MolProbity score"] for k in self.full_val_dict.keys()]
+	# def validation_pipeline( self, model_id ):
+	# 	"""
+	# 	Compute the no. of chain breaks.
+	# 	Perform Molprobity validation.
+	# 	"""
+	# 	# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
+	# 	model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}.pdb" )
+	# 	molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
 
-		multiplier = 1
-		if self.selection_statistic == "mean":
-			mean_score = np.mean( molprob_scores )
-			# Compute the standard deviation.
-			sd = np.std( molprob_scores )
+	# 	self.run_molprobity( model_file, molprob_output_dir )
+	# 	summary_dict = {}
+	# 	summary_dict[model_id] = self.get_molprobity_validation_summary( molprob_output_dir )
+
+	# 	files_to_remove = glob.glob( f"{molprob_output_dir}*" )
+	# 	cmd = ["rm", "-r"] + files_to_remove
+	# 	run_subprocess( cmd )
+
+	# 	return summary_dict
+
+
+
+	# def parallelize_validation_pipeline( self ):
+	# 	"""
+	# 	Parse all models in parallel and perform all the required validations.
+	# 	"""
+	# 	# structure = self.parser.structure
+	# 	# model_ids = self.parser.get_model_ids()
+	# 	# entry_list = list( zip( model_ids, structure ) )
+
+	# 	with Pool( self.cores ) as p:
+	# 		for result in p.imap_unordered( self.validation_pipeline, self.model_ids ):
+	# 		# for result in p.imap_unordered( self.validation_pipeline, entry_list ):
+	# 			summary_dict = result
+
+	# 			self.full_val_dict.update( summary_dict )
+	# 			# for k, v in summary_dict.items():
+	# 			# 	self.full_val_dict.setdefault( k, [] ).append( v )
+
+
+
+	# def get_molprobity_validation_summary( self, output_dir: str ):
+	# 	"""
+	# 	Molprobity can provide detailed information about:
+	# 		Ramachandran outliers
+	# 					favored
+	# 		Rotamer outliers
+	# 		C-beta deviations
+	# 		Clashscore
+	# 		RMS(bonds)
+	# 		RMS(angles)
+	# 		MolProbity score
+	# 		Resolution
+	# 		R-work
+	# 		R-free
+	# 		Refinement program
+	# 	All this can be obtained from the *.out file generated by molprobity.
+	# 	"""
+	# 	with open( f"{output_dir}.out", "r" ) as f:
+	# 		summary = f.readlines()
+
+	# 	summary_dict = {}
+	# 	for i in range( len( summary ) ):
+	# 		line = summary[i]
+	# 		if "Summary" in line:
+	# 			for j in range( i+1, len( summary ) ):
+	# 				l = summary[j]
+
+	# 				split_line = l.strip().split( " = " )
+	# 				if len( split_line ) < 2:
+	# 					continue
+
+	# 				key, value = split_line 
+	# 				key = "".join( key.split( "  " ) )
+	# 				value = "".join( value.split( "  " ) )
+
+	# 				# Remove spaces from the end.
+	# 				key = key[:-1] if key[-1] == " " else key
+	# 				# Remove '%' symbols.
+	# 				value = value.replace( "%", "" )
+					
+	# 				if value.isalpha():
+	# 					summary_dict[key] = value
+	# 				else:
+	# 					summary_dict[key] = float( value )
+
+	# 	return summary_dict
+
+
+
+	# def run_molprobity( self, model_file: str, output_dir: str ) -> None:
+	# 	"""
+	# 	Run Molprobity validation using Phenix.
+	# 	requires a PDB file with just 1 model.
+	# 	Generates the following files:
+	# 		{prefix}_coot.py  {prefix}.out  {prefix}.pkl  {prefix}.txt
+
+	# 	output_dir --> must be in the format "/path/prefix".
+	# 		where path is the output directory path and prefix is the 
+	# 			name for the output files generated.
+	# 	"""
+	# 	molprob_cmd = [
+	# 					"phenix.molprobity",
+	# 					f"{model_file}",
+	# 					f"output.prefix={output_dir}"
+	# 					]
+
+	# 	run_subprocess( molprob_cmd )
+
+
+
+	# def filter_models( self ):
+	# 	"""
+	# 	Here we use the Molprobity score as a criterion for assessing model quality.
+	# 	Select the good scoring models.
+	# 	"""
+	# 	selected_models = self.get_good_models()
+
+	# 	keys = ["model_id"] + list( self.full_val_dict[0].keys() )
+	# 	for model_id in self.full_val_dict.keys():
+	# 		if model_id in selected_models:
+	# 			# self.selected_val_dict["model_id"].append( model_id )
+
+	# 			for k in keys:
+	# 				if k == "model_id":
+	# 					v = model_id
+	# 				else:
+	# 					v = self.full_val_dict[model_id][k]
+	# 				self.selected_val_dict.setdefault( k, [] ).append( v )
+
+
+	# def get_good_models( self ):
+	# 	"""
+	# 	To filter out bad models we consider the median Molprobity score.
+	# 		Median because mean is sensitive to outliers.
+	# 	We remove models with a Molprobity score higher than 1*MAD (median absolute deviation).
+	# 	"""
+	# 	molprob_scores = [self.full_val_dict[k]["MolProbity score"] for k in self.full_val_dict.keys()]
+
+	# 	multiplier = 1
+	# 	if self.selection_statistic == "mean":
+	# 		mean_score = np.mean( molprob_scores )
+	# 		# Compute the standard deviation.
+	# 		sd = np.std( molprob_scores )
 			
-			the_score = mean_score
-			dev = sd
+	# 		the_score = mean_score
+	# 		dev = sd
 		
-		elif self.selection_statistic == "median":
-			median_score = np.median( molprob_scores )
-			# Compute the abolsute deviations from the median.
-			abs_dev = np.abs( molprob_scores - median_score )
-			mad = np.median( abs_dev )
+	# 	elif self.selection_statistic == "median":
+	# 		median_score = np.median( molprob_scores )
+	# 		# Compute the abolsute deviations from the median.
+	# 		abs_dev = np.abs( molprob_scores - median_score )
+	# 		mad = np.median( abs_dev )
 			
-			the_score = median_score
-			dev = mad
+	# 		the_score = median_score
+	# 		dev = mad
 
-		selected_models = []
+	# 	selected_models = []
 
-		# for i in range( len( molprob_scores ) ):
-			# model_id = self.full_val_dict["model_id"][i]
-		for model_id in self.full_val_dict.keys():
-			score = self.full_val_dict[model_id]["MolProbity score"]
-			# Calculate the lower and upper median bounds.
-			lb = the_score - multiplier*dev
-			ub = the_score + multiplier*dev
+	# 	# for i in range( len( molprob_scores ) ):
+	# 		# model_id = self.full_val_dict["model_id"][i]
+	# 	for model_id in self.full_val_dict.keys():
+	# 		score = self.full_val_dict[model_id]["MolProbity score"]
+	# 		# Calculate the lower and upper median bounds.
+	# 		lb = the_score - multiplier*dev
+	# 		ub = the_score + multiplier*dev
 
-			if score >= lb and score <= ub:
-				selected_models.append( model_id )
+	# 		if score >= lb and score <= ub:
+	# 			selected_models.append( model_id )
 
-		return selected_models
+	# 	return selected_models
 
 
 
-	def write_full_val_dict( self ):
-		"""
-		Save the full validation dict on disk.
-		Save as a .csv file.
-		Plot the metrics.
-		"""
-		tmp_dict = {}
-		# Need the dict to be storing lists.
-		keys = ["model_id"] + list( self.full_val_dict[0].keys() )
-		for model_id in self.full_val_dict.keys():
-			for k in keys:
-				if k == "model_id":
-					v = model_id
-				else:
-					v = self.full_val_dict[model_id][k]
-				tmp_dict.setdefault( k, [] ).append( v )
+	# def write_full_val_dict( self ):
+	# 	"""
+	# 	Save the full validation dict on disk.
+	# 	Save as a .csv file.
+	# 	Plot the metrics.
+	# 	"""
+	# 	tmp_dict = {}
+	# 	# Need the dict to be storing lists.
+	# 	keys = ["model_id"] + list( self.full_val_dict[0].keys() )
+	# 	for model_id in self.full_val_dict.keys():
+	# 		for k in keys:
+	# 			if k == "model_id":
+	# 				v = model_id
+	# 			else:
+	# 				v = self.full_val_dict[model_id][k]
+	# 			tmp_dict.setdefault( k, [] ).append( v )
 	
-		df = pd.DataFrame( tmp_dict )
-		# for k, v in tmp_dict.items():
-		# 	df[k] = v
-		df.to_csv( self.full_val_csv, index = False )
+	# 	df = pd.DataFrame( tmp_dict )
+	# 	# for k, v in tmp_dict.items():
+	# 	# 	df[k] = v
+	# 	df.to_csv( self.full_val_csv, index = False )
 
-		_ = tmp_dict.pop( "model_id", None )
-		create_plot_from_dict( tmp_dict, self.full_val_plot_file )
+	# 	_ = tmp_dict.pop( "model_id", None )
+	# 	create_plot_from_dict( tmp_dict, self.full_val_plot_file )
 
 
-	def write_selected_val_dict( self ):
-		"""
-		Save the selected validation dict on disk.
-		Save as a .csv file.
-		Plot the metrics.
-		"""		
-		df = pd.DataFrame( self.selected_val_dict )
+	# def write_selected_val_dict( self ):
+	# 	"""
+	# 	Save the selected validation dict on disk.
+	# 	Save as a .csv file.
+	# 	Plot the metrics.
+	# 	"""		
+	# 	df = pd.DataFrame( self.selected_val_dict )
 
-		df.to_csv( self.selected_val_csv, index = False )
+	# 	df.to_csv( self.selected_val_csv, index = False )
 
-		df = pd.DataFrame()
-		for k, v in self.selected_val_dict.items():
-			if k != "model_id":
-				df[k] = [round( np.mean( v ), self.prec )]
-		df.to_csv( self.selected_avg_csv_file, index = False )
+	# 	df = pd.DataFrame()
+	# 	for k, v in self.selected_val_dict.items():
+	# 		if k != "model_id":
+	# 			df[k] = [round( np.mean( v ), self.prec )]
+	# 	df.to_csv( self.selected_avg_csv_file, index = False )
 
-		tmp_dict = self.selected_val_dict.copy()
-		_ = tmp_dict.pop( "model_id", None )
-		create_plot_from_dict( tmp_dict, self.selected_val_plot_file )
+	# 	tmp_dict = self.selected_val_dict.copy()
+	# 	_ = tmp_dict.pop( "model_id", None )
+	# 	create_plot_from_dict( tmp_dict, self.selected_val_plot_file )
 
 
 
