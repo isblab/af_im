@@ -4,6 +4,7 @@ This script contains functions to read/write modify PDB files.
 import io
 import string
 import os
+import warnings
 from typing import Dict, Tuple, Iterator
 import numpy as np
 
@@ -24,6 +25,8 @@ from openfold.np import residue_constants
 from openfold.data import feature_pipeline
 
 from utils import open_file_handler
+
+warnings.filterwarnings("ignore")
 
 # Taken from openfold.np.protein.py
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -162,24 +165,24 @@ class Parser():
 		return quantity
 
 
-	def get_coordinates( self ) -> np.array:
+	def get_coordinates( self, model: Model.Model ) -> np.array:
 		"""
-		Extract coordinates from all models in the structure.
+		Extract coordinates for a models in the structure.
 		"""
-		for model in self.get_models():
-			coords_dict = {}
+		# for model in self.get_models():
+		coords_dict = {}
 
-			for residue, chain_id in self.get_residues( model ):
-				coords = self.extract_perresidue_quantity( residue, "coords" )
+		for residue, chain_id in self.get_residues( model ):
+			coords = self.extract_perresidue_quantity( residue, "coords" )
 
-				if chain_id not in coords_dict:
-					coords_dict[chain_id] = np.array( coords )
-				else:
-					coords_dict[chain_id] = np.append( coords_dict[chain_id], coords )
+			if chain_id not in coords_dict:
+				coords_dict[chain_id] = np.array( coords )
+			else:
+				coords_dict[chain_id] = np.append( coords_dict[chain_id], coords )
 
-			coords_dict = {k: v.reshape( -1, 3 ) for k, v in coords_dict.items()}
+		coords_dict = {k: v.reshape( -1, 3 ) for k, v in coords_dict.items()}
 
-			yield coords_dict
+		return coords_dict
 
 
 

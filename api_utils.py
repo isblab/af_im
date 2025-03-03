@@ -102,7 +102,7 @@ def send_request( url, _format = "json", max_trials = 10, wait_time = 5 ):
 	"""
 	for trial in range( 0, max_trials ):
 		try:
-			response = requests.get( url, timeout = 300 )
+			response = requests.get( url )
 
 			# Resource not found.
 			if response.status_code == 404:
@@ -216,7 +216,8 @@ def pdb_valid( file_name: str, ext: str ):
 
 
 
-def download_pdb( pdb_id: str, ext: str, max_trials: int = 5, wait_time: int = 5,
+def download_pdb( pdb_id: str, ext: str, file_name: str, 
+					max_trials: int = 5, wait_time: int = 5,
 					return_id: bool = True ):
 	"""
 	Download the PDB entry in the specified format.
@@ -249,10 +250,11 @@ def download_pdb( pdb_id: str, ext: str, max_trials: int = 5, wait_time: int = 5
 	if response not in ["not_found", "bad_request"]:
 		success = True
 
-		file_name = f"./{pdb_id}.{ext}"
-		write_to_file( response.content, file_name, "wb" )
+		# file_name = f"./{pdb_id}.{ext}"
+		write_to_file( response, file_name, "w" )
 
 	else:
+		print( f"HTTP response - {response}" )
 		success = False
 
 	if success:
@@ -279,7 +281,7 @@ def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5
 
 	if response not in ["not_found", "bad_request"]:
 		success = True
-		write_to_file( response.content, f"{pdb_id}.xml", "wb" )
+		write_to_file( response, f"{pdb_id}.xml", "w" )
 	else:
 		success = False
 
@@ -358,9 +360,9 @@ def get_casp_entry( casp_id: str, max_trials: int = 5, wait_time: int = 5 ):
 	if fasta_response in ["not_found", "bad_request"]:
 		raise requests.HTTPError( f"FASTA file for {casp_id} could not be obtained..." )
 
-	struct_response = send_request( struct_url, _format = None, max_trials = max_trials,
-									wait_time = wait_time )
-	if fasta_response in ["not_found", "bad_request"]:
-		raise requests.HTTPError( f"Structure file for {casp_id} could not be obtained..." )
+	# struct_response = send_request( struct_url, _format = None, max_trials = max_trials,
+	# 								wait_time = wait_time )
+	# if fasta_response in ["not_found", "bad_request"]:
+	# 	raise requests.HTTPError( f"Structure file for {casp_id} could not be obtained..." )
 
-	return fasta_response, struct_response
+	return fasta_response #, struct_response

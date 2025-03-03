@@ -24,7 +24,11 @@ def open_file_handler( file_path: str, mode: str ) -> TextIO:
 	----------
 	File handler for the specified file.
 	"""
-	return open( file_path, mode, encoding = "utf-8" )
+	if "b" in mode:
+		fh = open( file_path, mode )
+	else:
+		fh = open( file_path, mode, encoding = "utf-8" )
+	return fh
 
 
 def read_json( file_path: str ) -> Dict:
