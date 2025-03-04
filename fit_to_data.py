@@ -13,11 +13,12 @@ from typing import Dict, Tuple, Optional
 
 import torch
 from torch import nn
+from torch.cuda.amp import GradScaler
 
 from openfold.data import feature_pipeline
 from openfold.model.structure_module import StructureModule
 from openfold.model.heads import AuxiliaryHeads
-from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
+from openfold.utils.multi_chain_permutation import multi_chain_permutation_align, split_ground_truth_labels
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import protein
@@ -159,16 +160,17 @@ class FitToData():
 		with open( pkl_path, "rb" ) as f:
 			ofold_output = pkl.load( f )
 
-		msa_rep = ofold_output["msa"]
+		# msa_rep = ofold_output["msa"]
 		pair_rep = ofold_output["pair"]
 		single_rep = ofold_output["single"]
 
 		self.evo_output = {
-		"msa": torch.from_numpy( msa_rep ),
+		# "msa": torch.from_numpy( msa_rep ),
 		"pair": torch.from_numpy( pair_rep ),
 		"single": torch.from_numpy( single_rep )
 		}
-		print( f"MSA rep: {msa_rep.shape} \t Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
+		# print( f"MSA rep: {msa_rep.shape} \t Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
+		print( f"Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
 
 		# return evo_output
 
@@ -270,21 +272,24 @@ class FitToData():
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
 
+		# Initialize gradient scaler for AMP.
+		# self.scaler = GradScaler("cuda")
+
 		for epoch in range( self.topology.train.max_epochs ):
 			t_start = time.time()
 			print( f"\nEpoch: {epoch} --------------------------" )
 
 			self.add_to_device()
-
+			
 			batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
 			# Separate out the ground truth features - as in OpenFold training_step.
 			gt_features = batch.pop( "gt_features", None )
+
+			# with torch.autocast( device_type = self.device, dtype = torch.float16 ):
+			outputs, batch = model.predict( self.evo_output, gt_features, batch )
+
 			# Separate out the restraint features.
 			restraint_features = batch.pop( "restraint_features", None )
-
-			# evo_output["single"] = d( evo_output["single"] )
-			outputs, batch = model.predict( self.evo_output, gt_features, batch )
-			# outputs, batch = self.predict( batch, evo_output, gt_features )
 
 			# This was used in training AF2 to permutes chains in ground truth before calculating the loss
 			# 	because the mapping between the predicted and ground-truth will become arbitrary.
@@ -295,8 +300,13 @@ class FitToData():
 				batch = multi_chain_permutation_align( out = outputs,
 														features = batch,
 														ground_truth = gt_features )
+			else:
+				with torch.no_grad():
+					labels = split_ground_truth_labels( gt_features )
+					batch.update( gt_features )
 
 			self.add_model( save_model_obj, outputs, epoch )
+
 			self.step( outputs, batch, restraint_features, optimizer, epoch )
 			t_end = time.time()
 			t_ = time.time()
@@ -306,7 +316,6 @@ class FitToData():
 
 		t_ = time.time()
 		print( f"\n --> Time taken for fitting: {( t_ - t )}  seconds" )
-
 
 
 	def compute_loss( self, out: Dict[str, torch.Tensor], 
@@ -392,6 +401,9 @@ class FitToData():
 
 		if self.topology.train.allow_grad_update:
 			optimizer.zero_grad()
+			# self.scaler.scale( cum_loss ).backward()
+			# self.scaler.step( optimizer )
+			# self.scaler.update()
 			cum_loss.backward()
 			optimizer.step()
 
