@@ -1,13 +1,16 @@
+import os
+from typing import Dict
 import numpy as np
 import pandas as pd
+from scipy.spatial import distance_matrix
 import ml_collections as mlc
-import os
 
 import torch
 
+from pdb_utils import Parser
 from utils import read_json, write_json
 
-from typing import Dict
+
 
 """
 This script assumes a specific directory structure:
@@ -60,7 +63,6 @@ class DataGathering():
 		
 		else:
 			raise Exception( "Too many chains." )
-
 
 
 	def create_full_system( self ):
@@ -229,6 +231,51 @@ class DataGathering():
 
 	# 	return xl_df
 
+	# def get_ground_truth_distance_map( self ):
+	# 	"""
+	# 	Obtain a distance map from the structure.
+	# 	"""
+	# 	struct_file = os.path.join( self.base_dir, f"{self.sys_name}.pdb" )
+	# 	parser = Parser( struct_file )
+	# 	for model in parser.get_models():
+	# 		coords_dict = parser.get_coordinates( model )
+	# 		sys_coords = np.array( [] )
+	# 		for k, v in coords_dict.items():
+	# 			if len( sys_coords ) == 0:
+	# 				sys_coords = v
+	# 			else:
+	# 				sys_coords = np.vstack( [sys_coords, v] )
+	# 		break
+
+	# 	sys_distance_map = distance_matrix( sys_coords, sys_coords )
+	# 	return sys_distance_map
+
+
+	# def remove_false_positives( self, xl_df: pd.DataFrame, xl_max_bound: float ):
+	# 	"""
+	# 	Assuming the residue positions are mapped to indices in the input dataframe.
+	# 	Remove all false positive (FP) XL pairs.
+	# 	An XL pair is FP if the distance betwen the residues is >the xl_max_bound.
+	# 	"""
+	# 	gt_distance_map = self.get_ground_truth_distance_map()
+	# 	# gt_contact_map = np.where( gt_distance_map <= xl_max_bound, 1, 0 )
+
+	# 	drop_rows = []
+	# 	for i in range( len( xl_df ) ):
+	# 		r1 = xl_df.iloc[i, 1]
+	# 		r2 = xl_df.iloc[i, 3]
+
+	# 		if gt_distance_map[r1, r2] > xl_max_bound:
+	# 		# if gt_contact_map[r1, r2] != 1:
+	# 			drop_rows.append( i )
+
+	# 	print( "Dropped rows: ", drop_rows )
+	# 	# Remove FP XL pairs.
+	# 	xl_df = xl_df.drop( drop_rows )
+	# 	exit()
+
+	# 	return xl_df
+
 
 
 	def create_xl_restraint_features( self, system_dict ):
@@ -241,15 +288,21 @@ class DataGathering():
 			max bound for the cross-linker.
 		"""
 		xl_config = self.sys_config.data_gathering.xl_restraint
+		xl_max_bound = xl_config.xl_max_bound
 		xl_df = self.parse_xl_data()
 
 		# offset_dict, sys_len = self.calculate_offsets( system_dict )
 		# xl_df = self.add_offsets( offset_dict, xl_df )
-		
+
 		sys_len = self.get_sys_len( system_dict )
 		res_idx_map = self.get_residue_index_map( system_dict )
 
 		xl_df = self.map_residue_to_index( xl_df, res_idx_map )
+		print( "Total XL pairs = ", len( xl_df ) )
+
+		# Remove FP XL pairs.
+		# xl_df = self.remove_false_positives( xl_df, xl_max_bound )
+		# print( "XL pairs after removing False positives = ", len( xl_df ) )
 
 		# Create a 0-matrix for the XL-residue mask [r,r].
 		# 	r -> total no. of residues.
@@ -261,7 +314,7 @@ class DataGathering():
 		# Above diagonal.
 		xl_mask[r1, r2] = 1
 		# Below diagonal.
-		xl_mask[r2, r1] = 1
+		# xl_mask[r2, r1] = 1
 
 		contact_map = xl_mask.clone()
 		distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
@@ -270,7 +323,7 @@ class DataGathering():
 		self.restraint_features["xl_restraint"] = {}
 		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_mask
 		self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
-		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_config.xl_max_bound
+		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
 
 
 	def get_distogram( self, contact_map: torch.Tensor, xl_max_bound: float ):
