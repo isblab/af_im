@@ -28,9 +28,9 @@ def get_model( model_config: mlc.ConfigDict, system_features: mlc.ConfigDict,
 	if model_config.name == "structure_module_finetuning":
 		model = StructureModuleFineTuning( system_features, ofold_config, model_config,
 											mode, is_multimer, device )
-	# elif model_config.name == "pair_bias":
-	# 	model = PairBias( system_features, ofold_config, model_config,
-	# 										mode, is_multimer, device )
+	elif model_config.name == "fixed_additive_pair_bias":
+		model = FixedAdditivePairBias( system_features, ofold_config, model_config,
+											mode, is_multimer, device )
 	else:
 		raise ValueError( "Incorrect model type specified..." )
 
@@ -175,7 +175,8 @@ class Model( nn.Module, ABC ):
 
 class StructureModuleFineTuning( LoadState, Model ):
 	"""
-	Create a model comprising the OpenFold structure moduel and plddt head.
+	Create a model comprising the OpenFold structure module and plddt head.
+	Fine tuning the structure module.
 	"""
 	def __init__( self, system_features: mlc.ConfigDict,
 						ofold_config: mlc.ConfigDict,
@@ -248,7 +249,7 @@ class StructureModuleFineTuning( LoadState, Model ):
 			# outputs.update( self.aux_heads( outputs ) )
 			lddt_logits = self.plddt( outputs["sm"]["single"] )
 
-			# Required for relaxation later on
+			# Required for saving the structure later on.
 			outputs["plddt"] = compute_plddt( lddt_logits )
 
 		return outputs, batch
@@ -259,3 +260,4 @@ class StructureModuleFineTuning( LoadState, Model ):
 		Return a list of models for the optimizer.
 		"""
 		return [self.structure_module]
+
