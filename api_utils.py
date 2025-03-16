@@ -1,17 +1,18 @@
 """
 This script contains functions for handling API requests, downloading files.
 """
-
+import os
 import time
 import xml.etree.ElementTree as ET
 from io import StringIO
 import warnings
 import requests
+from typing import List, Tuple, Dict, Optional
 from Bio import SeqIO
 from Bio.PDB import PDBParser, MMCIFParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from utils import write_to_file
+from utils import ( read_json, write_to_file )
 
 warnings.filterwarnings("ignore")
 
@@ -109,13 +110,13 @@ def send_request( url, _format = "json", max_trials = 10, wait_time = 5 ):
 				# Try till half the no. of max_trials.
 				# 	Don't want it stuck for too long if the URL doesn't actually exist.
 				if trial > ( max_trials/2 ):
-					return "not_found"
+					send_response = "not_found"
 				time.sleep( wait_time )
 
 			# Bad request.
 			elif response.status_code == 400:
 				if trial == ( max_trials - 1 ):
-					return "bad_request"
+					send_response = "bad_request"
 				time.sleep( wait_time )
 
 			elif response.status_code == 200:
@@ -127,15 +128,15 @@ def send_request( url, _format = "json", max_trials = 10, wait_time = 5 ):
 				else:
 					send_response = response.text
 
-				return send_response
 				break
 
 			else:
 				raise requests.HTTPError( f"--> Encountered status code: {response.status_code}\n" )
 
-		except requests.HTTPError:
-			return "not_found"
-
+		except Exception as e:
+			send_response = "not_found"
+			print( f"Exception encountered: {e}" )
+	return send_response
 
 
 ##################################### UniProt ######################################
@@ -268,6 +269,197 @@ def download_pdb( pdb_id: str, ext: str, file_name: str,
 	return result
 
 
+#################################### PDB REST API ##################################
+####----------------------------------------------------------------------------####
+class PdbRestApi():
+	def __init__( self, entry_id: str,
+					entry_file: Optional[str] = None,
+					entity_file: Optional[str] = None ):
+		# Entry ID aka PDB ID.
+		self.entry_id = entry_id
+		self.entry_file = entry_file
+		self.entity_file = entity_file
+		# Dict to store Entry level data.
+		self.entry_data = {}
+		# Dict to store Entity level data.
+		self.entity_data = {}
+
+		# Accessory attributes.
+		self.max_trials = 5
+		self.wait_time = 10
+
+		# if already downloaded, use existing entry and entity dicts.
+		entry_dict_exists = self.load_predownloaded_data()
+		if not entry_dict_exists:
+			# Retrieve entry_data.
+			self.retrieve_entry_data()
+
+	##------------------------------------------------------------------------------
+	# URL methods.
+	##------------------------------------------------------------------------------
+	def get_entry_url( self ) -> str:
+		"""
+		Return the PDB REST Entry URL for the given entry_id (PDB ID).
+		"""
+		entry_url = f"https://data.rcsb.org/rest/v1/core/entry/{self.entry_id}"
+		return entry_url
+
+
+	def get_polymer_entity_url( self, entity_id: str ) -> str:
+		"""
+		Return the PDB REST Entity URL for the given entry_id (PDB ID) and entity_id.
+		"""
+		entity_url = f"https://data.rcsb.org/rest/v1/core/polymer_entity/{self.entry_id}/{entity_id}"
+		return entity_url
+
+
+	def load_predownloaded_data( self ) -> bool:
+		"""
+		Load the entry and entity dict from pre-downloaded JSON files.
+		"""
+		if self.entry_file is not None:
+			if os.path.exists( self.entry_file ):
+				self.entry_data = read_json( self.entry_file )
+				entry_dict_exists = True
+			else:
+				entry_dict_exists = False
+
+		if self.entity_file is not None:
+			if os.path.exists( self.entity_file ):
+				self.entity_data = read_json( self.entity_file )
+
+		return entry_dict_exists
+
+	##------------------------------------------------------------------------------
+	# Data retrieval (from PDB) methods.
+	##------------------------------------------------------------------------------
+	def retrieve_entry_data( self ):
+		"""
+		Retrieve entry level information from PDB for the given entry_id.
+		"""
+		entry_url = self.get_entry_url()
+		data = send_request( entry_url, _format = "json",
+							max_trials = self.max_trials,
+							wait_time = self.wait_time )
+
+		if data in ["not_found", "bad_request"]:
+			raise requests.HTTPError( f"Could not retrieve info. for the entry_id = {self.entry_id}..." )
+		else:
+			self.entry_data = data
+
+
+	def retrieve_polymer_entity_data( self, entity_id ):
+		"""
+		Retrieve entity level information from PDB for the given entity_id.
+		Use the existing info. if already exists.
+		"""
+		if entity_id not in self.entity_data.keys():
+			entity_url = self.get_polymer_entity_url( entity_id )
+			data = send_request( entity_url, _format = "json",
+								max_trials = self.max_trials,
+								wait_time = self.wait_time )
+
+			if data in ["not_found", "bad_request"]:
+				raise requests.HTTPError( f"Could not retrieve info. for the entry_id = {self.entry_id}"+
+								f" and entity_id = {entity_id}..." )
+			else:
+				self.entity_data[entity_id] = data
+
+
+	def retrieve_all_polymer_entity_data( self ):
+		"""
+		Retrieve entity level information from PDB for all entities associated with an entry_id.
+		"""
+		polymer_entity_ids = self.get_all_polymer_entities()
+
+		for entity_id in polymer_entity_ids:
+			self.retrieve_polymer_entity_data( entity_id )
+
+
+	##------------------------------------------------------------------------------
+	# Methods to get required information.
+	##------------------------------------------------------------------------------
+	def get_polymer_entry_container_identifiers( self ) -> Dict:
+		"""
+		Return entry_container_identifiers for a given entry_id.
+		"""
+		if "rcsb_entry_container_identifiers" in self.entry_data.keys():
+			pol_entry_cont_id = self.entry_data["rcsb_entry_container_identifiers"]
+		else:
+			pol_entry_cont_id = []
+
+		return pol_entry_cont_id
+
+
+	def get_polymer_entity_container_identifiers( self, entity_id: str ) -> Dict:
+		"""
+		Return polymer_entity_container_identifiers for a given entity_id.
+		"""
+		if "rcsb_polymer_entity_container_identifiers" in self.entity_data[
+															entity_id].keys():
+			pol_entity_cont_id = self.entity_data[entity_id][
+										"rcsb_polymer_entity_container_identifiers"
+										]
+		else:
+			pol_entity_cont_id = []
+
+		return pol_entity_cont_id
+
+
+	def get_all_entities( self ) -> List:
+		"""
+		Get the entity_ids for all the polymer entities in a given entry.
+		Returns a list of all polymer entity_ids.
+		"""
+		pol_entry_cont_id = self.get_polymer_entry_container_identifiers()
+		if "entity_ids" in pol_entry_cont_id.keys():
+			entity_ids = pol_entry_cont_id["entity_ids"]
+		else:
+			entity_ids = []
+
+		return entity_ids
+
+
+	def get_polymer_entities( self ) -> List:
+		"""
+		Get the entity_ids for all the polymer entities in a given entry.
+		Returns a list of all polymer entity_ids.
+		"""
+		pol_entry_cont_id = self.get_polymer_entry_container_identifiers()
+		if "polymer_entity_ids" in pol_entry_cont_id.keys():
+			polymer_entity_ids = pol_entry_cont_id["polymer_entity_ids"]
+		else:
+			polymer_entity_ids = []
+
+		return polymer_entity_ids
+
+
+	def get_uniprot_ids_for_entity( self, entity_id: str ) -> List:
+		"""
+		uniprot_id can be obtained at the entity level.
+		Get all uniprot_id for a given polymer entity_id.
+		"""
+		pol_entity_cont_id = self.get_polymer_entity_container_identifiers(
+																	entity_id )
+		if "uniprot_ids" in pol_entity_cont_id.keys():
+			uniprot_ids = pol_entity_cont_id["uniprot_ids"]
+		else:
+			uniprot_ids = []
+		return uniprot_ids
+
+
+	def get_asym_ids_for_entity( self, entity_id: str ) -> List:
+		"""
+		asym_id can be obtained at the entity level.
+		Get all asym_id for a given polymer entity_id.
+		"""
+		pol_entity_cont_id = self.get_polymer_entity_container_identifiers( entity_id )
+		if "asym_ids" in pol_entity_cont_id.keys():
+			asym_ids = pol_entity_cont_id["asym_ids"]
+		else:
+			asym_ids = []
+		return asym_ids
+
 
 ####################################### SIFTS ######################################
 ####----------------------------------------------------------------------------####
@@ -277,7 +469,9 @@ def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5
 	Save as an XML file.
 	"""
 	url = f"https://www.ebi.ac.uk/pdbe/files/sifts/{pdb_id}.xml"
-	response = send_request( url, _format = None, max_trials = max_trials, wait_time = wait_time )
+	response = send_request( url, _format = None,
+								max_trials = max_trials,
+								wait_time = wait_time )
 
 	if response not in ["not_found", "bad_request"]:
 		success = True
@@ -286,7 +480,6 @@ def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5
 		success = False
 
 	return success
-
 
 
 def parse_sifts_xml( file: str ):
@@ -366,3 +559,4 @@ def get_casp_entry( casp_id: str, max_trials: int = 5, wait_time: int = 5 ):
 	# 	raise requests.HTTPError( f"Structure file for {casp_id} could not be obtained..." )
 
 	return fasta_response #, struct_response
+
