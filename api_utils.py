@@ -12,7 +12,7 @@ from Bio import SeqIO
 from Bio.PDB import PDBParser, MMCIFParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from utils import ( read_json, write_to_file )
+from utils import ( read_json, write_to_file, run_subprocess )
 
 warnings.filterwarnings("ignore")
 
@@ -172,7 +172,6 @@ def get_uniprot_seq( uni_id, max_trials = 5, wait_time = 5, return_id = False ):
 			response = [uni_id, seq_record[0]] if return_id else seq_record[0]
 
 	return response
-
 
 
 ######################################## PDB #######################################
@@ -461,25 +460,66 @@ class PdbRestApi():
 		return asym_ids
 
 
+	def get_poly_entity_align( self, entity_id: str ) -> List:
+		"""
+		Get the UniProt and PDB start residue position for the entity and the length.
+		End residue position = start + length
+		For entities with multiple aligned regions
+		"""
+		if "rcsb_polymer_entity_align" in self.entity_data[entity_id].keys():
+			poly_ent_align = self.entity_data[entity_id]["rcsb_polymer_entity_align"][0]
+			# We are only selecting the 1st aligned region.
+			aligned_region = poly_ent_align["aligned_regions"]
+
+			if len( aligned_region ) == 1:
+				aligned_region = aligned_region[0]
+
+				length = int( aligned_region["length"] )
+				uni_start = int( aligned_region["ref_beg_seq_id"] )
+				uni_end = uni_start + length - 1
+				
+				pdb_start = int( aligned_region["entity_beg_seq_id"] )
+				pdb_end = pdb_start + length - 1
+
+				uni_pos = f"{uni_start}-{uni_end}"
+				pdb_pos = f"{pdb_start}-{pdb_end}"
+
+			else:
+				uni_pos, pdb_pos = "", ""
+				length = 0
+		else:
+			uni_pos, pdb_pos = "", ""
+			length = 0
+
+		return [uni_pos, pdb_pos], length
+
+
 ####################################### SIFTS ######################################
 ####----------------------------------------------------------------------------####
-def download_sifts_mapping( pdb_id: str, max_trials: int = 5, wait_time: int = 5 ):
+def download_sifts_mapping( pdb_id: str, file_path: str, 
+							max_trials: int = 5, wait_time: int = 5 ):
 	"""
 	Fetch the PDB to UniProt mapping from SIFTS.
 	Save as an XML file.
 	"""
-	url = f"https://www.ebi.ac.uk/pdbe/files/sifts/{pdb_id}.xml"
-	response = send_request( url, _format = None,
-								max_trials = max_trials,
-								wait_time = wait_time )
+	# $(curl https://www.ebi.ac.uk/pdbe/files/sifts/1mv0.xml.gz --silent --output 1mv0.xml.gz --write-out "%{http_code}" "$@")
+	url = f"https://www.ebi.ac.uk/pdbe/files/sifts/{pdb_id}.xml.gz"
+	cmd = ["curl", f"{url}", "--output", f"{file_path}.gz", "--silent"]
+	run_subprocess( cmd )
+	cmd = ["gunzip", f"{file_path}"]
+	run_subprocess( cmd )
+	# response = send_request( url, _format = None,
+	# 							max_trials = max_trials,
+	# 							wait_time = wait_time )
 
-	if response not in ["not_found", "bad_request"]:
-		success = True
-		write_to_file( response, f"{pdb_id}.xml", "w" )
-	else:
-		success = False
+	# print( response )
+	# if response not in ["not_found", "bad_request"]:
+	# 	success = True
+	# 	write_to_file( response, f"{file_path}", "wb" )
+	# else:
+	# 	success = False
 
-	return success
+	# return success
 
 
 def parse_sifts_xml( file: str ):
@@ -500,6 +540,17 @@ def parse_sifts_xml( file: str ):
 						if "listResidue" in subchild.tag:
 							for leaf in subchild:
 								is_null = False
+								allow = [False, False]
+								# Just to check if both PDB and UniProt identifiers are
+								# 	present for a residue.
+								for res_detail in leaf:
+									if res_detail.attrib["dbSource"] == "PDB":
+										allow[0] = True
+									elif res_detail.attrib["dbSource"] == "UniProt":
+										allow[1] = True
+								if not all( allow ):
+									continue
+
 								for res_detail in leaf:
 									data = res_detail.attrib
 
@@ -518,13 +569,14 @@ def parse_sifts_xml( file: str ):
 																	}
 
 										sifts_dict[chain_id]["sequence"]["PDB"].append( aa_3_to_1( data["dbResName"] ) )
+
 										if data["dbResNum"] == "null":
 											is_null = True
 											sifts_dict[chain_id]["missing"]["PDB Residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["missing"]["PDB position"].append( data["dbResNum"] )
 										else:
 											sifts_dict[chain_id]["resolved"]["PDB Residue"].append( data["dbResName"] )
-											sifts_dict[chain_id]["resolved"]["PDB position"].append( data["dbResNum"] )
+											sifts_dict[chain_id]["resolved"]["PDB position"].append( int( data["dbResNum"] ) )
 
 									if data["dbSource"] == "UniProt":
 										sifts_dict[chain_id]["sequence"]["Uniprot"].append( data["dbResName"] )
@@ -535,7 +587,8 @@ def parse_sifts_xml( file: str ):
 										else:
 											sifts_dict[chain_id]["resolved"]["Uniprot ID"].append( data["dbAccessionId"] )
 											sifts_dict[chain_id]["resolved"]["Uniprot Residue"].append( data["dbResName"] )
-											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( data["dbResNum"] )
+											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( int( data["dbResNum"] ) )
+	return sifts_dict
 
 
 ####################################### CASP #######################################
