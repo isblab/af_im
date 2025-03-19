@@ -564,29 +564,29 @@ def parse_sifts_xml( file: str ):
 													sifts_dict[chain_id][key] = {"PDB": [], "Uniprot": []}
 												else:
 													sifts_dict[chain_id][key] = {k:[] for k in
-																	["PDB Residue", "PDB position",
-																		"Uniprot ID", "Uniprot Residue", "Uniprot position"]
+																	["PDB residue", "PDB position",
+																		"Uniprot ID", "Uniprot residue", "Uniprot position"]
 																	}
 
 										sifts_dict[chain_id]["sequence"]["PDB"].append( aa_3_to_1( data["dbResName"] ) )
 
 										if data["dbResNum"] == "null":
 											is_null = True
-											sifts_dict[chain_id]["missing"]["PDB Residue"].append( data["dbResName"] )
+											sifts_dict[chain_id]["missing"]["PDB residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["missing"]["PDB position"].append( data["dbResNum"] )
 										else:
-											sifts_dict[chain_id]["resolved"]["PDB Residue"].append( data["dbResName"] )
+											sifts_dict[chain_id]["resolved"]["PDB residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["resolved"]["PDB position"].append( int( data["dbResNum"] ) )
 
 									if data["dbSource"] == "UniProt":
 										sifts_dict[chain_id]["sequence"]["Uniprot"].append( data["dbResName"] )
 										if is_null:
 											sifts_dict[chain_id]["missing"]["Uniprot ID"].append( data["dbAccessionId"] )
-											sifts_dict[chain_id]["missing"]["Uniprot Residue"].append( data["dbResName"] )
+											sifts_dict[chain_id]["missing"]["Uniprot residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["missing"]["Uniprot position"].append( data["dbResNum"] )
 										else:
 											sifts_dict[chain_id]["resolved"]["Uniprot ID"].append( data["dbAccessionId"] )
-											sifts_dict[chain_id]["resolved"]["Uniprot Residue"].append( data["dbResName"] )
+											sifts_dict[chain_id]["resolved"]["Uniprot residue"].append( data["dbResName"] )
 											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( int( data["dbResNum"] ) )
 	return sifts_dict
 
