@@ -8,6 +8,9 @@ from typing import List, Dict, Tuple
 import numpy as np
 import pandas as pd
 import ml_collections as mlc
+from multiprocessing import Pool
+from functools import partial
+import tqdm
 
 from utils import ( run_subprocess, open_file_handler, 
 					read_json, write_json )
@@ -62,9 +65,10 @@ class CreateBenchmark():
 		"""
 		# get PDB IDs from the two benchmarks.
 		afu_benchmark = self.parse_pdb_afu_benchmark()
-		bm_benchmark = self.parse_bm_benchmark()
+		# bm_benchmark = self.parse_bm_benchmark()
 
-		benchmark_pdb_ids = afu_benchmark + bm_benchmark
+		# benchmark_pdb_ids = afu_benchmark + bm_benchmark
+		benchmark_pdb_ids = afu_benchmark
 		print( f"Total PDB IDs obtained: {len( benchmark_pdb_ids )}" )
 
 		print( "\n------------------------------------------------\n" )
@@ -96,6 +100,30 @@ class CreateBenchmark():
 
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
+	def initialize_dir( self ):
+		"""
+		Create the required directories if not already existing.
+		"""
+		if not os.path.exists( self.base_dir ):
+			os.makedirs( self.base_dir )
+		if not os.path.exists( self.meta_dir ):
+			os.makedirs( self.meta_dir )
+		if not os.path.exists( self.pdb_api_dir ):
+			os.makedirs( self.pdb_api_files )
+		if not os.path.exists( self.pdb_struct_dir ):
+			os.makedirs( self.pdb_struct_dir )
+		if not os.path.exists( self.benchmark_dir ):
+			os.makedirs( self.benchmark_dir )
+		if not os.path.exists( self.sifts_xml_dir ):
+			os.makedirs( self.sifts_xml_dir )
+		if not os.path.exists( self.sifts_dict_dir ):
+			os.makedirs( self.sifts_dict_dir )
+
+
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def parse_pdb_afu_benchmark( self ) -> List:
 		"""
 		Using the PDB benchmark provided in the AF Unmasked paper.
@@ -126,26 +154,6 @@ class CreateBenchmark():
 			pdb_ids.append( pdb_id )
 		print( f"PDB IDs from BM v_5.5 benchmark: {len( pdb_ids )}" )
 		return pdb_ids
-
-
-	def initialize_dir( self ):
-		"""
-		Create the required directories if not already existing.
-		"""
-		if not os.path.exists( self.base_dir ):
-			os.makedirs( self.base_dir )
-		if not os.path.exists( self.meta_dir ):
-			os.makedirs( self.meta_dir )
-		if not os.path.exists( self.pdb_api_dir ):
-			os.makedirs( self.pdb_api_files )
-		if not os.path.exists( self.pdb_struct_dir ):
-			os.makedirs( self.pdb_struct_dir )
-		if not os.path.exists( self.benchmark_dir ):
-			os.makedirs( self.benchmark_dir )
-		if not os.path.exists( self.sifts_xml_dir ):
-			os.makedirs( self.sifts_xml_dir )
-		if not os.path.exists( self.sifts_dict_dir ):
-			os.makedirs( self.sifts_dict_dir )
 
 
 	def get_entry_entity_files( self, entry_id: str ) -> Tuple[str, str]:
@@ -262,6 +270,8 @@ class CreateBenchmark():
 			1. It contains a non-polymeric entity.
 				entity_ids > polymer_entity_ids.
 			2. No. of UniProt IDs does not match the no. of polymer_entity_ids.
+			3. No aligned PDB-UniProt positions available.
+			4. Total system length > 1450.
 		"""
 		selected_pdb_ids = []
 		c1, c2, c3, c4, c5 = 0, 0, 0, 0, 0
@@ -272,9 +282,10 @@ class CreateBenchmark():
 			uni_pos = self.pdb_benchmark_dict[pdb_id]["uni_pos"].split( "," )
 			pdb_pos = self.pdb_benchmark_dict[pdb_id]["pdb_pos"].split( "," )
 
-			if len( entity_ids ) > len( polymer_entity_ids ):
-				c1 += 1
-				continue
+			# Removing non-polymeric entities.
+			# if len( entity_ids ) > len( polymer_entity_ids ):
+			# 	c1 += 1
+			# 	continue
 
 			if len( polymer_entity_ids ) < len( uniprot_ids ):
 				c2 += 1
@@ -284,6 +295,7 @@ class CreateBenchmark():
 				c3 += 1
 				continue
 
+			# Aligned PDB-UniProt positiosn not present.
 			if any( [len( u ) == 0 for u in uni_pos] ) or any( [len( p ) == 0 for p in pdb_pos] ):
 				c4 += 1
 				continue
@@ -297,6 +309,8 @@ class CreateBenchmark():
 		return selected_pdb_ids
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def segregate_benchmark( self, selected_pdb_ids ):
 		"""
 		Segregate all remaining complexes into:
@@ -354,6 +368,8 @@ class CreateBenchmark():
 		print( "Remaiing entries: ", len( self.pdb_benchmark_dict ) )
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def get_unique_uni_seq( self, selected_pdb_ids: Dict ):
 		"""
 		Get unique UniProt IDs.
@@ -379,12 +395,20 @@ class CreateBenchmark():
 		unique_uni_ids = self.get_unique_uni_seq( selected_pdb_ids )
 		total = len( unique_uni_ids )
 		for idx, uni_id in enumerate( unique_uni_ids ):
+		# with Pool( 5 ) as p:
+		# 	for result in tqdm.tqdm( 
+		# 							p.imap_unordered( partial( get_uniprot_seq, max_trials = 10, 
+		# 																wait_time = 5, 
+		# 																return_id = True ),
+		# 												unique_uni_ids ),
+		# 							total = total ):
 			print( f"Downloading seq for Uni ID: {uni_id} -- {idx}/{total}... " )
 			uni_seq = get_uniprot_seq( uni_id,
 									max_trials = 10,
 									wait_time = 5,
 									return_id = False )
 
+			# uni_id, uni_seq = result
 			if len( uni_seq ) != 0:
 				self.uni_seq_dict[uni_id] = uni_seq
 			else:
@@ -418,6 +442,8 @@ class CreateBenchmark():
 							raise Exception( f"Unable to download PDB: {pdb_id}" )
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def map_pdb_to_uniprot( self, selected_pdb_ids: List ):
 		"""
 		Get PDB to UniProt mapping using SIFTS.
@@ -438,7 +464,8 @@ class CreateBenchmark():
 				write_json( sifts_dict,
 							os.path.join( self.sifts_dict_dir, f"{pdb_id}.json" ) )
 
-				self.sifts_pdb_to_uni[pdb_id] = self.get_pdb_to_uni_res_map( sifts_dict )
+				pdb_uni_res = self.get_pdb_to_uni_res_map( sifts_dict )
+				self.sifts_pdb_to_uni[pdb_id] = pdb_uni_res
 
 
 	def get_pdb_to_uni_res_map( self, sifts_dict: Dict ):
@@ -452,11 +479,17 @@ class CreateBenchmark():
 				pdb_uni_res[chain] = {}
 			pdb_pos = sifts_dict[chain]["resolved"]["PDB position"]
 			uni_pos = sifts_dict[chain]["resolved"]["Uniprot position"]
+			if len( pdb_pos ) != len( uni_pos ):
+				raise ValueError( "Error in PDB and UniProt mapping." +
+									f"PDB residues = {len( pdb_pos )}" +
+									f" and UniProt residues = {len( uni_pos )}" )
 			pdb_uni_res[chain] = dict( zip( pdb_pos, uni_pos ) )
 		
 		return pdb_uni_res
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def create_system_dir( self, pdb_id: str ):
 		"""
 		Create directories for all benchmark systems.
@@ -548,6 +581,8 @@ class CreateBenchmark():
 			write_json( sys_dict, sys_config_file )
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
 	def run_jwalk( self, pdb_file: str ):
 		"""
 		Run Jwalk to obtain XLs given a .pdb file.
