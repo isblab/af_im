@@ -37,7 +37,6 @@ class DataGathering():
 		self.restraint_features = {}
 
 
-
 	def forward( self ):
 		"""
 		Given the system specific configs,
@@ -74,22 +73,20 @@ class DataGathering():
 		idx = 0
 		for entity in self.sys_config.entity:
 			copy_num = entity["copy_num"]
-			for i in range( copy_num ):
-				start = entity["start"]
-				end = entity["end"]
-				
-				chain_id = self.get_chain_id( idx )
-				seq = entity["sequence"]
-				seq = seq[start - 1: end]
+			start = entity["start"]
+			end = entity["end"]
+			seq = entity["sequence"][start - 1: end]
 
-				system_dict[f"{self.sys_name}_{idx+1}_{chain_id}"] = {
+			for i in range( copy_num ):
+				chain_id = self.get_chain_id( idx )
+
+				system_dict[f"{self.sys_name}_{entity}_{chain_id}"] = {
 													"seq": seq,
 													"positions": [start, end]
 				}
 
 				idx += 1
 		return system_dict
-
 
 
 	def create_fasta_input( self, system_dict: Dict ):
@@ -105,7 +102,6 @@ class DataGathering():
 				w.writelines( f">{chain}\n{system_dict[chain]['seq']}\n" )
 
 
-
 	def parse_xl_data( self ):
 		"""
 		Parse the .csv file containing the XL data.
@@ -114,7 +110,6 @@ class DataGathering():
 		xl_df = pd.read_csv( os.path.abspath( self.sys_config["data_gathering"]["xl_restraint"]["file_name"] ) )
 
 		return xl_df
-
 
 
 	def get_residue_index_map( self, system_dict: Dict ):
@@ -142,14 +137,12 @@ class DataGathering():
 
 			# Get the chain IDs for all residues.
 			chain = chain.split( "_" )[-1]
-			# chains = [chain]*total
 			
 			res_idx_map[chain] = {}
 			res_idx_map[chain]["res_to_ind"] = dict( zip( residues_positions, system_index ) )
 			res_idx_map[chain]["ind_to_res"] = dict( zip( system_index, residues_positions ) )
 
 		return res_idx_map
-
 
 
 	def map_residue_to_index( self, xl_df: pd.DataFrame, res_idx_map: Dict ):
@@ -171,7 +164,7 @@ class DataGathering():
 
 		return xl_df
 
-
+;
 
 	def get_sys_len( self, system_dict: Dict ):
 		"""
@@ -182,100 +175,6 @@ class DataGathering():
 			sys_len += len( system_dict[chain]['seq'] )
 
 		return sys_len
-
-
-	# def calculate_offsets( self, system_dict: Dict ):
-	# 	"""
-	# 	Calculate offsets to be added to the residues in each chain.
-	# 	Offset to a residue in any chain is equal to the no. of residues upto the required chain.
-	# 	e.g. system_dict -- {"A": [1,100], "B": [1, 50], "C": [1, 200]}
-	# 			offset_dict -- {"A": 0, "B": 100, "C": 150}
-	# 	Also calculate the system length -- total residues in the system.
-	# 	"""
-	# 	offset_dict = {}
-	# 	offset = 0
-	# 	for chain in system_dict:
-	# 		offset_dict[chain]  = offset
-
-	# 		chain_len = len( system_dict[chain]['seq'] )
-	# 		# Offset is the no. of residues upto the current chain.
-	# 		offset += chain_len
-
-	# 	# The final offset equals the length of the system.
-	# 	sys_len = offset
-
-	# 	return offset_dict, sys_len
-
-
-
-	# def add_offsets( self, offset_dict: Dict, xl_df: pd.DataFrame ):
-	# 	"""
-	# 	Add offsets to the residues of all chains for both the cross-linked proteins.
-	# 	"""
-	# 	for chain in offset_dict:
-	# 		mask1 = xl_df["prot1"] == chain
-	# 		mask2 = xl_df["prot2"] == chain
-
-	# 		select_res1 = xl_df[mask1]
-	# 		select_res2 = xl_df[mask2]
-
-	# 		select_res1["res1"] += offset_dict[chain]
-	# 		select_res2["res2"] += offset_dict[chain]
-
-	# 		xl_df.loc[mask1, "res1"] = select_res1["res1"]
-	# 		xl_df.loc[mask2, "res2"] = select_res2["res2"]
-
-	# 	# Correcting for 0-indexing in the array.
-	# 	xl_df["res1"] -= 1
-	# 	xl_df["res2"] -= 1
-
-	# 	return xl_df
-
-	# def get_ground_truth_distance_map( self ):
-	# 	"""
-	# 	Obtain a distance map from the structure.
-	# 	"""
-	# 	struct_file = os.path.join( self.base_dir, f"{self.sys_name}.pdb" )
-	# 	parser = Parser( struct_file )
-	# 	for model in parser.get_models():
-	# 		coords_dict = parser.get_coordinates( model )
-	# 		sys_coords = np.array( [] )
-	# 		for k, v in coords_dict.items():
-	# 			if len( sys_coords ) == 0:
-	# 				sys_coords = v
-	# 			else:
-	# 				sys_coords = np.vstack( [sys_coords, v] )
-	# 		break
-
-	# 	sys_distance_map = distance_matrix( sys_coords, sys_coords )
-	# 	return sys_distance_map
-
-
-	# def remove_false_positives( self, xl_df: pd.DataFrame, xl_max_bound: float ):
-	# 	"""
-	# 	Assuming the residue positions are mapped to indices in the input dataframe.
-	# 	Remove all false positive (FP) XL pairs.
-	# 	An XL pair is FP if the distance betwen the residues is >the xl_max_bound.
-	# 	"""
-	# 	gt_distance_map = self.get_ground_truth_distance_map()
-	# 	# gt_contact_map = np.where( gt_distance_map <= xl_max_bound, 1, 0 )
-
-	# 	drop_rows = []
-	# 	for i in range( len( xl_df ) ):
-	# 		r1 = xl_df.iloc[i, 1]
-	# 		r2 = xl_df.iloc[i, 3]
-
-	# 		if gt_distance_map[r1, r2] > xl_max_bound:
-	# 		# if gt_contact_map[r1, r2] != 1:
-	# 			drop_rows.append( i )
-
-	# 	print( "Dropped rows: ", drop_rows )
-	# 	# Remove FP XL pairs.
-	# 	xl_df = xl_df.drop( drop_rows )
-	# 	exit()
-
-	# 	return xl_df
-
 
 
 	def create_xl_restraint_features( self, system_dict ):
@@ -299,10 +198,6 @@ class DataGathering():
 
 		xl_df = self.map_residue_to_index( xl_df, res_idx_map )
 		print( "Total XL pairs = ", len( xl_df ) )
-
-		# Remove FP XL pairs.
-		# xl_df = self.remove_false_positives( xl_df, xl_max_bound )
-		# print( "XL pairs after removing False positives = ", len( xl_df ) )
 
 		# Create a 0-matrix for the XL-residue mask [r,r].
 		# 	r -> total no. of residues.
