@@ -71,31 +71,43 @@ class CreateBenchmark():
 		benchmark_pdb_ids = afu_benchmark
 		print( f"Total PDB IDs obtained: {len( benchmark_pdb_ids )}" )
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Downloading info from PDB REST API...\n" )
 		self.where_the_magic_happens( benchmark_pdb_ids )
+
+		print( "\n------------------------------------------------" )
+		print( "Filter and Segregate the PDB IDs...\n" )
 		selected_pdb_ids = self.filter_and_segregate()
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Remove the unwanted PDB IDs...\n" )
 		self.clean_benchmark_dict( selected_pdb_ids )
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Download UniProt sequences...\n" )
 		if not os.path.exists( self.uni_seq_file ):
 			self.dwnld_uni_seq( selected_pdb_ids )
 		else:
 			self.uni_seq_dict = read_json( self.uni_seq_file )
-		print( "\n------------------------------------------------\n" )
+		
+		print( "\n------------------------------------------------" )
+		print( "Download the structure from PDB in .pdb format...\n" )
 		self.dwnld_pdb_struct( selected_pdb_ids )
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Obtain PDB-UniProt mapping using SIFTS...\n" )
 		self.map_pdb_to_uniprot( selected_pdb_ids )
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Create config files...\n" )
 		self.create_sys_config_dict()
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Simulate XL data...\n" )
 		num_xls = self.simulate_xl_data()
 
-		print( "\n------------------------------------------------\n" )
+		print( "\n------------------------------------------------" )
+		print( "Save benchmark to disk..." )
 		self.write_benchmark_to_csv( num_xls )
 
 
@@ -111,7 +123,7 @@ class CreateBenchmark():
 		if not os.path.exists( self.meta_dir ):
 			os.makedirs( self.meta_dir )
 		if not os.path.exists( self.pdb_api_dir ):
-			os.makedirs( self.pdb_api_files )
+			os.makedirs( self.pdb_api_dir )
 		if not os.path.exists( self.pdb_struct_dir ):
 			os.makedirs( self.pdb_struct_dir )
 		if not os.path.exists( self.benchmark_dir ):
@@ -195,6 +207,7 @@ class CreateBenchmark():
 			All entities.
 			All polymer entities.
 			UniProt IDs.
+			Auth asym IDs.
 			Stoichiometry.
 			Aligned UniProt start-end position.
 			Aligned PDB start-end position.
@@ -216,12 +229,14 @@ class CreateBenchmark():
 								"stoichiometry", "uni_pos", "pdb_pos"]}
 		stoichiometry = []
 		uniprot_ids = []
+		auth_asym_ids = []
 		uni_pos, pdb_pos = [], []
 		total_length = 0
 		for entity_id in polymer_entities:
 			rest_api.retrieve_polymer_entity_data( entity_id )
 			uniprot_ids.extend( rest_api.get_uniprot_ids_for_entity( entity_id ) )
 			asym_ids = rest_api.get_asym_ids_for_entity( entity_id )
+			auth_asym_ids.append( "-".join( rest_api.get_auth_asym_ids_for_entity( entity_id ) ) )
 			pos, length = rest_api.get_poly_entity_align( entity_id )
 			uni_pos.append( pos[0] )
 			pdb_pos.append( pos[0] )
@@ -232,6 +247,7 @@ class CreateBenchmark():
 		pdb_dict["entity_ids"] = ",".join( all_entities )
 		pdb_dict["polymer_entity_ids"] = ",".join( polymer_entities )
 		pdb_dict["uniprot_ids"] = ",".join( uniprot_ids )
+		pdb_dict["auth_asym_ids"] = ",".join( auth_asym_ids )
 		pdb_dict["stoichiometry"] = "-".join( stoichiometry )
 		pdb_dict["uni_pos"] = ",".join( uni_pos )
 		pdb_dict["pdb_pos"] = ",".join( pdb_pos )
@@ -248,11 +264,10 @@ class CreateBenchmark():
 		For all the benchmark PDB IDs, get the required info.
 		(See self.entry_from_pdb_rest_api doc-str)
 		"""
-		init_pdb_benchmark_dict = {}
-
 		for idx, pdb_id in enumerate( benchamrk_pdb_ids ):
-			# Skip obsolete PDB IDs (for now).
-			if pdb_id == "8h4x":
+			# Skip obsolete PDB IDs - 8h4x.
+			# Skip PDBs with insertion code - 8a82, 7yls
+			if pdb_id in ["8h4x", "8a82", "7yls"]:
 				continue
 			print( f"{idx} --> {pdb_id}" )
 
@@ -468,7 +483,7 @@ class CreateBenchmark():
 				self.sifts_pdb_to_uni[pdb_id] = pdb_uni_res
 
 
-	def get_pdb_to_uni_res_map( self, sifts_dict: Dict ):
+	def get_pdb_to_uni_res_map( self, sifts_dict: Dict ) -> Dict[str, Dict[str, str]]:
 		"""
 		Create a dict with PDB positions as keys and UniProt positions 
 			as values for all chains.
@@ -658,8 +673,50 @@ class CreateBenchmark():
 			chain2 = df.iloc[i, 2]
 			res2 = int( df.iloc[i, 3] )
 
+			# if pdb_id == "8ck8":
+			# 	print( chain1, "  ", res1 )
+			# 	print( chain2, "  ", res2 )
+			# 	print( df )
+			# 	print( self.sifts_pdb_to_uni[pdb_id][chain1].keys() )
+			# 	exit()
+
 			df.iloc[i, 1] = self.sifts_pdb_to_uni[pdb_id][chain1][res1]
 			df.iloc[i, 3] = self.sifts_pdb_to_uni[pdb_id][chain2][res2]
+		return df
+
+
+	def get_chain_entity_map( self, pdb_id: str ) -> Dict[str, int]:
+		"""
+		For a given PDB ID, create dict mapping the auth_asym_ids to
+			their respective entity_id.
+		"""
+		chain_entity_map = {}
+		entity_ids = self.pdb_benchmark_dict[pdb_id]["polymer_entity_ids"].split( "," )
+		auth_asym_ids = self.pdb_benchmark_dict[pdb_id]["auth_asym_ids"].split( "," )
+
+		for i in range( len( auth_asym_ids ) ):
+			for aa_id in auth_asym_ids[i].split( "-" ):
+				chain_entity_map[aa_id] = entity_ids[i]
+
+		return chain_entity_map
+
+
+	def map_chain_to_protein( self, pdb_id: str, df: pd.DataFrame ):
+		"""
+		Given the inter-protein XL pairs, map the chains to the respective proteins.
+		Each protein is identified by an entity_id, so we replace chains with -
+			f"prot_{entity_id}".
+		"""
+		chain_entity_map = self.get_chain_entity_map( pdb_id )
+
+		for i in range( df.shape[0] ):
+			chain1 = df.iloc[i, 0]
+			chain2 = df.iloc[i, 2]
+
+			prot = f"prot_{chain_entity_map[chain1]}"
+			df.iloc[i, 0] = prot
+			prot = f"prot_{chain_entity_map[chain2]}"
+			df.iloc[i, 2] = prot
 		return df
 
 
@@ -678,7 +735,13 @@ class CreateBenchmark():
 		"""
 		print( "Simulating XL data..." )
 		num_xls = {}
-		for pdb_id in self.pdb_benchmark_dict:
+		# Remove PDB IDs for which JWalk couldn't be run or for which all residues were not mapped.
+		no_xls, exclude = [], []
+		for idx, pdb_id in enumerate( self.pdb_benchmark_dict ):
+			print( f"\n--> {idx} --> {pdb_id}" )
+			# Not all PDB positions are mapped to UniProt.
+			# if pdb_id in ["8g0k", "8ck8"]:
+			# 	continue
 			sys_dir = os.path.join( self.benchmark_dir, f"{pdb_id}/" )
 
 			# Move to system dir.
@@ -689,7 +752,6 @@ class CreateBenchmark():
 				struct_file = os.path.join( f"{pdb_id}.cif" )
 			else:
 				raise FileNotFoundError( f"PDB/CIF file not found for entry {pdb_id}..." )
-			print( struct_file )
 
 			try:
 				# Run Jwalk.
@@ -697,25 +759,43 @@ class CreateBenchmark():
 					self.run_jwalk( struct_file )
 				else:
 					print( f"Jwalk_results already present in {pdb_id} dir..." )
-
-				# Obtain intraprotein and interprotein XLs from Jwalk output.
-				interprotein_xls = self.parse_jwalk_output( pdb_id )
-				interprotein_xls = self.get_uni_pos_for_xls( pdb_id, interprotein_xls )
-				print( f"Inter-XLs = {len( interprotein_xls )}" )
-
-				# just logging the no. of XLs.
-				num_xls[pdb_id] = len( interprotein_xls )
-				# Save on disk.
-				interprotein_xls.to_csv( f"./{pdb_id}_interprotein_xls.csv", index = False )
-
 			except:
 				print( f"Couldn't run JWalk for {pdb_id}..." )
+				exclude.append( pdb_id )
+
+			# Obtain intraprotein and interprotein XLs from Jwalk output.
+			interprotein_xls = self.parse_jwalk_output( pdb_id )
+			try:
+				# Map PDB positions to UniProt positions for all XLs.
+				interprotein_xls = self.get_uni_pos_for_xls( pdb_id, interprotein_xls )
+				# Convert the chain IDs to proteins.
+				interprotein_xls = self.map_chain_to_protein( pdb_id, interprotein_xls )
+				print( f"Inter-XLs = {len( interprotein_xls )}" )
+
+				if len( interprotein_xls ) > 0:
+					# just logging the no. of XLs.
+					num_xls[pdb_id] = len( interprotein_xls )
+					# Save on disk.
+					interprotein_xls.to_csv( f"./{pdb_id}_interprotein_xls.csv", index = False )
+				else:
+					no_xls.append( pdb_id )
+			except:
+				print( "Not all PDB residues mapped to UniProt..." )
+				exclude.append( pdb_id )
+
 			os.chdir( "../../../" )
+
+		for pdb_id in exclude+no_xls:
+			self.pdb_benchmark_dict.pop( pdb_id )
 
 		return num_xls
 
 
 	def write_benchmark_to_csv( self, num_xls ):
+		"""
+		Create a .csv file for all the PDB IDs in the benchmark.
+		Ignore the ones with 0 interprotein-XLs.
+		"""
 		dum = list( self.pdb_benchmark_dict.keys() )[0]
 		keys = ["pdb_id"] + list( self.pdb_benchmark_dict[dum].keys() )
 		flat_dict = {k:[] for k in keys}
