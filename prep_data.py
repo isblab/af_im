@@ -514,9 +514,15 @@ class CreateBenchmark():
 			os.makedirs( sys_dir )
 
 
-	def get_entities( self, stoichiometry: List, uniprot_ids: Dict, uni_pos: List ):
+	def get_entities( self, stoichiometry: List, uniprot_ids: Dict, uni_pos: List
+					) -> List[Dict]:
 		"""
-		Create all entities part of the system.
+		Create all entities part of the system. Have the following:
+			entity_id (starts from 1).
+			UniProt ID.
+			copy_num --> no. of copies for an entity.
+			start, end UniProt residue positions.
+			Complete UniProt sequence.
 		"""
 		entities = []
 		for i in range( len( stoichiometry ) ):
@@ -529,6 +535,7 @@ class CreateBenchmark():
 
 			entities.append( 
 				{
+					"entity_id": i+1,
 					"uni_id": uni_id,
 					"copy_num": copy_num,
 					"start": start,
@@ -540,7 +547,8 @@ class CreateBenchmark():
 		return entities
 
 
-	def create_sys_dict_entry( self, sys_num: int, sys_name: str, entities: Dict ):
+	def create_sys_dict_entry( self, sys_num: int, sys_name: str, entities: Dict
+								) -> Dict:
 		"""
 		Create a config dict containing:
 			"system_{index}": {
@@ -619,7 +627,7 @@ class CreateBenchmark():
 
 
 
-	def parse_jwalk_output( self, name: str ):
+	def parse_jwalk_output( self, name: str ) -> pd.DataFrame:
 		"""
 		Jwalk writes a .txt file containing all the XLs.
 		It provides the following info:
@@ -661,7 +669,8 @@ class CreateBenchmark():
 		return interprotein_xls
 
 
-	def get_uni_pos_for_xls( self, pdb_id: str, df: pd.DataFrame ):
+	def get_uni_pos_for_xls( self, pdb_id: str, df: pd.DataFrame
+							) -> pd.DataFrame:
 		"""
 		Given a dataframe for inter-protein XLs, map the PDB positions
 			to the corresponding UniProt positions.
@@ -701,7 +710,8 @@ class CreateBenchmark():
 		return chain_entity_map
 
 
-	def map_chain_to_protein( self, pdb_id: str, df: pd.DataFrame ):
+	def map_chain_to_protein( self, pdb_id: str, df: pd.DataFrame
+								) -> pd.DataFrame:
 		"""
 		Given the inter-protein XL pairs, map the chains to the respective proteins.
 		Each protein is identified by an entity_id, so we replace chains with -
