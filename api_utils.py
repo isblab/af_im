@@ -342,7 +342,8 @@ class PdbRestApi():
 							wait_time = self.wait_time )
 
 		if data in ["not_found", "bad_request"]:
-			raise requests.HTTPError( f"Could not retrieve info. for the entry_id = {self.entry_id}..." )
+			raise requests.HTTPError( "Could not retrieve info. for the entry_id" +
+										f" = {self.entry_id}..." )
 		else:
 			self.entry_data = data
 
@@ -359,8 +360,8 @@ class PdbRestApi():
 								wait_time = self.wait_time )
 
 			if data in ["not_found", "bad_request"]:
-				raise requests.HTTPError( f"Could not retrieve info. for the entry_id = {self.entry_id}"+
-								f" and entity_id = {entity_id}..." )
+				raise requests.HTTPError( f"Could not retrieve info. for the entry_id" +
+								f" = {self.entry_id} and entity_id = {entity_id}..." )
 			else:
 				self.entity_data[entity_id] = data
 
@@ -458,6 +459,19 @@ class PdbRestApi():
 		else:
 			asym_ids = []
 		return asym_ids
+
+
+	def get_auth_asym_ids_for_entity( self, entity_id: str ) -> List:
+		"""
+		auth_asym_id can be obtained at the entity level.
+		Get all auth_asym_id for a given polymer entity_id.
+		"""
+		pol_entity_cont_id = self.get_polymer_entity_container_identifiers( entity_id )
+		if "auth_asym_ids" in pol_entity_cont_id.keys():
+			auth_asym_ids = pol_entity_cont_id["auth_asym_ids"]
+		else:
+			auth_asym_ids = []
+		return auth_asym_ids
 
 
 	def get_poly_entity_align( self, entity_id: str ) -> List:
