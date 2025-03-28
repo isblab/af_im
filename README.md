@@ -5,7 +5,8 @@
 ### OpenFold
 Unzip the openfold.zip file. This has been cloned from the pl_upgrades branch in openfold git repo (for Cuda12) (https://github.com/aqlaboratory/openfold.git).  
 Minor modifications have been in script_utils/prep_output().  
-For installation, see instructions in OpenFold gdoc.
+We are using the pl_upgrades branch from the openfold git repo.  
+For installation, see instructions in OpenFold gdoc.  
 
 ### JWalk
 Clone the git repo from https://github.com/Topf-Lab/Jwalk.git.  
@@ -15,3 +16,16 @@ For installation, run
 python setup.py install
 ```
 
+## Benchmark
+Run the following script to create the required input files for the benchmark dataset.  
+```
+python prep_data.py
+```
+
+## Modeling
+To run the modeling, make the required changes to the parameters specified in `topology.py` file.  
+For now, change the system name in the constructor (self.sys_name) in the `openfold_wrapper.py` script.  
+Run the following script to start the modeling,
+```
+python openfold_wrapper.py
+```
