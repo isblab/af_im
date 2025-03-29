@@ -1,5 +1,5 @@
 import os
-from typing import Dict
+from typing import List, Tuple, Dict
 import numpy as np
 import pandas as pd
 from scipy.spatial import distance_matrix
@@ -9,7 +9,6 @@ import torch
 
 from pdb_utils import Parser
 from utils import read_json, write_json
-
 
 
 """
@@ -50,11 +49,12 @@ class DataGathering():
 		self.create_fasta_input( system_dict )
 		self.res_idx_map = self.create_residue_index_mapping( system_dict )
 		self.entity_chain_map = self.create_entity_chain_mapping( system_dict )
+		self.chain_entity_map = self.create_chain_entity_mapping( system_dict )
 		self.create_xl_restraint_features( system_dict )
 
 
-	#--------------------------------------------------------------------#
-	#--------------------------------------------------------------------#
+	#====================================================================#
+	#====================================================================#
 	def get_chain_id( self, idx: str ) -> str:
 		"""
 		Get a chain ID based on an index.
@@ -97,8 +97,8 @@ class DataGathering():
 		return system_dict
 
 
-	#--------------------------------------------------------------------#
-	#--------------------------------------------------------------------#
+	#====================================================================#
+	#====================================================================#
 	def create_fasta_input( self, system_dict: Dict ):
 		"""
 		Given the full system to be modeled, create a 
@@ -112,8 +112,8 @@ class DataGathering():
 				w.writelines( f">{chain}\n{system_dict[chain]['seq']}\n" )
 
 
-	#--------------------------------------------------------------------#
-	#--------------------------------------------------------------------#
+	#====================================================================#
+	#====================================================================#
 	def create_residue_index_mapping( self, system_dict: Dict
 										) -> Dict[str, Dict[int, int]]:
 		"""
@@ -142,8 +142,12 @@ class DataGathering():
 			chain = chain.split( "_" )[-1]
 			
 			res_idx_map[chain] = {}
-			res_idx_map[chain]["res_to_ind"] = dict( zip( residues_positions, system_index ) )
-			res_idx_map[chain]["ind_to_res"] = dict( zip( system_index, residues_positions ) )
+			res_idx_map[chain]["res_to_ind"] = dict(
+												zip( residues_positions, system_index )
+												)
+			res_idx_map[chain]["ind_to_res"] = dict(
+												zip( system_index, residues_positions )
+												)
 
 		return res_idx_map
 
@@ -151,7 +155,7 @@ class DataGathering():
 	def create_entity_chain_mapping( self, system_dict: Dict
 									) -> Dict[int, List]:
 		"""
-		Given the system_dict, map all chains to the corresponding entities.
+		Given the system_dict, get all chains for all entity_ids.
 		"""
 		entity_chain_map = {}
 		for sys_chain_id in system_dict:
@@ -165,8 +169,23 @@ class DataGathering():
 		return entity_chain_map
 
 
-	#--------------------------------------------------------------------#
-	#--------------------------------------------------------------------#
+	def create_chain_entity_mapping( self, system_dict: Dict
+									) -> Dict[int, List]:
+		"""
+		Given the system_dict, create a mapping between chains 
+			to their respective entity_id.
+		"""
+		chain_entity_map = {}
+		for sys_chain_id in system_dict:
+			sys_name, entity_id, chain_id = sys_chain_id.split( "_" )
+			entity_id = int( entity_id )
+			chain_entity_map[chain_id] = entity_id
+
+		return chain_entity_map
+
+
+	#====================================================================#
+	#====================================================================#
 	def parse_xl_data( self ) -> pd.DataFrame:
 		"""
 		Parse the .csv file containing the XL data.
@@ -189,26 +208,6 @@ class DataGathering():
 		return sys_len
 
 
-	def map_residue_to_index( self, xl_df: pd.DataFrame ) -> pd.DataFrame:
-		"""
-		Given a DataFrame containing positions for cross-linked residues,
-			map all residue positions to system indices from 0 to N,
-			where N is the total no. of residues in the system.
-		"""
-		for i in range( len( xl_df ) ):
-			chain1 = xl_df.loc[ i, "prot1" ]
-			res1 = xl_df.loc[ i, "res1" ]
-			index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
-			xl_df.loc[ i, "res1" ] = index1
-			
-			chain2 = xl_df.loc[ i, "prot2" ]
-			res2 = xl_df.loc[ i, "res2" ]
-			index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
-			xl_df.loc[ i, "res2" ] = index2
-
-		return xl_df
-
-
 	def get_chains_for_entity( self, prot: str ) -> List:
 		"""
 		Given a protein name ("prot_{entity_id}"), return all chains for the entity.
@@ -219,59 +218,140 @@ class DataGathering():
 		return chains
 
 
-	def account_ambiguity( self, xl_df: pd.DataFrame ):
+	def get_all_combinatorial_pairs( self, chains1: List, chains2: List ) -> List[Tuple]:
 		"""
-		To account for ambiguity we consider all inter-chain homomeric interactions.
+		Given lists of chain IDs for protein 1/2, create all 
+			combinatorial pairs to account for ambiguity.
+		We only consider inter-chain interactions.
 		"""
+		pairs = []
+		for c1 in chains1:
+			for c2 in chains2:
+				if c1 != c2:
+					pairs.append( ( c1, c2 ) )
+
+		return pairs
+
+
+	def account_for_ambiguity( self, xl_df: pd.DataFrame ):
+		"""
+		To account for ambiguity we consider all inter-chain 
+			for each ambiguous interacting pair.
+		For all XLs
+			Get the entity_id for the cross-linked protein 1/2.
+			Get all chain_ids belonging to entity_id for protein 1/2.
+			Get all combinatorial pairs of inter-chain chain_ids.
+			Get the residue position for cross-linked residues.
+		"""
+		# Dict to store all the ambiguous XL pairs.
+		xl_amb = {k:[] for k in xl_df.columns}
 		for i in range( xl_df.shape[0] ):
-			prot1 = xl_df.iloc[i,0]
+			prot1 = xl_df.loc[ i, "prot1" ]
 			chains1 = self.get_chains_for_entity( prot1 )
-			prot2 = xl_df.iloc[i,2]
+			prot2 = xl_df.loc[ i, "prot2" ]
 			chains2 = self.get_chains_for_entity( prot2 )
 
+			ambiguous_pairs = self.get_all_combinatorial_pairs( chains1, chains2 )
 
+			res1 = xl_df.loc[ i, "res1" ]
+			res2 = xl_df.loc[ i, "res2" ]
+
+			for pair in ambiguous_pairs:
+				c1, c2 = pair
+				xl_amb["prot1"].append( c1 )
+				xl_amb["res1"].append( res1 )
+				xl_amb["prot2"].append( c2 )
+				xl_amb["res2"].append( res2 )
+
+		xl_amb_df = pd.DataFrame( xl_amb )
+		return xl_amb_df
+
+
+	def map_residue_to_index( self, df: pd.DataFrame ) -> pd.DataFrame:
+		"""
+		Given a DataFrame containing positions for cross-linked residues,
+			map all residue positions to system indices from 0 to N,
+			where N is the total no. of residues in the system.
+		"""
+		for i in range( len( df ) ):
+			chain1 = df.loc[ i, "prot1" ]
+			res1 = df.loc[ i, "res1" ]
+			index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
+			df.loc[ i, "res1" ] = index1
+			
+			chain2 = df.loc[ i, "prot2" ]
+			res2 = df.loc[ i, "res2" ]
+			index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
+			df.loc[ i, "res2" ] = index2
+
+		return df
+
+
+	def map_chain_to_protein( self, df: pd.DataFrame ) -> pd.DataFrame:
+		"""
+		Map the chain_ids for all cross-linked pairs to the protein name defined as
+			"prot_{entity_id}".
+		Not sure if this is required.
+		"""
+		for i in range( len( df ) ):
+			chain1 = df.loc[ i, "prot1" ]
+			entity_id1 = self.chain_entity_map[chain1]
+			prot1 = f"prot_{entity_id}"
+			df.loc[ i, "prot1" ] = prot1
+			
+			chain2 = df.loc[ i, "prot2" ]
+			entity_id2 = self.chain_entity_map[chain2]
+			prot2 = f"prot_{entity_id2}"
+			df.loc[ i, "prot2" ] = prot2
+
+		return df
 
 
 	def create_xl_restraint_features( self, system_dict ):
 		"""
+		Create ground truth contact map (binary) for XL restraint.
+			We account for ambiguous cross-links in a single contact map.
 		Parse the XLs file.
-		Calculate and add offsets to each chain in the system.
-		Create a binary mask indicating cross-linked (XL'd) residues.
+		Add ambiguous XL pairs where required.
+		Map all cross-linkd residue positions to system indices.
+		Create a 0s-matrix for the system.
+		Add 1s for all cross-linked pairs.
 		XL restraint features:
 			binary mask for XL'd residues.
 			max bound for the cross-linker.
+			distogram (not sure if needed).
 		"""
 		xl_config = self.sys_config.data_gathering.xl_restraint
 		xl_max_bound = xl_config.xl_max_bound
 		xl_df = self.parse_xl_data()
+		print( "Total input XL pairs = ", len( xl_df ) )
 
-		# offset_dict, sys_len = self.calculate_offsets( system_dict )
-		# xl_df = self.add_offsets( offset_dict, xl_df )
+		# Account for ambiguity.
+		xl_amb_df = self.account_for_ambiguity( xl_df )
+
+		# Map residue positions to system indices.
+		xl_amb_df = self.map_residue_to_index( xl_amb_df )
+		print( "Total XL pairs (with ambiguity) = ", len( xl_amb_df ) )
 
 		sys_len = self.get_sys_len( system_dict )
-		# res_idx_map = self.create_residue_index_mapping( system_dict )
-
-		xl_df = self.map_residue_to_index( xl_df )
-		print( "Total XL pairs = ", len( xl_df ) )
-
 		# Create a 0-matrix for the XL-residue mask [r,r].
 		# 	r -> total no. of residues.
-		xl_mask = torch.zeros( ( sys_len, sys_len ) )
+		xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
 
-		r1 = xl_df["res1"]
-		r2 = xl_df["res2"]
+		r1 = xl_amb_df["res1"]
+		r2 = xl_amb_df["res2"]
 
 		# Above diagonal.
-		xl_mask[r1, r2] = 1
+		xl_res_mask[r1, r2] = 1
 		# Below diagonal.
-		# xl_mask[r2, r1] = 1
+		# xl_res_mask[r2, r1] = 1
 
-		contact_map = xl_mask.clone()
+		contact_map = xl_res_mask.clone()
 		distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
-		distogram = distogram*xl_mask.squeeze( 0 ).unsqueeze( -1 )
-		
+		distogram = distogram*xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+
 		self.restraint_features["xl_restraint"] = {}
-		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_mask
+		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
 		self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
 		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
 
