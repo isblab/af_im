@@ -164,7 +164,8 @@ def get_uniprot_seq( uni_id, max_trials = 5, wait_time = 5, return_id = False ):
 		response = [uni_id, []] if return_id else []
 
 	else:
-		seq_record = [str( record.seq ) for record in SeqIO.parse( StringIO( data ), 'fasta' )]
+		# seq_record = [str( record.seq ) for record in SeqIO.parse( StringIO( data ), 'fasta' )]
+		seq_record = list( SeqIO.parse( StringIO( data ), 'fasta' ) )
 
 		if seq_record == []:
 			response = [uni_id, []] if return_id else []
@@ -196,24 +197,20 @@ def pdb_valid( file_name: str, ext: str ):
 	success = False
 	try:
 		if ext == "cif":
-			models = MMCIFParser().get_structure( "cif", file_name )
-			if len( models ) == 0:
-				success = False
-			else:
-				success = True
+			structure = MMCIFParser().get_structure( "cif", file_name )
 
 		elif ext == "pdb":
-			models = PDBParser().get_structure( "pdb", file_name )
-			if len( models ) == 0:
-				success = False
-			else:
-				success = True
+			structure = PDBParser().get_structure( "pdb", file_name )
+
+		if len( list( structure.get_models() ) ) == 0:
+			success = False
+		else:
+			success = True
 
 		return success
 
 	except PDBConstructionException:
 		return success
-
 
 
 def download_pdb( pdb_id: str, ext: str, file_name: str, 
@@ -370,7 +367,7 @@ class PdbRestApi():
 		"""
 		Retrieve entity level information from PDB for all entities associated with an entry_id.
 		"""
-		polymer_entity_ids = self.get_all_polymer_entities()
+		polymer_entity_ids = self.get_polymer_entities()
 
 		for entity_id in polymer_entity_ids:
 			self.retrieve_polymer_entity_data( entity_id )
@@ -386,7 +383,7 @@ class PdbRestApi():
 		if "rcsb_entry_container_identifiers" in self.entry_data.keys():
 			pol_entry_cont_id = self.entry_data["rcsb_entry_container_identifiers"]
 		else:
-			pol_entry_cont_id = []
+			pol_entry_cont_id = {}
 
 		return pol_entry_cont_id
 
@@ -401,7 +398,7 @@ class PdbRestApi():
 										"rcsb_polymer_entity_container_identifiers"
 										]
 		else:
-			pol_entity_cont_id = []
+			pol_entity_cont_id = {}
 
 		return pol_entity_cont_id
 
@@ -515,25 +512,13 @@ def download_sifts_mapping( pdb_id: str, file_path: str,
 	"""
 	Fetch the PDB to UniProt mapping from SIFTS.
 	Save as an XML file.
+	file_path has a .xml extension.
 	"""
-	# $(curl https://www.ebi.ac.uk/pdbe/files/sifts/1mv0.xml.gz --silent --output 1mv0.xml.gz --write-out "%{http_code}" "$@")
 	url = f"https://www.ebi.ac.uk/pdbe/files/sifts/{pdb_id}.xml.gz"
 	cmd = ["curl", f"{url}", "--output", f"{file_path}.gz", "--silent"]
 	run_subprocess( cmd )
 	cmd = ["gunzip", f"{file_path}"]
 	run_subprocess( cmd )
-	# response = send_request( url, _format = None,
-	# 							max_trials = max_trials,
-	# 							wait_time = wait_time )
-
-	# print( response )
-	# if response not in ["not_found", "bad_request"]:
-	# 	success = True
-	# 	write_to_file( response, f"{file_path}", "wb" )
-	# else:
-	# 	success = False
-
-	# return success
 
 
 def parse_sifts_xml( file: str ):
