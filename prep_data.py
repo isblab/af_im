@@ -1,39 +1,37 @@
+"""
+Script to obtain and create the required files
+	for the benchmark dataset.
+"""
 import os
 import glob
 import copy
-import re
-import subprocess
-import warnings
 from typing import List, Dict, Tuple
-import numpy as np
-import pandas as pd
-import ml_collections as mlc
 from multiprocessing import Pool
 from functools import partial
+import pandas as pd
 import tqdm
 
-from utils import ( run_subprocess, open_file_handler, 
+from utils import ( run_subprocess, open_file_handler,
 					read_json, write_json )
-from utils import ( write_to_file, 
-					read_fasta_from_response )
 from api_utils import ( PdbRestApi, get_uniprot_seq, download_pdb,
 						download_sifts_mapping, parse_sifts_xml )
 
-"""
-Using CASP15 dataset as our benchmark.
-	targetlist.csv for CASP15 must be present in ./raw/.
-Shifted to AF Unmasked PDB benchmark.
-	.txt file containing pdb_ids must be present in ./raw/.
-"""
+# Using CASP15 dataset as our benchmark.
+# 	targetlist.csv for CASP15 must be present in ./raw/.
+# Shifted to AF Unmasked PDB benchmark.
+# 	.txt file containing pdb_ids must be present in ./raw/.
 
 class CreateBenchmark():
+	"""
+	Create input for the benchmark dataset.
+	"""
 	def __init__( self ):
 		self.jwalk_exec = "jwalk"
 		self.xl_length = 35
 
 		# self.casp_input_csv = "./raw/targetlist_mod.csv"
 		# PDB benchmark from AF Unmasked paper.
-		self.afu_pdb_benchamark = "./raw/af_unmasked_pdb_benchmark.txt"
+		self.afu_pdb_benchmark = "./raw/af_unmasked_pdb_benchmark.txt"
 		self.bm_v5_5 = "./raw/Table_BM5.5.xlsx"
 		self.base_dir = os.path.join( "./benchmark/" )
 		self.benchmark_dir = os.path.join( self.base_dir, "imp_dl_benchmark/" )
@@ -89,7 +87,7 @@ class CreateBenchmark():
 			self.dwnld_uni_seq( selected_pdb_ids )
 		else:
 			self.uni_seq_dict = read_json( self.uni_seq_file )
-		
+
 		print( "\n------------------------------------------------" )
 		print( "Download the structure from PDB in .pdb format...\n" )
 		self.dwnld_pdb_struct( selected_pdb_ids )
@@ -118,20 +116,13 @@ class CreateBenchmark():
 		"""
 		Create the required directories if not already existing.
 		"""
-		if not os.path.exists( self.base_dir ):
-			os.makedirs( self.base_dir )
-		if not os.path.exists( self.meta_dir ):
-			os.makedirs( self.meta_dir )
-		if not os.path.exists( self.pdb_api_dir ):
-			os.makedirs( self.pdb_api_dir )
-		if not os.path.exists( self.pdb_struct_dir ):
-			os.makedirs( self.pdb_struct_dir )
-		if not os.path.exists( self.benchmark_dir ):
-			os.makedirs( self.benchmark_dir )
-		if not os.path.exists( self.sifts_xml_dir ):
-			os.makedirs( self.sifts_xml_dir )
-		if not os.path.exists( self.sifts_dict_dir ):
-			os.makedirs( self.sifts_dict_dir )
+		os.makedirs( self.base_dir, exist_ok = True )
+		os.makedirs( self.meta_dir, exist_ok = True )
+		os.makedirs( self.pdb_api_dir, exist_ok = True )
+		os.makedirs( self.pdb_struct_dir, exist_ok = True )
+		os.makedirs( self.benchmark_dir, exist_ok = True )
+		os.makedirs( self.sifts_xml_dir, exist_ok = True )
+		os.makedirs( self.sifts_dict_dir, exist_ok = True )
 
 
 	##------------------------------------------------------------##
@@ -140,8 +131,9 @@ class CreateBenchmark():
 		"""
 		Using the PDB benchmark provided in the AF Unmasked paper.
 		"""
-		fh = open_file_handler( self.afu_pdb_benchamark, "r" )
+		fh = open_file_handler( self.afu_pdb_benchmark, "r" )
 		pdb_ids = fh.readlines()[0].strip().split( "," )
+		fh.close()
 
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( pdb_ids )}" )
 		return pdb_ids
@@ -190,11 +182,13 @@ class CreateBenchmark():
 			write_json( rest_api.entity_data, entity_file )
 
 
-	def instantiate_pdb_rest_api( self, entry_id: str, 
-									entry_file: str, 
+	def instantiate_pdb_rest_api( self, entry_id: str,
+									entry_file: str,
 									entity_file: str ) -> PdbRestApi:
 
-		# Instantiate the PDB REST API object.
+		"""
+		Instantiate the PDB REST API object.
+		"""
 		rest_api = PdbRestApi( entry_id = entry_id,
 								entry_file = entry_file,
 								entity_file = entity_file )
@@ -214,9 +208,9 @@ class CreateBenchmark():
 		entry_id corresponds to the PDB ID.
 		"""
 		entry_file, entity_file = self.get_entry_entity_files( entry_id )
-		
+
 		# Instantiate the PDB REST API object.
-		rest_api = self.instantiate_pdb_rest_api( entry_id, 
+		rest_api = self.instantiate_pdb_rest_api( entry_id,
 													entry_file,
 													entity_file )
 		# Get all entity IDs in the.
@@ -291,7 +285,7 @@ class CreateBenchmark():
 		selected_pdb_ids = []
 		c1, c2, c3, c4, c5 = 0, 0, 0, 0, 0
 		for pdb_id in self.pdb_benchmark_dict:
-			entity_ids = self.pdb_benchmark_dict[pdb_id]["entity_ids"].split( "," )
+			# entity_ids = self.pdb_benchmark_dict[pdb_id]["entity_ids"].split( "," )
 			polymer_entity_ids = self.pdb_benchmark_dict[pdb_id]["polymer_entity_ids"].split( "," )
 			uniprot_ids = self.pdb_benchmark_dict[pdb_id]["uniprot_ids"].split( "," )
 			uni_pos = self.pdb_benchmark_dict[pdb_id]["uni_pos"].split( "," )
@@ -311,7 +305,8 @@ class CreateBenchmark():
 				continue
 
 			# Aligned PDB-UniProt positiosn not present.
-			if any( [len( u ) == 0 for u in uni_pos] ) or any( [len( p ) == 0 for p in pdb_pos] ):
+			# if any( [len( u ) == 0 for u in uni_pos] ) or any( [len( p ) == 0 for p in pdb_pos] ):
+			if not all( uni_pos ) and not all( pdb_pos ):
 				c4 += 1
 				continue
 
@@ -356,8 +351,7 @@ class CreateBenchmark():
 
 		Segregate all remaining complexes into:
 			Heteromers: >1 polymer_entity_ids all with 1 chain.
-			Homoromers: only 1 polymer_entity_ids with >1 chain.
-			Mixomers: >1 polymer_entity_ids with >1 chain.
+			Homoromers: only >=1 polymer_entity_ids with >1 chain.
 		"""
 		selected_pdb_ids = self.filter_benchmark()
 		print( f"Selected PDB IDs: {len( selected_pdb_ids )}" )
@@ -385,7 +379,7 @@ class CreateBenchmark():
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
-	def get_unique_uni_seq( self, selected_pdb_ids: Dict ):
+	def get_unique_uni_seq( self, selected_pdb_ids: Dict[str, List] ):
 		"""
 		Get unique UniProt IDs.
 		"""
@@ -402,7 +396,7 @@ class CreateBenchmark():
 		return unique_uni_ids
 
 
-	def dwnld_uni_seq( self, selected_pdb_ids: List ):
+	def dwnld_uni_seq( self, selected_pdb_ids: Dict[str, List] ):
 		"""
 		Download unique UniProt sequences for all UniProt accessions in the
 			selected PDB IDs (hetero/homo-mers).
@@ -411,9 +405,9 @@ class CreateBenchmark():
 		total = len( unique_uni_ids )
 		for idx, uni_id in enumerate( unique_uni_ids ):
 		# with Pool( 5 ) as p:
-		# 	for result in tqdm.tqdm( 
-		# 							p.imap_unordered( partial( get_uniprot_seq, max_trials = 10, 
-		# 																wait_time = 5, 
+		# 	for result in tqdm.tqdm(
+		# 							p.imap_unordered( partial( get_uniprot_seq, max_trials = 10,
+		# 																wait_time = 5,
 		# 																return_id = True ),
 		# 												unique_uni_ids ),
 		# 							total = total ):
@@ -432,7 +426,7 @@ class CreateBenchmark():
 		write_json( self.uni_seq_dict, self.uni_seq_file )
 
 
-	def dwnld_pdb_struct( self, selected_pdb_ids: List ):
+	def dwnld_pdb_struct( self, selected_pdb_ids: Dict[str, List] ):
 		"""
 		Download the structure as a .pdb file.
 		"""
@@ -454,16 +448,15 @@ class CreateBenchmark():
 						result = download_pdb( pdb_id, "cif", pdb_file )
 						# Throw an error if can't download a .cif also.
 						if not result:
-							raise Exception( f"Unable to download PDB: {pdb_id}" )
+							print( f"Warning: Unable to download PDB: {pdb_id}" )
 
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
-	def map_pdb_to_uniprot( self, selected_pdb_ids: List ):
+	def map_pdb_to_uniprot( self, selected_pdb_ids: Dict[str, List] ):
 		"""
 		Get PDB to UniProt mapping using SIFTS.
 		"""
-		not_mapped = []
 		for category in selected_pdb_ids:
 			total = len( selected_pdb_ids[category] )
 			for idx, pdb_id in enumerate( selected_pdb_ids[category] ):
@@ -490,16 +483,17 @@ class CreateBenchmark():
 		"""
 		pdb_uni_res = {}
 		for chain in sifts_dict:
-			if chain not in pdb_uni_res:
-				pdb_uni_res[chain] = {}
+			# if chain not in pdb_uni_res:
+			# 	pdb_uni_res[chain] = {}
 			pdb_pos = sifts_dict[chain]["resolved"]["PDB position"]
 			uni_pos = sifts_dict[chain]["resolved"]["Uniprot position"]
 			if len( pdb_pos ) != len( uni_pos ):
-				raise ValueError( "Error in PDB and UniProt mapping." +
+				raise ValueError( "Error in PDB and UniProt mapping for" +
+									f" PDB {pdb_id}, chain {chain}. \n"
 									f"PDB residues = {len( pdb_pos )}" +
 									f" and UniProt residues = {len( uni_pos )}" )
 			pdb_uni_res[chain] = dict( zip( pdb_pos, uni_pos ) )
-		
+
 		return pdb_uni_res
 
 
@@ -510,8 +504,7 @@ class CreateBenchmark():
 		Create directories for all benchmark systems.
 		"""
 		sys_dir = os.path.join( self.benchmark_dir, f"{pdb_id}" )
-		if not os.path.exists( sys_dir ):
-			os.makedirs( sys_dir )
+		os.makedirs( sys_dir, exist_ok = True )
 
 
 	def get_entities( self, stoichiometry: List, uniprot_ids: Dict, uni_pos: List
@@ -528,12 +521,15 @@ class CreateBenchmark():
 		for i in range( len( stoichiometry ) ):
 			uni_id = uniprot_ids[i]
 			copy_num = int( stoichiometry[i] )
+			# Residue positions are stored as "{start}-{end}"
 			start, end = list( map( int, uni_pos[i].split( "-" ) ) )
-			
-			# The downstream script will select the required sequence.
-			seq = self.uni_seq_dict[uni_id] #[start-1:end]
 
-			entities.append( 
+			if uni_id not in self.uni_seq_dict:
+				raise KeyError( f"{uni_id} not present in the self.uni_seq_dict..." )
+			# The downstream script will select the required sequence.
+			seq = self.uni_seq_dict[uni_id]
+
+			entities.append(
 				{
 					"entity_id": i+1,
 					"uni_id": uni_id,
@@ -584,11 +580,12 @@ class CreateBenchmark():
 		"""
 		for sys_num, sys_name in enumerate( self.pdb_benchmark_dict ):
 			sys_dict = {}
+			# Stoichiometry is stored as '-' separated values.
 			stoichiometry = self.pdb_benchmark_dict[sys_name]["stoichiometry"].split( "-" )
 			uniprot_ids = self.pdb_benchmark_dict[sys_name]["uniprot_ids"].split( "," )
 			uni_pos = self.pdb_benchmark_dict[sys_name]["uni_pos"].split( "," )
 
-			sys_config_file = os.path.join( self.benchmark_dir, 
+			sys_config_file = os.path.join( self.benchmark_dir,
 											f"{sys_name}/sys_conf_{sys_name}.json" )
 
 			self.create_system_dir( sys_name )
@@ -626,7 +623,6 @@ class CreateBenchmark():
 		run_subprocess( cmd )
 
 
-
 	def parse_jwalk_output( self, name: str ) -> pd.DataFrame:
 		"""
 		Jwalk writes a .txt file containing all the XLs.
@@ -646,7 +642,7 @@ class CreateBenchmark():
 		----------
 		None
 		"""
-		file_path = glob.glob( f"./Jwalk_results/*.txt" )
+		file_path = glob.glob( "./Jwalk_results/*.txt" )
 		if len( file_path ) == 0:
 			raise Exception( f"Jwalk results .txt file does not exist for {name}..." )
 		file_path = file_path[0]
@@ -677,17 +673,10 @@ class CreateBenchmark():
 			Columns: Protein1, Residue1, Protein1, Residue1
 		"""
 		for i in range( df.shape[0] ):
-			chain1 = df.iloc[i, 0]
-			res1 = int( df.iloc[i, 1] )
-			chain2 = df.iloc[i, 2]
-			res2 = int( df.iloc[i, 3] )
-
-			# if pdb_id == "8ck8":
-			# 	print( chain1, "  ", res1 )
-			# 	print( chain2, "  ", res2 )
-			# 	print( df )
-			# 	print( self.sifts_pdb_to_uni[pdb_id][chain1].keys() )
-			# 	exit()
+			chain1 = df.loc[i, "prot1"]
+			res1 = int( df.loc[i, "res1"] )
+			chain2 = df.loc[i, "prot2"]
+			res2 = int( df.loc[i, "res2"] )
 
 			df.iloc[i, 1] = self.sifts_pdb_to_uni[pdb_id][chain1][res1]
 			df.iloc[i, 3] = self.sifts_pdb_to_uni[pdb_id][chain2][res2]
@@ -765,7 +754,7 @@ class CreateBenchmark():
 
 			try:
 				# Run Jwalk.
-				if not os.path.exists( f"./Jwalk_results/" ):
+				if not os.path.exists( "./Jwalk_results/" ):
 					self.run_jwalk( struct_file )
 				else:
 					print( f"Jwalk_results already present in {pdb_id} dir..." )
