@@ -1,26 +1,27 @@
-import os
-from typing import List, Tuple, Dict
-import numpy as np
-import pandas as pd
-from scipy.spatial import distance_matrix
-import ml_collections as mlc
-
-import torch
-
-from pdb_utils import Parser
-from utils import read_json, write_json
-
-
 """
+Prepare the system to be modeled and create ground truth 
+	features for the experimental data.
 This script assumes a specific directory structure:
 	base_dir --> e.g. benchmark/2ayo/
 		System specific JSON file.
 		Restraint input files --> e.g. For Xl restraint *_xls.csv.
 """
+import os
+from typing import List, Tuple, Dict
+import numpy as np
+import pandas as pd
+import ml_collections as mlc
+
+import torch
+
+from utils import ( open_file_handler )
 
 
 class DataGathering():
-	def __init__( self, sys_name: str, base_dir: str, 
+	"""
+	Prepare the system to be modeled and create restraint features.
+	"""
+	def __init__( self, sys_name: str, base_dir: str,
 						fasta_dir: str, sys_config: mlc.ConfigDict ):
 		self.sys_name = sys_name
 		# Main directory for the modeled system.
@@ -55,7 +56,7 @@ class DataGathering():
 
 	#====================================================================#
 	#====================================================================#
-	def get_chain_id( self, idx: str ) -> str:
+	def get_chain_id( self, idx: int ) -> str:
 		"""
 		Get a chain ID based on an index.
 		"""
@@ -63,10 +64,10 @@ class DataGathering():
 
 		if idx < len( alphabet ):
 			chain_id = alphabet[idx]
-			return chain_id
-		
+
 		else:
-			raise Exception( "Too many chains." )
+			raise ValueError( "Too many chains..." )
+		return chain_id
 
 
 	def create_full_system( self ) -> Dict[str, Dict]:
@@ -87,10 +88,11 @@ class DataGathering():
 
 			for i in range( copy_num ):
 				chain_id = self.get_chain_id( idx )
+				sys_chain_id = f"{self.sys_name}_{entity_id}_{chain_id}"
 
-				system_dict[f"{self.sys_name}_{entity_id}_{chain_id}"] = {
-													"seq": seq,
-													"positions": [start, end]
+				system_dict[sys_chain_id] = {
+											"seq": seq,
+											"positions": [start, end]
 				}
 
 				idx += 1
@@ -105,11 +107,12 @@ class DataGathering():
 			directory containig a FASTA file for OpenFold.
 		"""
 		if not os.path.exists( self.fasta_dir ):
-			os.makedirs( self.fasta_dir )
+			os.makedirs( self.fasta_dir, exist_ok = True )
 
-		with open( self.fasta_file_path, "w" ) as w:
-			for chain in system_dict.keys():
-				w.writelines( f">{chain}\n{system_dict[chain]['seq']}\n" )
+		w = open_file_handler( self.fasta_file_path, "w" )
+		for chain in system_dict.keys():
+			w.writelines( f">{chain}\n{system_dict[chain]['seq']}\n" )
+		w.close()
 
 
 	#====================================================================#
@@ -121,7 +124,7 @@ class DataGathering():
 		Also map the residue positions to the corresponding chains.
 		"""
 		res_idx_map = {}
-		
+
 		sys_start = 0
 		for chain in system_dict:
 			# Intrapolate all residue positions between start and end.
@@ -130,8 +133,8 @@ class DataGathering():
 			total = len( residues_positions )
 
 			if total != len( system_dict[chain]["seq"] ):
-				raise Exception( "No. of residues and sequence length do not match..." )
-			
+				raise ValueError( "No. of residues and sequence length do not match..." )
+
 			# Create the corresponding indices.
 			sys_end = sys_start + total
 			system_index = np.arange( sys_start, sys_end, 1 )
@@ -140,7 +143,7 @@ class DataGathering():
 
 			# Get the chain IDs for all residues.
 			chain = chain.split( "_" )[-1]
-			
+
 			res_idx_map[chain] = {}
 			res_idx_map[chain]["res_to_ind"] = dict(
 												zip( residues_positions, system_index )
@@ -159,7 +162,7 @@ class DataGathering():
 		"""
 		entity_chain_map = {}
 		for sys_chain_id in system_dict:
-			sys_name, entity_id, chain_id = sys_chain_id.split( "_" )
+			_, entity_id, chain_id = sys_chain_id.split( "_" )
 			entity_id = int( entity_id )
 			if entity_id in entity_chain_map:
 				entity_chain_map[entity_id].append( chain_id )
@@ -177,7 +180,7 @@ class DataGathering():
 		"""
 		chain_entity_map = {}
 		for sys_chain_id in system_dict:
-			sys_name, entity_id, chain_id = sys_chain_id.split( "_" )
+			_, entity_id, chain_id = sys_chain_id.split( "_" )
 			entity_id = int( entity_id )
 			chain_entity_map[chain_id] = entity_id
 
@@ -278,7 +281,7 @@ class DataGathering():
 			res1 = df.loc[ i, "res1" ]
 			index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
 			df.loc[ i, "res1" ] = index1
-			
+
 			chain2 = df.loc[ i, "prot2" ]
 			res2 = df.loc[ i, "res2" ]
 			index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
@@ -296,9 +299,9 @@ class DataGathering():
 		for i in range( len( df ) ):
 			chain1 = df.loc[ i, "prot1" ]
 			entity_id1 = self.chain_entity_map[chain1]
-			prot1 = f"prot_{entity_id}"
+			prot1 = f"prot_{entity_id1}"
 			df.loc[ i, "prot1" ] = prot1
-			
+
 			chain2 = df.loc[ i, "prot2" ]
 			entity_id2 = self.chain_entity_map[chain2]
 			prot2 = f"prot_{entity_id2}"
@@ -364,7 +367,7 @@ class DataGathering():
 		min_bin = 2.3125
 		max_bin = 21.6875
 		no_bins = 64
-		
+
 		boundaries = torch.linspace(
 			min_bin,
 			max_bin,
@@ -379,4 +382,3 @@ class DataGathering():
 		distogram = torch.nn.functional.one_hot( true_bins, no_bins ).float()
 
 		return distogram
-
