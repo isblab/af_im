@@ -51,8 +51,8 @@ import numpy as np
 from openfold.config import model_config
 from mod_openfold import parse, process_mmcif, np_example_to_features
 
-from commands import OpenfoldCommand
-from utils import run_subprocess
+from utils.commands import OpenfoldCommand
+from utils.utils import run_subprocess
 
 
 class SystemRepresentation():
