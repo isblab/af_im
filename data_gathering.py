@@ -14,7 +14,7 @@ import ml_collections as mlc
 
 import torch
 
-from utils import ( open_file_handler )
+from utils.utils import ( open_file_handler )
 
 
 class DataGathering():

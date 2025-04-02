@@ -1,16 +1,3 @@
-import numpy as np
-import os
-import glob
-
-from mod_openfold import parse, process_mmcif, np_example_to_features
-from openfold.config import model_config
-
-from commands import OpenfoldCommand #, monomer_cmd, monomer_precomp_aln_cmd,
-						# multimer_cmd, multimer_precomp_aln_cmd )
-from utils import run_subprocess
-
-from typing import Optional
-
 """
 We extract the following features using the OpenFold pipeline:
 aatype
@@ -56,6 +43,16 @@ gt_features
 	chi_angles_sin_cos: --> [480, 4, 2]
 	chi_mask: --> [480, 4]
 """
+import os
+import glob
+from typing import Optional
+import numpy as np
+
+from openfold.config import model_config
+from mod_openfold import parse, process_mmcif, np_example_to_features
+
+from commands import OpenfoldCommand
+from utils import run_subprocess
 
 
 class SystemRepresentation():
