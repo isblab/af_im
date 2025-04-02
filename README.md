@@ -16,6 +16,12 @@ For installation, run
 python setup.py install
 ```
 
+### imp_dl
+Add the imp_dl repository path to the ~/.bash_profile and run:  
+```
+source ~/.bash_profile
+```
+
 ## Benchmark
 Run the following script to create the required input files for the benchmark dataset.  
 ```
