@@ -16,7 +16,7 @@ def topology_dict() -> mlc.ConfigDict:
 config = mlc.ConfigDict(
 	{
 	"objective": "2ayo with rmse_xlr. "+
-		"Sanity check for changing sm_no_blocks.",
+		"Just checking XL satisfaction.",
 	"system": {},
 	"init_model_prefix": "_unrelaxed",
 	"optimizer": {
@@ -154,3 +154,4 @@ config = mlc.ConfigDict(
 	}
 }
 )
+
