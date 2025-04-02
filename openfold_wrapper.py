@@ -26,8 +26,11 @@ from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
 from assay import Assay
-from create_plots import create_plot_from_dict, plot_scalar_metrics, plot_xl_map
-from utils import read_json, write_configdict_to_json, open_file_handler
+from utils.create_plots import ( create_plot_from_dict,
+								plot_scalar_metrics,
+								plot_xl_map )
+from utils.utils import ( read_json, write_configdict_to_json,
+							open_file_handler )
 
 
 class IntegrativeLearning():

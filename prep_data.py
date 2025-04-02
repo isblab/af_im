@@ -11,10 +11,10 @@ from functools import partial
 import pandas as pd
 import tqdm
 
-from utils import ( run_subprocess, open_file_handler,
-					read_json, write_json )
-from api_utils import ( PdbRestApi, get_uniprot_seq, download_pdb,
-						download_sifts_mapping, parse_sifts_xml )
+from utils.utils import ( run_subprocess, open_file_handler,
+						read_json, write_json )
+from utils.api_utils import ( PdbRestApi, get_uniprot_seq, download_pdb,
+							download_sifts_mapping, parse_sifts_xml )
 
 # Using CASP15 dataset as our benchmark.
 # 	targetlist.csv for CASP15 must be present in ./raw/.

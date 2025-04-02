@@ -16,9 +16,9 @@ from sklearn.preprocessing import StandardScaler
 import hdbscan
 from Bio.PDB import PDBParser, PDBIO, Structure, Model
 
-from utils import open_file_handler, run_subprocess
-from pdb_utils import Parser
-from create_plots import create_plot_from_dict
+from utils.utils import open_file_handler, run_subprocess
+from utils.pdb_utils import Parser
+from utils.create_plots import create_plot_from_dict
 
 
 

@@ -2,8 +2,8 @@ import subprocess
 import os
 import ml_collections as mlc
 
-from utils import run_subprocess
-from api_utils import download_pdb
+from utils.utils import run_subprocess
+from utils.api_utils import download_pdb
 
 
 systems = ["2ayo", "H1129"]
