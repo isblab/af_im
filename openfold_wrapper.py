@@ -41,7 +41,7 @@ class IntegrativeLearning():
 		# Name of the system to be modeled.
 		self.sys_name = sys_name # "2ayo" # H1129
 		# Main directory for the modeled system.
-		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/{self.sys_name}/" ) )
+		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/imp_dl_benchmark/{self.sys_name}/" ) )
 		# mono/multi
 		self.pred_mode = "multi"
 		# Path for the OpenFold inference script.
