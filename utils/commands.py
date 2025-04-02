@@ -54,7 +54,7 @@ class OpenfoldCommand():
 		["--save_outputs"],
 		["--cpus", f"{self.cpu_cores}"],
 		["--model_device", self.device],
-		["----max_template_date", "2023-01-01"]
+		["--max_template_date", "2023-01-01"],
 		["--subtract_plddt"],
 		["--cif_output"]
 		]
