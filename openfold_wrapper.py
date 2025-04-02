@@ -9,12 +9,13 @@ Contains a wrapper class that runs all the stages of integrative modeling pipeli
 import math
 import time
 import random
-from typing import Dict
+from typing import Dict, Optional
 import os
 import sys
 import subprocess
 import numpy as np
 import pandas as pd
+import ml_collections as mlc
 
 import torch
 
@@ -33,9 +34,9 @@ class IntegrativeLearning():
 	"""
 	A wrapper class that runs all the stages of integrative modeling pipeline.
 	"""
-	def __init__( self ):
+	def __init__( self, sys_name: str, topology_dict: mlc.ConfigDict ):
 		# Name of the system to be modeled.
-		self.sys_name = "2ayo" # H1129
+		self.sys_name = sys_name # "2ayo" # H1129
 		# Main directory for the modeled system.
 		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/{self.sys_name}/" ) )
 		# mono/multi
@@ -61,14 +62,24 @@ class IntegrativeLearning():
 		# Load OpenFold configs file.
 		self.ofold_config = model_config( self.config_preset )
 		# Load the full system specific configs.
-		self.topology = topology_dict()
+		self.topology = topology_dict
 
-		self.create_required_paths()
+		self.add_sys_conf_to_topology()
+
+		self.create_required_paths_dirs()
+
+		# Set the PRNG seed.
+		self.seed_worker()
+		# The base directory should exist.
+		if not os.path.exists( self.base_dir ):
+			raise FileNotFoundError( f"Base dir: {self.base_dir}  does not exist..." )
+		# Move to the base directory.
+		os.chdir( self.base_dir )
 
 
 	def seed_worker( self ):
 		"""
-		Seed for PRNG.
+		Set seed for PRNG.
 		"""
 		seed = 1
 		torch.manual_seed( seed )
@@ -83,17 +94,46 @@ class IntegrativeLearning():
 		Serially run all the stages of the pipeline.
 		"""
 		tic = time.time()
-		self.seed_worker()
-		# The base directory should exist.
-		if not os.path.exists( self.base_dir ):
-			raise FileNotFoundError( f"Base dir: {self.base_dir}  does not exist..." )
-		# Move to the base directory.
-		os.chdir( self.base_dir )
+
+		# Save topology file on disk.
+		self.save_topology_file()
 
 		print( "\n----------------------------------------------------------------------\n" +
 				"--------------------------- Data gathering ---------------------------\n" +
 				"----------------------------------------------------------------------\n" )
+		restraint_features = self.run_data_gathering()
 
+		print( "\n----------------------------------------------------------------------\n" +
+				"----------------------- System representation ------------------------\n" +
+				"----------------------------------------------------------------------\n" )
+		system_features = self.run_system_representation()
+		# Add restraint features to system features dict.
+		system_features["restraint_features"] = restraint_features
+
+		print( "\n----------------------------------------------------------------------\n" +
+				"---------------------------- Fit to Data -----------------------------\n" +
+				"----------------------------------------------------------------------\n" )
+		fit = self.run_fit_to_data( restraint_features, system_features )
+
+		print( "\n----------------------------------------------------------------------\n" +
+				"-------------------------- \033[9m Analysis \033[0m Assay --------------------------\n"
+				"----------------------------------------------------------------------\n" )
+		# self.run_analysis( fit )
+
+		toc = time.time()
+		time_file = os.path.join( self.output_dir, "Time_taken.txt" )
+		if not os.path.exists( time_file ):
+			w = open_file_handler( time_file, "w" )
+			w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+		print( "May the Force be with you.." )
+		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+
+
+
+	def run_data_gathering( self ):
+		"""
+		Instantiate and run the DataGathering module.
+		"""
 		# Get the restraint features.
 		data_gathering = DataGathering( sys_name = self.sys_name,
 									 		base_dir = self.base_dir,
@@ -101,11 +141,13 @@ class IntegrativeLearning():
 									 		sys_config = self.topology.system )
 		data_gathering.forward()
 		restraint_features = data_gathering.restraint_features
+		return restraint_features
 
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"----------------------- System representation ------------------------\n" +
-				"----------------------------------------------------------------------\n" )
+	def run_system_representation( self ):
+		"""
+		Instantiate and run the SystemRepresentation module.
+		"""
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation( sys_name = self.sys_name,
 											ofold_dir = self.openfold_dir,
@@ -120,15 +162,16 @@ class IntegrativeLearning():
 											cpu_cores = self.cpu_cores,
 											seed_worker = self.seed_worker,
 											device = self.device ).forward()
-		# Add restraint features to system features dict.
-		system_features["restraint_features"] = restraint_features
+
 		# Move back to base dir.
 		os.chdir( self.base_dir )
+		return system_features
 
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"---------------------------- Fit to Data -----------------------------\n" +
-				"----------------------------------------------------------------------\n" )
+	def run_fit_to_data( self, restraint_features: Dict, system_features: Dict ):
+		"""
+		Instantiate and run the FitToData module.
+		"""
 		# Load the models and fit to data.
 		fit = FitToData( ofold_config = self.ofold_config,
 						topology = self.topology,
@@ -144,8 +187,6 @@ class IntegrativeLearning():
 		if not fit.ensemble_exists():
 			fit.forward()
 
-			self.save_topology_file()
-
 			self.save_metrics( fit.loss_dict,
 								fit.scalar_metric_dict,
 								fit.other_metric_dict )
@@ -154,37 +195,45 @@ class IntegrativeLearning():
 								fit.other_metric_dict, restraint_features )
 			self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
 								fit.other_metric_dict, restraint_features )
+		return fit
 
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"-------------------------- \033[9m Analysis \033[0m Assay --------------------------\n"
-				"----------------------------------------------------------------------\n" )
+	def run_analysis( self, fit: FitToData ):
+		"""
+		Instantiate and run the Analysis module.
+		"""
 		# Model IDs are just the epoch numbers.
 		models_ids = np.arange( 0, self.topology.train.max_epochs, 1 )
-		# Assay(
-		# 	sys_name = self.sys_name,
-		# 	# base_dir  =self.base_dir,
-		# 	model_ids = models_ids,
-		# 	model_dir = fit.ensemble_dir,
-		# 	# ensmeble_file = f"{fit.ensemble_file}.pdb",
-		# 	output_dir = self.output_dir,
-		# 	seed_worker = self.seed_worker,
-		# 	cores = self.cpu_cores,
-		# 	prec = self.prec
-		#  ).forward()
-
-
-		toc = time.time()
-		time_file = os.path.join( self.output_dir, "Time_taken.txt" )
-		if not os.path.exists( time_file ):
-			w = open_file_handler( time_file, "w" )
-			w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
-		print( "May the Force be with you.." )
-		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+		Assay(
+			sys_name = self.sys_name,
+			# base_dir = self.base_dir,
+			model_ids = models_ids,
+			model_dir = fit.ensemble_dir,
+			# ensmeble_file = f"{fit.ensemble_file}.pdb",
+			output_dir = self.output_dir,
+			seed_worker = self.seed_worker,
+			cores = self.cpu_cores,
+			prec = self.prec
+		 ).forward()
 
 
 
-	def create_required_paths( self ):
+	################################################################################
+	################################################################################
+	def add_sys_conf_to_topology( self ):
+		"""
+		Add the system configs to the topology dict.
+		"""
+		# Load the system specific configs.
+		sys_conf = read_json(
+							os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
+							)
+		# Add system specific config to the topology dict.
+		sys_name = list( sys_conf.keys() )[0]
+		self.topology.system = sys_conf[sys_name]
+
+
+	def create_required_paths_dirs( self ):
 		"""
 		Given the base_dir, create all the required paths.
 		"""
@@ -194,13 +243,6 @@ class IntegrativeLearning():
 		self.openfold_params = os.path.join(
 								os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
 								)
-		# Load the system specific configs.
-		sys_conf = read_json(
-							os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
-							)
-		# Add system specific config to the topology dict.
-		sys_name = list( sys_conf.keys() )[0]
-		self.topology.system = sys_conf[sys_name]
 
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" )
@@ -251,6 +293,7 @@ class IntegrativeLearning():
 			sys_date = proc.communicate()[0]
 		w.writelines( f"System = {system} \t Date = {sys_date}\n" )
 		w.writelines( f"Objective: {self.topology.objective}" )
+		w.close()
 
 
 	def output_dir_exists( self ):
@@ -268,7 +311,8 @@ class IntegrativeLearning():
 			os.makedirs( self.output_dir )
 
 
-
+	################################################################################
+	################################################################################
 	def save_topology_file( self ):
 		"""
 		Save the topology file in the output directory.
@@ -353,4 +397,8 @@ class IntegrativeLearning():
 
 
 if __name__ == "__main__":
-	IntegrativeLearning().forward()
+	sys_name = "2ayo"
+	topology_dict = topology_dict()
+	IntegrativeLearning( sys_name, topology_dict ).forward()
+
+
