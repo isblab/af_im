@@ -1,0 +1,77 @@
+{
+    "System_X": {
+        "name": "XXXX1",
+        "entity": [
+            {
+                "entity_id": 1,
+                "uni_id": "U1",
+                "copy_num": 2,
+                "start": 1,
+                "end": 15,
+                "sequence": "HAWAKSAATHSAATHGHATAKSANGSANG"
+            },
+            {
+                "entity_id": 2,
+                "uni_id": "U2",
+                "copy_num": 1,
+                "start": 1,
+                "end": 12,
+                "sequence": "OSAATHICHALLL"
+            },
+            {
+                "entity_id": 3,
+                "uni_id": "U3",
+                "copy_num": 1,
+                "start": 1,
+                "end": 20,
+                "sequence": "MUJHELEKESAATHCHALTUYUHINDINRAATCHALTU"
+            },
+            {
+                "entity_id": 4,
+                "uni_id": "U4",
+                "copy_num": 1,
+                "start": 23,
+                "end": 46,
+                "sequence": "SAMBHALMERESAATHCHALTULEHAATHONMEINHAATHCHALTU"
+            },
+            {
+                "entity_id": 5,
+                "uni_id": "U5",
+                "copy_num": 1,
+                "start": 1,
+                "end": 12,
+                "sequence": "OSAATHICHALL"
+            },
+            {
+                "entity_id": 6,
+                "uni_id": "U6",
+                "copy_num": 2,
+                "start": 3,
+                "end": 20,
+                "sequence": "EKTOHYEMAUSAMHAIBADASUHANA"
+            },
+            {
+                "entity_id": 7,
+                "uni_id": "U7",
+                "copy_num": 1,
+                "start": 1,
+                "end": 26,
+                "sequence": "UPARSEAPNADILBHIHAIDEEWANA"
+            },
+            {
+                "entity_id": 8,
+                "uni_id": "U8",
+                "copy_num": 1,
+                "start": 24,
+                "end": 34,
+                "sequence": "PARVATSEAAKENATAKRAJANATUBANKBADAL"
+            }
+        ],
+        "data_gathering": {
+            "xl_restraint": {
+                "xl_max_bound": 35,
+                "file_name": "xxxx_interprotein_xls.csv"
+            }
+        }
+    }
+}

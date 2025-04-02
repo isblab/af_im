@@ -1,0 +1,29 @@
+{
+    "System_X": {
+        "name": "XXXX0",
+        "entity": [
+            {
+                "entity_id": 1,
+                "uni_id": "A0A0H2WZQ7",
+                "copy_num": 2,
+                "start": 1,
+                "end": 10,
+                "sequence": "ABCDEFGHIJ"
+            },
+            {
+                "entity_id": 2,
+                "uni_id": "A0A0H2WZ38",
+                "copy_num": 1,
+                "start": 1,
+                "end": 5,
+                "sequence": "KLMNO"
+            }
+        ],
+        "data_gathering": {
+            "xl_restraint": {
+                "xl_max_bound": 35,
+                "file_name": "xxxx_interprotein_xls.csv"
+            }
+        }
+    }
+}
