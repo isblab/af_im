@@ -24,7 +24,7 @@ from openfold.np.protein import Protein, get_pdb_headers, _chain_end
 from openfold.np import residue_constants
 from openfold.data import feature_pipeline
 
-from utils import open_file_handler
+from utils.utils import open_file_handler
 
 warnings.filterwarnings("ignore")
 

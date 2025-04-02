@@ -12,7 +12,7 @@ from Bio import SeqIO
 from Bio.PDB import PDBParser, MMCIFParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from utils import ( read_json, write_to_file, run_subprocess )
+from utils.utils import ( read_json, write_to_file, run_subprocess )
 
 warnings.filterwarnings("ignore")
 
