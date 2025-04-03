@@ -18,7 +18,6 @@ from openfold.utils.feats import atom14_to_atom37
 from openfold.utils.loss import compute_plddt
 
 
-
 def get_model( model_config: mlc.ConfigDict, system_features: mlc.ConfigDict,
 						ofold_config: mlc.ConfigDict,
 						mode: str, is_multimer: bool, device: str ):
