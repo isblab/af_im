@@ -15,8 +15,8 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "2ayo with rmse_xlr. "+
-		"Just checking XL satisfaction.",
+	"objective": "2ayo with mse_xlr. "+
+		"Phishing out PDB IDs..",
 	"system": {},
 	"init_model_prefix": "_unrelaxed",
 	"optimizer": {
@@ -114,7 +114,7 @@ config = mlc.ConfigDict(
 			"clash_overlap_tolerance": 1.5,
 			"average_clashes": True,
 			"eps": 1e-8,
-			"weight": 0.3
+			"weight": 0.03
 		},
 		"chain_center_of_mass": {
 			"enabled": True,
@@ -135,8 +135,9 @@ config = mlc.ConfigDict(
 		"xlr": {
 				"enabled": True,
 				"add_penalty": True,
-				"type": "mse_xlr", # fape_xlr, mse_xlr, rmse_xlr, disto_xlr
-				"weight": 0.5,
+				"type": "simple_xlr", # fape_xlr, simple_xlr, mse_xlr, rmse_xlr, disto_xlr
+				"func_form": "mse",   # mse, rmse
+				"weight": 0.05,
 				"eps": 1e-8
 		},
 	},
@@ -146,12 +147,11 @@ config = mlc.ConfigDict(
 		}
 	},
 	"train": {
-		"version": 9,
+		"version": 0,
 		"mode": "test",
-		"max_epochs": 250,
+		"max_epochs": 100,
 		"allow_mcpa": True,
 		"allow_grad_update": True
 	}
 }
 )
-
