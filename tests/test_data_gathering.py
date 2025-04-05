@@ -5,6 +5,7 @@ I have created dummy inputs for the test:
 	sys_conf_dummy1.json
 """
 from typing import List, Dict
+import os
 import json
 import copy
 import numpy as np
@@ -24,7 +25,9 @@ class TestDataGathering():
 		in the DataGathering class.
 	"""
 	def __init__( self ):
-		self.dummy_conf_file = "./sys_conf_dummy"
+		self.dummy_conf_file = os.path.join( 
+									os.path.abspath( "./tests/sys_conf_dummy" )
+									)
 
 
 	def forward( self ):
@@ -140,21 +143,83 @@ class TestDataGathering():
 		# After accounting ambiguity.
 		# prot1 -> A, B; prot2 -> C
 		# 	For prot1-prot2 we can have: AC, BC, due to ambiguity.
-		dummy_xl_amb_data = {
-			"prot1": ["A", "B", "A", "B", "A", "B", "A", "B"],
-			"res1": [1, 1, 3, 3, 5, 5, 8, 8],
-			"prot2": ["B", "A", "C", "C", "B", "A", "C", "C"],
-			"res2": [1, 1, 2, 2, 9, 9, 4, 4],
+		self.dummy_xl_amb_dict = {
+			0: {
+				"prot1": ["A"],
+				"res1": [1],
+				"prot2": ["B"],
+				"res2": [1]
+			},
+			1: {
+				"prot1": ["A", "B"],
+				"res1": [3, 3],
+				"prot2": ["C", "C"],
+				"res2": [2, 2]
+			},
+			2: {
+				"prot1": ["A"],
+				"res1": [5],
+				"prot2": ["B"],
+				"res2": [9]
+			},
+			3: {
+				"prot1": ["A", "B"],
+				"res1": [8, 8],
+				"prot2": ["C", "C"],
+				"res2": [4, 4]
+			}
 		}
-		self.dummy_xl_amb_df = pd.DataFrame( dummy_xl_amb_data )
 
-		dummy_mapped_xl_amb_data = {
-			"prot1": ["A", "B", "A", "B", "A", "B", "A", "B"],
-			"res1": [0, 10, 2, 12, 4, 14, 7, 17],
-			"prot2": ["B", "A", "C", "C", "B", "A", "C", "C"],
-			"res2": [10, 0, 21, 21, 18, 8, 23, 23],
+		self.dummy_xl_amb_dict_sys = {
+			0: {
+				"prot1": ["A"],
+				"res1": [0],
+				"prot2": ["B"],
+				"res2": [10]
+			},
+			1: {
+				"prot1": ["A", "B"],
+				"res1": [2, 12],
+				"prot2": ["C", "C"],
+				"res2": [21, 21]
+			},
+			2: {
+				"prot1": ["A"],
+				"res1": [4],
+				"prot2": ["B"],
+				"res2": [18]
+			},
+			3: {
+				"prot1": ["A", "B"],
+				"res1": [7, 17],
+				"prot2": ["C", "C"],
+				"res2": [23, 23]
+			}
 		}
-		self.dummy_mapped_xl_amb_df = pd.DataFrame( dummy_mapped_xl_amb_data )
+
+		# dummy_mapped_xl_amb_dict = {
+		# 	"prot1": ["A", "A", "B", "A", "A", "B"],
+		# 	"res1":  [0,    2,   12,  4,   7,  17],
+		# 	"prot2": ["B", "C", "C", "B", "C", "C"],
+		# 	"res2":  [10,   21,  21, 18,   23, 23],
+		# }
+		# self.dummy_mapped_xl_amb_df = pd.DataFrame( dummy_mapped_xl_amb_data )
+
+		# dummy_xl_amb_data = {
+		# 	"prot1": ["A", "B", "A", "B", "A", "B", "A", "B"],
+		# 	"res1": [1, 1, 3, 3, 5, 5, 8, 8],
+		# 	"prot2": ["B", "A", "C", "C", "B", "A", "C", "C"],
+		# 	"res2": [1, 1, 2, 2, 9, 9, 4, 4],
+		# }
+		# self.dummy_xl_amb_df = pd.DataFrame( dummy_xl_amb_data )
+
+		# dummy_mapped_xl_amb_data = {
+		# 	"prot1": ["A", "B", "A", "B", "A", "B", "A", "B"],
+		# 	"res1": [0, 10, 2, 12, 4, 14, 7, 17],
+		# 	"prot2": ["B", "A", "C", "C", "B", "A", "C", "C"],
+		# 	"res2": [10, 0, 21, 21, 18, 8, 23, 23],
+		# }
+		# self.dummy_mapped_xl_amb_df = pd.DataFrame( dummy_mapped_xl_amb_data )
 
 
 	def create_dummy_outputs1( self ):
@@ -264,30 +329,133 @@ class TestDataGathering():
 		# This is the kind of input we expect.
 		dummy_xl_data = {
 			"prot1": ["prot_1", "prot_1", "prot_1", "prot_1", "prot_2", "prot_2", "prot_3", "prot_3"],
-			"res1": [1, 3, 5, 8, 2, 6, 4, 9],
+			"res1":  [  1,         3,        5,        8,        2,        6,        4,        9],
 			"prot2": ["prot_2", "prot_3", "prot_4", "prot_5", "prot_6", "prot_7", "prot_8", "prot_6"],
-			"res2": [2, 7, 23, 10, 4, 11, 25, 5],
+			"res2":  [  2,         7,        23,       10,       4,        11,       25,       5],
 		}
 		self.dummy_xl_df = pd.DataFrame( dummy_xl_data )
 
 		# After accounting ambiguity.
 		# prot1 -> A, B; prot2 -> C
 		# 	For prot1-prot2 we can have: AC, BC, due to ambiguity.
-		dummy_xl_amb_data = {
-			"prot1": ["A", "B", "A", "B", "A", "B", "A", "B", "C", "C", "C", "D", "D", "D"],
-			"res1":  [1,    1,   3,   3,   5,   5,   8,   8,   2,   2,   6,   4,   9,   9],
-			"prot2": ["C", "C", "D", "D", "E", "E", "F", "F", "G", "H", "I", "J", "G", "H"],
-			"res2":  [2,    2,   7,   7,   23,  23, 10,  10,   4,   4,   11,  25,  5,   5],
+		self.dummy_xl_amb_dict = {
+			0: {
+				"prot1": ["A", "B"],
+				"res1": [1, 1],
+				"prot2": ["C", "C"],
+				"res2": [2, 2]
+			},
+			1: {
+				"prot1": ["A", "B"],
+				"res1": [3, 3],
+				"prot2": ["D", "D"],
+				"res2": [7, 7]
+			},
+			2: {
+				"prot1": ["A", "B"],
+				"res1": [5, 5],
+				"prot2": ["E", "E"],
+				"res2": [23, 23]
+			},
+			3: {
+				"prot1": ["A", "B"],
+				"res1": [8, 8],
+				"prot2": ["F", "F"],
+				"res2": [10, 10]
+			},
+			4: {
+				"prot1": ["C", "C"],
+				"res1": [2, 2],
+				"prot2": ["G", "H"],
+				"res2": [4, 4]
+			},
+			5: {
+				"prot1": ["C"],
+				"res1": [6],
+				"prot2": ["I"],
+				"res2": [11]
+			},
+			6: {
+				"prot1": ["D"],
+				"res1": [4],
+				"prot2": ["J"],
+				"res2": [25]
+			},
+			7: {
+				"prot1": ["D", "D"],
+				"res1": [9, 9],
+				"prot2": ["G", "H"],
+				"res2": [5, 5]
+			}
 		}
-		self.dummy_xl_amb_df = pd.DataFrame( dummy_xl_amb_data )
 
-		dummy_mapped_xl_amb_data = {
-			"prot1": ["A", "B", "A", "B", "A", "B", "A", "B", "C", "C", "C", "D", "D", "D"],
-			"res1":  [0,   15,   2,   17,  4,  19,  7,   22,  31,  31,  35,  45,  50,  50],
-			"prot2": ["C", "C", "D", "D", "E", "E", "F", "F", "G", "H", "I", "J", "G", "H"],
-			"res2":  [31,  31,  48,  48,  62,  62,  95,  95,  99,  117, 144, 161, 100, 118],
+		self.dummy_xl_amb_dict_sys = {
+			0: {
+				"prot1": ["A", "B"],
+				"res1": [0, 15],
+				"prot2": ["C", "C"],
+				"res2": [31, 31]
+			},
+			1: {
+				"prot1": ["A", "B"],
+				"res1": [2, 17],
+				"prot2": ["D", "D"],
+				"res2": [48, 48]
+			},
+			2: {
+				"prot1": ["A", "B"],
+				"res1": [4, 19],
+				"prot2": ["E", "E"],
+				"res2": [62, 62]
+			},
+			3: {
+				"prot1": ["A", "B"],
+				"res1": [7, 22],
+				"prot2": ["F", "F"],
+				"res2": [95, 95]
+			},
+			4: {
+				"prot1": ["C", "C"],
+				"res1": [31, 31],
+				"prot2": ["G", "H"],
+				"res2": [99, 117]
+			},
+			5: {
+				"prot1": ["C"],
+				"res1": [35],
+				"prot2": ["I"],
+				"res2": [144]
+			},
+			6: {
+				"prot1": ["D"],
+				"res1": [45],
+				"prot2": ["J"],
+				"res2": [161]
+			},
+			7: {
+				"prot1": ["D", "D"],
+				"res1": [50, 50],
+				"prot2": ["G", "H"],
+				"res2": [100, 118]
+			}
 		}
-		self.dummy_mapped_xl_amb_df = pd.DataFrame( dummy_mapped_xl_amb_data )
+
+
+		# dummy_xl_amb_data = {
+		# 	"prot1": ["A", "B", "A", "B", "A", "B", "A", "B", "C", "C", "C", "D", "D", "D"],
+		# 	"res1":  [1,    1,   3,   3,   5,   5,   8,   8,   2,   2,   6,   4,   9,   9],
+		# 	"prot2": ["C", "C", "D", "D", "E", "E", "F", "F", "G", "H", "I", "J", "G", "H"],
+		# 	"res2":  [2,    2,   7,   7,   23,  23, 10,  10,   4,   4,   11,  25,  5,   5],
+		# }
+		# self.dummy_xl_amb_df = pd.DataFrame( dummy_xl_amb_data )
+
+		# dummy_mapped_xl_amb_data = {
+		# 	"prot1": ["A", "B", "A", "B", "A", "B", "A", "B", "C", "C", "C", "D", "D", "D"],
+		# 	"res1":  [ 0,   15,  2,   17,  4,  19,   7,   22,  31,  31,  35,  45,  50,  50],
+		# 	"prot2": ["C", "C", "D", "D", "E", "E", "F", "F", "G", "H", "I", "J", "G", "H"],
+		# 	"res2":  [ 31,  31, 48,  48,  62,  62,  95,  95,  99,  117, 144, 161, 100, 118],
+		# }
+		# self.dummy_mapped_xl_amb_df = pd.DataFrame( dummy_mapped_xl_amb_data )
 
 
 	def test_create_full_system( self, data_gathering: DataGathering ):
@@ -431,51 +599,13 @@ class TestDataGathering():
 		data_gathering.res_idx_map = data_gathering.create_residue_index_mapping( self.dummy_sys_dict )
 		data_gathering.entity_chain_map = data_gathering.create_entity_chain_mapping( self.dummy_sys_dict )
 		data_gathering.chain_entity_map = data_gathering.create_chain_entity_mapping( self.dummy_sys_dict )
-		xl_amb_df = data_gathering.account_for_ambiguity( self.dummy_xl_df )
+		xl_amb_dict = data_gathering.account_for_ambiguity( self.dummy_xl_df )
 
-		passed = []
-		if self.dummy_xl_amb_df.shape[0] != xl_amb_df.shape[0]:
-			raise Exception( "No. of XLs are not the same - " +
-							f"{self.dummy_xl_amb_df.shape[0]} != {xl_amb_df.shape[0]}...")
-			passed.append( False )
-		else:
-			passed.append( True )
-
-		for i in range( self.dummy_xl_amb_df.shape[0] ):
-			dum_p1 = self.dummy_xl_amb_df.loc[i, "prot1"]
-			p1 = xl_amb_df.loc[i, "prot1"]
-			if dum_p1 != p1:
-				raise Exception( f"Incorrect prot1 chain ID - {dum_p1} != {p1}" )
-				passed.append( False )
-			else:
-				passed.append( True )
-
-			dum_r1 = self.dummy_xl_amb_df.loc[i, "res1"]
-			r1 = xl_amb_df.loc[i, "res1"]
-			if dum_r1 != r1:
-				raise Exception( f"Incorrect residue position for prot1 - {dum_r1} != {r1}" )
-				passed.append( False )
-			else:
-				passed.append( True )
-
-			dum_p2 = self.dummy_xl_amb_df.loc[i, "prot2"]
-			p2 = xl_amb_df.loc[i, "prot2"]
-			if dum_p2 != p2:
-				raise Exception( f"Incorrect prot2 chain ID - {dum_p2} != {p2}" )
-				passed.append( False )
-			else:
-				passed.append( True )
-
-			dum_r2 = self.dummy_xl_amb_df.loc[i, "res2"]
-			r2 = xl_amb_df.loc[i, "res2"]
-			if dum_r2 != r2:
-				raise Exception( f"Incorrect residue position for prot2 - {dum_r2} != {r2}" )
-				passed.append( False )
-			else:
-				passed.append( True )
+		passed = self.check_amb_dict( self.dummy_xl_amb_dict, xl_amb_dict )
 
 		if all( passed ):
 			print( "Test 5 passed - account_for_ambiguity()..." )
+
 
 
 	def test_map_residue_to_index( self, data_gathering: DataGathering ):
@@ -486,52 +616,190 @@ class TestDataGathering():
 		data_gathering.res_idx_map = data_gathering.create_residue_index_mapping( self.dummy_sys_dict )
 		data_gathering.entity_chain_map = data_gathering.create_entity_chain_mapping( self.dummy_sys_dict )
 		data_gathering.chain_entity_map = data_gathering.create_chain_entity_mapping( self.dummy_sys_dict )
-		xl_amb_df = data_gathering.account_for_ambiguity( self.dummy_xl_df )
-		mapped_xl_amb_df = data_gathering.map_residue_to_index( xl_amb_df )
+		xl_amb_dict = data_gathering.account_for_ambiguity( self.dummy_xl_df )
+		xl_amb_dict_sys = data_gathering.map_residue_to_index( xl_amb_dict )
 
+		passed = self.check_amb_dict( self.dummy_xl_amb_dict_sys, xl_amb_dict_sys )
+
+		if all( passed ):
+			print( "Test 6 passed - map_residue_to_index()..." )
+
+
+	def check_amb_dict( self, dummy_amb_dict: Dict, amb_dict: Dict ) -> List:
+		"""
+		Common function to check both the xl_amb_dict and xl_amb_dict_sys.
+		Both have the same form. The former consists of residue positions while
+			the latter of system indices.
+		"""
 		passed = []
-		if self.dummy_mapped_xl_amb_df.shape[0] != mapped_xl_amb_df.shape[0]:
+
+		if len( dummy_amb_dict ) != len( amb_dict ):
 			raise Exception( "No. of XLs are not the same - " +
-							f"{self.dummy_mapped_xl_amb_df.shape[0]} != {mapped_xl_amb_df.shape[0]}...")
+							f"{( dummy_amb_dict )} != {len( amb_dict )}...")
 			passed.append( False )
 		else:
 			passed.append( True )
 
-		for i in range( self.dummy_mapped_xl_amb_df.shape[0] ):
-			dum_p1 = self.dummy_mapped_xl_amb_df.loc[i, "prot1"]
-			p1 = mapped_xl_amb_df.loc[i, "prot1"]
-			if dum_p1 != p1:
-				raise Exception( f"Incorrect prot1 chain ID - {dum_p1} != {p1}" )
+		for dum_pair, pair in zip( dummy_amb_dict, amb_dict ):
+			dum_amb_pairs = dummy_amb_dict[dum_pair]
+			amb_pairs = amb_dict[pair]
+
+			if len( dum_amb_pairs["prot1"] ) != len( amb_pairs["prot1"] ):
+				raise Exception( "Mismatch in the no. of ambiguous pairs created. " +
+								f"{len( dum_amb_pairs['prot1'] )}--{len( amb_pairs['prot1'] )}..." )
 				passed.append( False )
 			else:
 				passed.append( True )
+			for i in range( len( dum_amb_pairs["prot1"] ) ):
+				dum_p1 = dum_amb_pairs["prot1"][i]
+				p1 = amb_pairs["prot1"][i]
 
-			dum_r1 = self.dummy_mapped_xl_amb_df.loc[i, "res1"]
-			r1 = mapped_xl_amb_df.loc[i, "res1"]
-			if dum_r1 != r1:
-				raise Exception( f"Incorrect system index for prot1 - {dum_r1} != {r1}" )
-				passed.append( False )
-			else:
-				passed.append( True )
+				if dum_p1 != p1:
+					raise Exception( f"Incorrect prot1 - {dum_pair}--{i} - chain ID - {dum_p1} != {p1}" )
+					passed.append( False )
+				else:
+					passed.append( True )
 
-			dum_p2 = self.dummy_mapped_xl_amb_df.loc[i, "prot2"]
-			p2 = mapped_xl_amb_df.loc[i, "prot2"]
-			if dum_p2 != p2:
-				raise Exception( f"Incorrect prot2 chain ID - {dum_p2} != {p2}" )
-				passed.append( False )
-			else:
-				passed.append( True )
+				dum_r1 = dum_amb_pairs["res1"][i]
+				r1 = amb_pairs["res1"][i]
 
-			dum_r2 = self.dummy_mapped_xl_amb_df.loc[i, "res2"]
-			r2 = mapped_xl_amb_df.loc[i, "res2"]
-			if dum_r2 != r2:
-				raise Exception( f"Incorrect system index for prot2 - {dum_r2} != {r2}" )
-				passed.append( False )
-			else:
-				passed.append( True )
+				if dum_r1 != r1:
+					raise Exception( f"Incorrect prot1 - {dum_pair}--{i} - residue - {dum_r1} != {r1}" )
+					passed.append( False )
+				else:
+					passed.append( True )
 
-		if all( passed ):
-			print( "Test 6 passed - map_residue_to_index()..." )
+				dum_p2 = dum_amb_pairs["prot2"][i]
+				p2 = amb_pairs["prot2"][i]
+
+				if dum_p2 != p2:
+					raise Exception( f"Incorrect prot2 - {dum_pair}--{i} - chain ID - {dum_p2} != {p2}" )
+					passed.append( False )
+				else:
+					passed.append( True )
+
+				dum_r2 = dum_amb_pairs["res2"][i]
+				r2 = amb_pairs["res2"][i]
+
+				if dum_r2 != r2:
+					raise Exception( f"Incorrect prot1 - {dum_pair}--{i} - residue - {dum_r2} != {r2}" )
+					passed.append( False )
+				else:
+					passed.append( True )
+
+		return passed
+
+
+
+	# def test_account_for_ambiguity( self, data_gathering: DataGathering ):
+	# 	"""
+	# 	Sanity check the method account_for_ambiguity().
+	# 	"""
+	# 	print( "Test 5..." )
+	# 	data_gathering.res_idx_map = data_gathering.create_residue_index_mapping( self.dummy_sys_dict )
+	# 	data_gathering.entity_chain_map = data_gathering.create_entity_chain_mapping( self.dummy_sys_dict )
+	# 	data_gathering.chain_entity_map = data_gathering.create_chain_entity_mapping( self.dummy_sys_dict )
+	# 	xl_amb_df = data_gathering.account_for_ambiguity( self.dummy_xl_df )
+
+	# 	passed = []
+	# 	if self.dummy_xl_amb_df.shape[0] != xl_amb_df.shape[0]:
+	# 		raise Exception( "No. of XLs are not the same - " +
+	# 						f"{self.dummy_xl_amb_df.shape[0]} != {xl_amb_df.shape[0]}...")
+	# 		passed.append( False )
+	# 	else:
+	# 		passed.append( True )
+
+	# 	for i in range( self.dummy_xl_amb_df.shape[0] ):
+	# 		dum_p1 = self.dummy_xl_amb_df.loc[i, "prot1"]
+	# 		p1 = xl_amb_df.loc[i, "prot1"]
+	# 		if dum_p1 != p1:
+	# 			raise Exception( f"Incorrect prot1 chain ID - {dum_p1} != {p1}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_r1 = self.dummy_xl_amb_df.loc[i, "res1"]
+	# 		r1 = xl_amb_df.loc[i, "res1"]
+	# 		if dum_r1 != r1:
+	# 			raise Exception( f"Incorrect residue position for prot1 - {dum_r1} != {r1}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_p2 = self.dummy_xl_amb_df.loc[i, "prot2"]
+	# 		p2 = xl_amb_df.loc[i, "prot2"]
+	# 		if dum_p2 != p2:
+	# 			raise Exception( f"Incorrect prot2 chain ID - {dum_p2} != {p2}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_r2 = self.dummy_xl_amb_df.loc[i, "res2"]
+	# 		r2 = xl_amb_df.loc[i, "res2"]
+	# 		if dum_r2 != r2:
+	# 			raise Exception( f"Incorrect residue position for prot2 - {dum_r2} != {r2}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 	if all( passed ):
+	# 		print( "Test 5 passed - account_for_ambiguity()..." )
+
+
+	# def test_map_residue_to_index( self, data_gathering: DataGathering ):
+	# 	"""
+	# 	Sanity check the method map_residue_to_index().
+	# 	"""
+	# 	print( "Test 6..." )
+	# 	data_gathering.res_idx_map = data_gathering.create_residue_index_mapping( self.dummy_sys_dict )
+	# 	data_gathering.entity_chain_map = data_gathering.create_entity_chain_mapping( self.dummy_sys_dict )
+	# 	data_gathering.chain_entity_map = data_gathering.create_chain_entity_mapping( self.dummy_sys_dict )
+	# 	xl_amb_df = data_gathering.account_for_ambiguity( self.dummy_xl_df )
+	# 	mapped_xl_amb_df = data_gathering.map_residue_to_index( xl_amb_df )
+
+	# 	passed = []
+	# 	if self.dummy_mapped_xl_amb_df.shape[0] != mapped_xl_amb_df.shape[0]:
+	# 		raise Exception( "No. of XLs are not the same - " +
+	# 						f"{self.dummy_mapped_xl_amb_df.shape[0]} != {mapped_xl_amb_df.shape[0]}...")
+	# 		passed.append( False )
+	# 	else:
+	# 		passed.append( True )
+
+	# 	for i in range( self.dummy_mapped_xl_amb_df.shape[0] ):
+	# 		dum_p1 = self.dummy_mapped_xl_amb_df.loc[i, "prot1"]
+	# 		p1 = mapped_xl_amb_df.loc[i, "prot1"]
+	# 		if dum_p1 != p1:
+	# 			raise Exception( f"Incorrect prot1 chain ID - {dum_p1} != {p1}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_r1 = self.dummy_mapped_xl_amb_df.loc[i, "res1"]
+	# 		r1 = mapped_xl_amb_df.loc[i, "res1"]
+	# 		if dum_r1 != r1:
+	# 			raise Exception( f"Incorrect system index for prot1 - {dum_r1} != {r1}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_p2 = self.dummy_mapped_xl_amb_df.loc[i, "prot2"]
+	# 		p2 = mapped_xl_amb_df.loc[i, "prot2"]
+	# 		if dum_p2 != p2:
+	# 			raise Exception( f"Incorrect prot2 chain ID - {dum_p2} != {p2}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 		dum_r2 = self.dummy_mapped_xl_amb_df.loc[i, "res2"]
+	# 		r2 = mapped_xl_amb_df.loc[i, "res2"]
+	# 		if dum_r2 != r2:
+	# 			raise Exception( f"Incorrect system index for prot2 - {dum_r2} != {r2}" )
+	# 			passed.append( False )
+	# 		else:
+	# 			passed.append( True )
+
+	# 	if all( passed ):
+	# 		print( "Test 6 passed - map_residue_to_index()..." )
 
 
 TestDataGathering().forward()
