@@ -296,7 +296,7 @@ class DataGathering():
 		return xl_amb_df
 
 
-	def map_residue_to_index( self, xl_amb_dict: Dict ) -> pd.DataFrame:
+	def map_residue_to_index( self, xl_amb_dict: Dict ) -> Dict:
 		"""
 		Given the xl_amb_dict, convert all residue positions
 			to system indices from 0 to N, where N is the
@@ -307,10 +307,12 @@ class DataGathering():
 			xl_amb_dict_sys[i] = {k:[] for k in xl_amb_dict[i]}
 			# For all ambiguous XLs of a residue pair.
 			for j in range( len( xl_amb_dict[i]["prot1"] ) ):
+				chain1 = xl_amb_dict[i]["prot1"][j]
+				chain2 = xl_amb_dict[i]["prot2"][j]
 				res1 = xl_amb_dict[i]["res1"][j]
 				res2 = xl_amb_dict[i]["res2"][j]
 				index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
-				index2 = self.res_idx_map[chain1]["res_to_ind"][res2]
+				index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
 
 				xl_amb_dict_sys[i]["prot1"].append( xl_amb_dict[i]["prot1"][j] )
 				xl_amb_dict_sys[i]["res1"].append( index1 )
