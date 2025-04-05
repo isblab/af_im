@@ -226,17 +226,20 @@ class DataGathering():
 		Given lists of chain IDs for protein 1/2, create all 
 			combinatorial pairs to account for ambiguity.
 		We only consider inter-chain interactions.
+		We assume that a XL between AB is the same as BA.
 		"""
 		pairs = []
 		for c1 in chains1:
 			for c2 in chains2:
 				if c1 != c2:
-					pairs.append( ( c1, c2 ) )
+					# Assuming the pair AB is the same as the pair BA.
+					if ( c2, c1 ) not in pairs:
+						pairs.append( ( c1, c2 ) )
 
 		return pairs
 
 
-	def account_for_ambiguity( self, xl_df: pd.DataFrame ):
+	def account_for_ambiguity( self, xl_df: pd.DataFrame ) -> Dict:
 		"""
 		To account for ambiguity we consider all inter-chain 
 			for each ambiguous interacting pair.
@@ -245,9 +248,12 @@ class DataGathering():
 			Get all chain_ids belonging to entity_id for protein 1/2.
 			Get all combinatorial pairs of inter-chain chain_ids.
 			Get the residue position for cross-linked residues.
+		The output is a dict contaiing all ambiguous pairs for
+			each cross-linked residue pair.
 		"""
 		# Dict to store all the ambiguous XL pairs.
-		xl_amb = {k:[] for k in xl_df.columns}
+		# xl_amb = {k:[] for k in xl_df.columns}
+		xl_amb_dict = {}
 		for i in range( xl_df.shape[0] ):
 			prot1 = xl_df.loc[ i, "prot1" ]
 			chains1 = self.get_chains_for_entity( prot1 )
@@ -259,55 +265,92 @@ class DataGathering():
 			res1 = xl_df.loc[ i, "res1" ]
 			res2 = xl_df.loc[ i, "res2" ]
 
+			xl_amb_dict[i] = {k:[] for k in xl_df.columns}
 			for pair in ambiguous_pairs:
 				c1, c2 = pair
-				xl_amb["prot1"].append( c1 )
-				xl_amb["res1"].append( res1 )
-				xl_amb["prot2"].append( c2 )
-				xl_amb["res2"].append( res2 )
+				xl_amb_dict[i]["prot1"].append( c1 )
+				xl_amb_dict[i]["res1"].append( res1 )
+				xl_amb_dict[i]["prot2"].append( c2 )
+				xl_amb_dict[i]["res2"].append( res2 )
 
-		xl_amb_df = pd.DataFrame( xl_amb )
+		# xl_amb_df = pd.DataFrame( xl_amb )
+		return xl_amb_dict
+
+
+	def convert_amb_dict_to_df( sefl, xl_amb_dict: Dict ) -> Dict:
+		"""
+		Given the dict output by self.account_for_ambiguity(),
+			flatten it and create a pd.DataFrame.
+		Assuming that the residue positions have been mapped to system indices.
+		"""
+		flat_dict = {k:[] for k in ["prot1", "res1", "prot2", "res2"]}
+
+		# For all XL'd residue pairs.
+		for i in xl_amb_dict:
+			amb_pairs = xl_amb_dict[i]
+			# For all ambiguous XLs of a residue pair.
+			for k in amb_pairs:
+				flat_dict[k].extend( amb_pairs[k] )
+
+		xl_amb_df = pd.DataFrame( flat_dict )
 		return xl_amb_df
 
 
-	def map_residue_to_index( self, df: pd.DataFrame ) -> pd.DataFrame:
+	def map_residue_to_index( self, xl_amb_dict: Dict ) -> pd.DataFrame:
 		"""
-		Given a DataFrame containing positions for cross-linked residues,
-			map all residue positions to system indices from 0 to N,
-			where N is the total no. of residues in the system.
+		Given the xl_amb_dict, convert all residue positions
+			to system indices from 0 to N, where N is the
+			total no. of residues in the system.
 		"""
-		for i in range( len( df ) ):
-			chain1 = df.loc[ i, "prot1" ]
-			res1 = df.loc[ i, "res1" ]
-			index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
-			df.loc[ i, "res1" ] = index1
+		xl_amb_dict_sys = {}
+		for i in xl_amb_dict:
+			xl_amb_dict_sys[i] = {k:[] for k in xl_amb_dict[i]}
+			# For all ambiguous XLs of a residue pair.
+			for j in range( len( xl_amb_dict[i]["prot1"] ) ):
+				res1 = xl_amb_dict[i]["res1"][j]
+				res2 = xl_amb_dict[i]["res2"][j]
+				index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
+				index2 = self.res_idx_map[chain1]["res_to_ind"][res2]
 
-			chain2 = df.loc[ i, "prot2" ]
-			res2 = df.loc[ i, "res2" ]
-			index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
-			df.loc[ i, "res2" ] = index2
+				xl_amb_dict_sys[i]["prot1"].append( xl_amb_dict[i]["prot1"][j] )
+				xl_amb_dict_sys[i]["res1"].append( index1 )
+				xl_amb_dict_sys[i]["prot2"].append( xl_amb_dict[i]["prot2"][j] )
+				xl_amb_dict_sys[i]["res2"].append( index2 )
 
-		return df
+		return xl_amb_dict_sys
+
+		# for i in range( len( df ) ):
+		# 	chain1 = df.loc[ i, "prot1" ]
+		# 	res1 = df.loc[ i, "res1" ]
+		# 	index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
+		# 	df.loc[ i, "res1" ] = index1
+
+		# 	chain2 = df.loc[ i, "prot2" ]
+		# 	res2 = df.loc[ i, "res2" ]
+		# 	index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
+		# 	df.loc[ i, "res2" ] = index2
+
+		# return df
 
 
-	def map_chain_to_protein( self, df: pd.DataFrame ) -> pd.DataFrame:
-		"""
-		Map the chain_ids for all cross-linked pairs to the protein name defined as
-			"prot_{entity_id}".
-		Not sure if this is required.
-		"""
-		for i in range( len( df ) ):
-			chain1 = df.loc[ i, "prot1" ]
-			entity_id1 = self.chain_entity_map[chain1]
-			prot1 = f"prot_{entity_id1}"
-			df.loc[ i, "prot1" ] = prot1
+	# def map_chain_to_protein( self, df: pd.DataFrame ) -> pd.DataFrame:
+	# 	"""
+	# 	Given the xl_amb_dict, convert all chain_ids to the
+	# 		protein name defined as "prot_{entity_id}".
+	# 	Not sure if this is required.
+	# 	"""
+	# 	for i in range( len( df ) ):
+	# 		chain1 = df.loc[ i, "prot1" ]
+	# 		entity_id1 = self.chain_entity_map[chain1]
+	# 		prot1 = f"prot_{entity_id1}"
+	# 		df.loc[ i, "prot1" ] = prot1
 
-			chain2 = df.loc[ i, "prot2" ]
-			entity_id2 = self.chain_entity_map[chain2]
-			prot2 = f"prot_{entity_id2}"
-			df.loc[ i, "prot2" ] = prot2
+	# 		chain2 = df.loc[ i, "prot2" ]
+	# 		entity_id2 = self.chain_entity_map[chain2]
+	# 		prot2 = f"prot_{entity_id2}"
+	# 		df.loc[ i, "prot2" ] = prot2
 
-		return df
+	# 	return df
 
 
 	def create_xl_restraint_features( self, system_dict ):
@@ -321,6 +364,7 @@ class DataGathering():
 		Add 1s for all cross-linked pairs.
 		XL restraint features:
 			binary mask for XL'd residues.
+			a dict containing system indices for all XL apirs.
 			max bound for the cross-linker.
 			distogram (not sure if needed).
 		"""
@@ -330,33 +374,66 @@ class DataGathering():
 		print( "Total input XL pairs = ", len( xl_df ) )
 
 		# Account for ambiguity.
-		xl_amb_df = self.account_for_ambiguity( xl_df )
+		xl_amb_dict = self.account_for_ambiguity( xl_df )
 
 		# Map residue positions to system indices.
-		xl_amb_df = self.map_residue_to_index( xl_amb_df )
-		print( "Total XL pairs (with ambiguity) = ", len( xl_amb_df ) )
+		xl_amb_dict_sys = self.map_residue_to_index( xl_amb_dict )
+
+		# Convert dict to df for XL mask creation.
+		# xl_amb_df = self.convert_amb_dict_to_df( xl_amb_dict_sys )
 
 		sys_len = self.get_sys_len( system_dict )
 		# Create a 0-matrix for the XL-residue mask [r,r].
 		# 	r -> total no. of residues.
-		xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
+		# xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
 
-		r1 = xl_amb_df["res1"]
-		r2 = xl_amb_df["res2"]
+		# r1 = xl_amb_df["res1"]
+		# r2 = xl_amb_df["res2"]
 
 		# Above diagonal.
-		xl_res_mask[r1, r2] = 1
+		# xl_res_mask[r1, r2] = 1
 		# Below diagonal.
 		# xl_res_mask[r2, r1] = 1
 
-		contact_map = xl_res_mask.clone()
-		distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
-		distogram = distogram*xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+		# contact_map = xl_res_mask.clone()
+		# distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
+		# distogram = distogram*xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
 
 		self.restraint_features["xl_restraint"] = {}
-		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
-		self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
+		# self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
+		self.restraint_features["xl_restraint"]["xl_pair_indices"] = xl_amb_dict_sys
 		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
+		# self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
+
+
+		# # Account for ambiguity.
+		# xl_amb_df = self.account_for_ambiguity( xl_df )
+
+		# # Map residue positions to system indices.
+		# xl_amb_df = self.map_residue_to_index( xl_amb_df )
+		# print( "Total XL pairs (with ambiguity) = ", len( xl_amb_df ) )
+
+		# sys_len = self.get_sys_len( system_dict )
+		# # Create a 0-matrix for the XL-residue mask [r,r].
+		# # 	r -> total no. of residues.
+		# xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
+
+		# r1 = xl_amb_df["res1"]
+		# r2 = xl_amb_df["res2"]
+
+		# # Above diagonal.
+		# xl_res_mask[r1, r2] = 1
+		# # Below diagonal.
+		# # xl_res_mask[r2, r1] = 1
+
+		# contact_map = xl_res_mask.clone()
+		# distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
+		# distogram = distogram*xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
+
+		# self.restraint_features["xl_restraint"] = {}
+		# self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
+		# self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
+		# self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
 
 
 	def get_distogram( self, contact_map: torch.Tensor, xl_max_bound: float ):
@@ -382,3 +459,4 @@ class DataGathering():
 		distogram = torch.nn.functional.one_hot( true_bins, no_bins ).float()
 
 		return distogram
+
