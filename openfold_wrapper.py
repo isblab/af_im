@@ -347,8 +347,8 @@ class IntegrativeLearning():
 		"""
 		create_plot_from_dict( loss_dict, self.loss_plot_file )
 		plot_scalar_metrics( scalar_metric_dict, self.scalar_metric_plot_file )
-		xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
-		plot_xl_map( other_metric_dict["xlr"], xl_res_mask, self.xl_map_plot_file )
+		# xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
+		# plot_xl_map( other_metric_dict["xlr"], xl_res_mask, self.xl_map_plot_file )
 
 
 
@@ -381,9 +381,10 @@ class IntegrativeLearning():
 		for k, v in scalar_metric_dict.items():
 			if k == "xlr":
 				global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
-				xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
-				total_xls = int( torch.count_nonzero( xl_res_mask ) )
-				# print( global_xl_satisfied, "  ", total_xls )
+				# xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
+				# total_xls = int( torch.count_nonzero( xl_res_mask ) )
+				total_xls = restraint_features["xl_restraint"]["total_xls"]
+				print( global_xl_satisfied, "  ", total_xls )
 				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
 
 			df_dict[f"{k}_metric"].extend(
@@ -400,7 +401,7 @@ class IntegrativeLearning():
 
 
 if __name__ == "__main__":
-	sys_name = "2ayo"
+	sys_name = "8gtm"
 	topology_dict = topology_dict()
 	IntegrativeLearning( sys_name, topology_dict ).forward()
 
