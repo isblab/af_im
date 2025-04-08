@@ -31,30 +31,30 @@ class XlMetrics():
 		self.name = "xlr"
 		self.length_scale = 10.0
 		self.xl_max_bound = restraint_features["xl_max_bound"]/ self.length_scale
-		# A binary mask for selecting only cross-linked residues.
-		self.xl_res_mask = restraint_features["xl_res_mask"]
+		# A dict containing all ambiguous pairs for each cross-linked residue pair.
+		self.xl_res_dict = restraint_features["xl_res_dict"]
+		# Total XL pairs.
+		self.total_xls = restraint_features["total_xls"]
 
-		# Ensure the xl_res_mask is binary.
-		assert torch.all( ( self.xl_res_mask == 0 ) | ( self.xl_res_mask == 1 ) ), "xl_res_mask should be binary"
-
-		# Total cross-linked residue pairs. These will be twice the 
-		# 	actual no. of crosslinked residue pairs as we consider both ij and ji interactions.
-		self.total_xls = torch.count_nonzero( self.xl_res_mask )
 		# Used for keeping track of all satisfied XLs across all epochs.
-		self.satisfied_xls = torch.zeros( ( self.xl_res_mask.shape ) )
+		self.satisfied_xls = torch.zeros( self.total_xls )
 
 
 	def forward( self, out: Dict[str, torch.Tensor] ):
 		self.get_predicted_distance_map( out )
-		self.apply_xl_mask()
-		
-		xl_satisfaction = self.compute_xl_satisfaction()
-		self.track_satisfied_xls()
+		xl_satisfaction = self.get_satisfied_xl_pairs()
+		xl_metric = self.compute_xl_metric( xl_satisfaction )
+		self.compute_global_xl_satisfaction( xl_satisfaction )
 
-		return xl_satisfaction
+		# self.apply_xl_mask()
+		# xl_satisfaction = self.compute_xl_satisfaction()
+		# self.track_satisfied_xls()
+
+		return xl_metric
 
 
-	def get_predicted_distance_map( self, out: Dict[str, torch.Tensor] ) -> None:
+	def get_predicted_distance_map( self, out: Dict[str, torch.Tensor]
+									) -> None:
 		"""
 		Get the predicted distance map.
 		"""
@@ -65,45 +65,38 @@ class XlMetrics():
 		self.D = self.D / self.length_scale
 
 
-	def apply_xl_mask( self ) -> None:
+	def get_satisfied_xl_pairs( self ):
 		"""
-		Mask the non cross-linked residues.
-		Convert to binary.
+		For each XL pair, compute if the predicted distance
+			is within xl_max_bound.
 		"""
-		# Consider only the cross-linked residues.
-		self.D = self.D*self.xl_res_mask
+		xl_satisfaction = []
+		for xl_pair in self.xl_res_dict:
+			res_idx1 = self.xl_res_dict[xl_pair]["res1"]
+			res_idx2 = self.xl_res_dict[xl_pair]["res2"]
+			xl_indices = ( 0, res_idx1, res_idx2 )
 
-		# Convert all satisfied XLs to 1.
-		mask_satisfy = ( self.D != 0 ) & ( self.D <= self.xl_max_bound )
-		self.D[mask_satisfy] = 1
+			min_D = torch.min( self.D[xl_indices] )
 
-		# Convert all violated XLs to 0.
-		mask_viol = self.D > self.xl_max_bound
-		self.D[mask_viol] = 0
+			violated = int( min_D > self.xl_max_bound )
+			xl_satisfaction.append( 1 - violated )
+
+		return torch.tensor( xl_satisfaction )
 
 
-	def compute_xl_satisfaction( self ) -> float:
-
+	def compute_xl_metric( self, xl_satisfaction: torch.Tensor ):
 		"""
-		Calculate the XL satisfaction as the percentage of XLs satisfied.
+		Compute xl_metric as the fraction of satisfied XLs.
 		"""
-		# Identify Xl violations.
-		# m = self.D != 0
-		# violated = torch.sum( self.D > self.xl_max_bound )
-		satisfied = torch.sum( self.D == 1 )
-		# xl_satisfaction = 1 - ( violated/ self.total_xls )
-		xl_satisfaction = satisfied/ self.total_xls
-
-		return xl_satisfaction
+		xl_metric = torch.sum( xl_satisfaction )/ self.total_xls
+		return xl_metric
 
 
-
-	def track_satisfied_xls( self ) -> None:
+	def compute_global_xl_satisfaction( self, xl_satisfaction: torch.Tensor ):
 		"""
-		Keep track of all satisfied XLs.
+		Keep track of all satisfied/violated XLs.
 		"""
-		self.satisfied_xls += self.D
-
+		self.satisfied_xls += xl_satisfaction
 
 
 class Metrics():
@@ -130,15 +123,15 @@ class Metrics():
 		return scalar_metric_dict, other_metric_dict
 
 
-
 	def metrics_included( self ) -> List:
 		"""
 		Metrics to be calculated.
 		"""
 		included_metrics = []
 		if self.config.xlr.enabled:
-			included_metrics.append( XlMetrics( self.config.xlr, self.restraint_features["xl_restraint"] ) )
+			included_metrics.append(
+				XlMetrics( self.config.xlr,
+							self.restraint_features["xl_restraint"] )
+			)
 
 		return included_metrics
-
-

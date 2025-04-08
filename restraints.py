@@ -24,6 +24,10 @@ class XlRestraint():
 		elif self.config.type == "simple_xlr":
 			return lambda: self.simple_xl_restraint( out, restraint_feature["xl_res_mask"],
 													restraint_feature["xl_max_bound"] )
+		elif self.config.type == "simple_xlr2":
+			return lambda: self.simple_xl_restraint2( out, restraint_feature["xl_res_dict"],
+													restraint_feature["xl_max_bound"],
+													restraint_feature["total_xls"] )
 		# Same as simple_xlr, just modular.
 		elif self.config.type == "mse_xlr":
 			return lambda: self.mse_xl_restraint( out, restraint_feature["xl_res_mask"],
@@ -211,15 +215,15 @@ class XlRestraint():
 									viols_mask: torch.Tensor,
 									scaled_xl_max_bound: float
 									) -> torch.Tensor:
-	"""
-	Calculate the difference between the predicted distances and 
-		the XL max bound for XL'd residue airs.
-	"""
-	if viols_mask.any():
-		diff = ( D[viols_mask] - scaled_xl_max_bound )**2
-	else:
-		diff = D*0
-	return diff
+		"""
+		Calculate the difference between the predicted distances and 
+			the XL max bound for XL'd residue airs.
+		"""
+		if viols_mask.any():
+			diff = ( D[viols_mask] - scaled_xl_max_bound )**2
+		else:
+			diff = D*0
+		return diff
 
 
 
@@ -269,18 +273,84 @@ class XlRestraint():
 		return loss
 
 
-	def mse_xl_restraint( self, out: Dict[str, torch.Tensor],
-							xl_res_mask: torch.tensor,
-							xl_max_bound: float ) -> torch.Tensor:
+	# def mse_xl_restraint( self, out: Dict[str, torch.Tensor],
+	# 						xl_res_mask: torch.tensor,
+	# 						xl_max_bound: float ) -> torch.Tensor:
+	# 	"""
+	# 	Calculate the cross-linking restraint loss as the mean squared error (MSE) for the 
+	# 	predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
+	# 	Here, I am using the "final_atom_positions" for the restraint.
+
+	# 	Input:
+	# 	----------
+	# 	out --> output dict from the model.
+	# 	xl_res_mask --> binary mask indicating cross-linked residue pairs.
+	# 	xl_max_bound --> max distance between the cross-licked residues.
+
+	# 	Returns:
+	# 	----------
+	# 	loss --> xl restraint loss.
+	# 	"""
+	# 	D = self.final_pred_to_dist_map( out["final_atom_positions"] )
+
+	# 	# Adjust the length scales.
+	# 	scaled_xl_max_bound = xl_max_bound / self.length_scale
+		
+	# 	viols_mask = self.get_violations_mask( D, xl_res_mask, scaled_xl_max_bound )
+
+	# 	# Loss is computed only for the violated XLs.
+	# 	if viols_mask.any():
+	# 		squared_diff = ( D[viols_mask] - scaled_xl_max_bound )**2
+	# 	else:
+	# 		squared_diff = D*0
+		
+	# 	# Normalizing by the total no. of cross-linked residue pairs.
+	# 	denom = self.eps + torch.sum( xl_res_mask )
+	# 	mse = torch.sum( squared_diff )/ denom
+	# 	return mse
+
+
+	# def rmse_xl_restraint( self, out: Dict[str, torch.Tensor],
+	# 						xl_res_mask: torch.tensor,
+	# 						xl_max_bound: float ) -> torch.Tensor:
+	# 	"""
+	# 	Using root mean squared error (RMSE) as the XL restraint.
+	# 		Read doc string for mse_xl_restraint.
+
+	# 	Input:
+	# 	----------
+	# 	out --> output dict from the model.
+	# 	xl_res_mask --> binary mask indicating cross-linked residue pairs.
+	# 	xl_max_bound --> max distance between the cross-licked residues.
+
+	# 	Returns:
+	# 	----------
+	# 	loss --> xl restraint loss.
+	# 	"""
+	# 	mse = self.mse_xl_restraint( out, xl_res_mask, xl_max_bound )
+
+	# 	rmse = torch.sqrt( mse + self.eps )
+
+	# 	return rmse
+
+
+	def simple_xl_restraint2( self, out: Dict[str, torch.Tensor],
+							xl_res_dict: torch.tensor,
+							xl_max_bound: float,
+							total_xls: int ) -> torch.Tensor:
 		"""
 		Calculate the cross-linking restraint loss as the mean squared error (MSE) for the 
 		predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
 		Here, I am using the "final_atom_positions" for the restraint.
+		Here we compute the loss per XL pair rather than all together in a single tensor.
+		The loss for each XL residue pair is the minimum over all ambiguous XL pairs.
+		Final loss is the mean over all XL pairs.
 
 		Input:
 		----------
 		out --> output dict from the model.
-		xl_res_mask --> binary mask indicating cross-linked residue pairs.
+		xl_res_dict --> dict with an index as key and the value corresponding to 
+						all ambiguous XL pairs for a residue pair.
 		xl_max_bound --> max distance between the cross-licked residues.
 
 		Returns:
@@ -291,43 +361,39 @@ class XlRestraint():
 
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
-		
-		viols_mask = self.get_violations_mask( D, xl_res_mask, scaled_xl_max_bound )
 
-		# Loss is computed only for the violated XLs.
-		if viols_mask.any():
-			squared_diff = ( D[viols_mask] - scaled_xl_max_bound )**2
-		else:
-			squared_diff = D*0
+		agg_loss = torch.tensor( 0.0 ).to( D.device )
+		for xl_pair in xl_res_dict:
+			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
+			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
+			# Indices for all ambiguous XLs for a cross-linked residue pair.
+			xl_indices = ( 0, res_idx1, res_idx2 )
+
+			viols_mask = D[xl_indices] > scaled_xl_max_bound
+			# If all ambiguous pairs are violated.
+			if viols_mask.all():
+				# Get the minimum distance over all ambiguous pairs.
+				min_D = torch.min( D[xl_indices] )
+				diff = min_D - scaled_xl_max_bound
+				squared_diff = diff**2
+			# If any ambiguous pair is satisfied, the restraint is satisfied.
+			else:
+				squared_diff = torch.tensor( 0.0, device = D.device )
+
+			agg_loss += squared_diff
 		
 		# Normalizing by the total no. of cross-linked residue pairs.
-		denom = self.eps + torch.sum( xl_res_mask )
-		mse = torch.sum( squared_diff )/ denom
-		return mse
+		total_xls = torch.tensor( total_xls ).to( D.device )
+		denom = self.eps + total_xls
 
+		mse = torch.sum( agg_loss )/ denom
 
-	def rmse_xl_restraint( self, out: Dict[str, torch.Tensor],
-							xl_res_mask: torch.tensor,
-							xl_max_bound: float ) -> torch.Tensor:
-		"""
-		Using root mean squared error (RMSE) as the XL restraint.
-			Read doc string for mse_xl_restraint.
-
-		Input:
-		----------
-		out --> output dict from the model.
-		xl_res_mask --> binary mask indicating cross-linked residue pairs.
-		xl_max_bound --> max distance between the cross-licked residues.
-
-		Returns:
-		----------
-		loss --> xl restraint loss.
-		"""
-		mse = self.mse_xl_restraint( out, xl_res_mask, xl_max_bound )
-
-		rmse = torch.sqrt( mse + self.eps )
-
-		return rmse
+		if self.config.func_form == "mse":
+			loss = mse
+		elif self.config.func_form == "rmse":
+			rmse = torch.sqrt( mse + self.eps )
+			loss = rmse
+		return loss
 
 
 	def disto_xl_restraint( self, out: Dict[str, torch.Tensor],
