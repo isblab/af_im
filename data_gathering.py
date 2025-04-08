@@ -403,8 +403,9 @@ class DataGathering():
 
 		self.restraint_features["xl_restraint"] = {}
 		# self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
-		self.restraint_features["xl_restraint"]["xl_pair_indices"] = xl_amb_dict_sys
+		self.restraint_features["xl_restraint"]["xl_res_dict"] = xl_amb_dict_sys
 		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
+		self.restraint_features["xl_restraint"]["total_xls"] = len( xl_amb_dict_sys )
 		# self.restraint_features["xl_restraint"]["gt_distogram"] = distogram
 
 
