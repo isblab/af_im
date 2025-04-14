@@ -164,8 +164,7 @@ def get_uniprot_seq( uni_id, max_trials = 5, wait_time = 5, return_id = False ):
 		response = [uni_id, []] if return_id else []
 
 	else:
-		# seq_record = [str( record.seq ) for record in SeqIO.parse( StringIO( data ), 'fasta' )]
-		seq_record = list( SeqIO.parse( StringIO( data ), 'fasta' ) )
+		seq_record = [str( record.seq ) for record in SeqIO.parse( StringIO( data ), 'fasta' )]
 
 		if seq_record == []:
 			response = [uni_id, []] if return_id else []
