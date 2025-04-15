@@ -34,20 +34,20 @@ class CreateBenchmark():
 		self.afu_pdb_benchmark = "./raw/af_unmasked_pdb_benchmark.txt"
 		self.bm_v5_5 = "./raw/Table_BM5.5.xlsx"
 		self.base_dir = os.path.join( "./benchmark/" )
-		self.benchmark_dir = os.path.join( self.base_dir, "imp_dl_benchmark/" )
-		self.meta_dir = os.path.join( self.base_dir, "metadata" )
-		self.pdb_api_dir = os.path.join( self.meta_dir, "pdb_api" )
-		self.pdb_struct_dir = os.path.join( self.meta_dir, "pdb_struct" )
-		self.sifts_xml_dir = os.path.join( self.meta_dir, "sifts_xml" )
-		self.sifts_dict_dir = os.path.join( self.meta_dir, "sifts_dict" )
+		self.benchmark_dir = os.path.join( self.base_dir, "fool_benchmark/" )
+		self.meta_dir = os.path.join( self.base_dir, "metadata_fool" )
+		self.pdb_api_dir = os.path.join( self.meta_dir, "pdb_api_fool" )
+		self.pdb_struct_dir = os.path.join( self.meta_dir, "pdb_struct_fool" )
+		self.sifts_xml_dir = os.path.join( self.meta_dir, "sifts_xml_fool" )
+		self.sifts_dict_dir = os.path.join( self.meta_dir, "sifts_dict_fool" )
 
 
 		self.pdb_benchmark_dict = {}
 		self.sifts_pdb_to_uni = {}
 		self.uni_seq_dict = {}
-		self.uni_seq_file = os.path.join( self.base_dir, "uni_seq.json" )
+		self.uni_seq_file = os.path.join( self.base_dir, "uni_seq_fool.json" )
 		self.benchmark_config_dict = {}
-		self.benchmark_csv = os.path.join( self.base_dir, "benchmark.csv" )
+		self.benchmark_csv = os.path.join( self.base_dir, "benchmark_fool.csv" )
 
 		self.initialize_dir()
 

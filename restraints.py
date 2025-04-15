@@ -386,7 +386,7 @@ class XlRestraint():
 		total_xls = torch.tensor( total_xls ).to( D.device )
 		denom = self.eps + total_xls
 
-		mse = torch.sum( agg_loss )/ denom
+		mse = agg_loss/ denom
 
 		if self.config.func_form == "mse":
 			loss = mse
