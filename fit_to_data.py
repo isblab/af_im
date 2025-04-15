@@ -49,7 +49,8 @@ def parse_nested_dict( dict_: Dict, action: str,
 
 
 class FitToData():
-	def __init__( self, ofold_config: mlc.ConfigDict, 
+	def __init__( self, sys_name: str,
+					ofold_config: mlc.ConfigDict, 
 					topology: mlc.ConfigDict, 
 					mode: str, 
 					system_features: Dict, 
@@ -58,6 +59,7 @@ class FitToData():
 					prec: int,
 					seed_worker,
 					device: str ):
+		self.sys_name = sys_name
 		self.ofold_config = ofold_config
 		self.topology = topology
 		self.is_multimer = self.ofold_config.globals.is_multimer,
@@ -69,11 +71,11 @@ class FitToData():
 		self.output_dir = output_dir
 		self.use_relaxation = False
 		# PDB file contaiing all predicted models.
-		self.ensemble_file = os.path.join( self.output_dir, f"2ayo_output_models" )
+		self.ensemble_file = os.path.join( self.output_dir, f"{self.sys_name}_output_models" )
 		# Directory to store each predicted model as separate PDB file.
-		self.ensemble_dir = os.path.join( self.output_dir, f"2ayo_ensemble" )
+		self.ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_ensemble" )
 		# Directory to store each relaxed predicted model as separate PDB file.
-		self.relax_ensemble_dir = os.path.join( self.output_dir, f"2ayo_relax_ensemble" )
+		self.relax_ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_relax_ensemble" )
 
 		if not os.path.exists( self.ensemble_dir ):
 			os.makedirs( self.ensemble_dir )

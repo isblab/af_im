@@ -176,7 +176,8 @@ class IntegrativeLearning():
 		Instantiate and run the FitToData module.
 		"""
 		# Load the models and fit to data.
-		fit = FitToData( ofold_config = self.ofold_config,
+		fit = FitToData( sys_name = self.sys_name,
+						ofold_config = self.ofold_config,
 						topology = self.topology,
 						mode = self.pred_mode,
 						system_features = system_features,
