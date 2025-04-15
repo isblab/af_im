@@ -35,7 +35,7 @@ python eye_drop.py
 
 ## Modeling
 To run the modeling, make the required changes to the parameters specified in `topology.py` file.  
-For now, change the system name in the constructor (self.sys_name) in the `openfold_wrapper.py` script.  
+For now, change the system name at the botton of the `openfold_wrapper.py` script.  
 Run the following script to start the modeling,
 ```
 python openfold_wrapper.py
