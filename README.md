@@ -27,6 +27,11 @@ Run the following script to create the required input files for the benchmark da
 ```
 python prep_data.py
 ```
+Run modeling for 100 epochs for the benchmark PDB IDs and select those for which the iitial OpenFold prediction does not satisfy the data.  
+Run the follwing script to get the selected benchmark PDBs:  
+```
+python eye_drop.py
+```
 
 ## Modeling
 To run the modeling, make the required changes to the parameters specified in `topology.py` file.  
