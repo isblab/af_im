@@ -127,9 +127,12 @@ class FitToData():
 		None
 		"""
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
+		print( self.ofold_output_dir )
+		print( os.getcwd() )
 		feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
+		print( feature_dict_path )
 		if len( feature_dict_path ) == 0:
-			raise Exception( f"Incorrect path -- {feature_dict_path}..." )
+			raise FileNotFoundError( f"Incorrect path -- {feature_dict_path}..." )
 
 		with open( feature_dict_path[0], "rb" ) as f:
 			self.feature_dict = pkl.load( f )

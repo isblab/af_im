@@ -195,7 +195,7 @@ class DataGathering():
 		"""
 		# xl_df = pd.read_csv( os.path.abspath( "2ayo_interprotein_xls.csv" ) )
 		xl_csv_file = self.sys_config["data_gathering"]["xl_restraint"]["file_name"]
-		xl_df = pd.read_csv( os.path.abspath( xl_csv_file ) )
+		xl_df = pd.read_csv( os.path.join( self.base_dir, xl_csv_file ) )
 
 		return xl_df
 

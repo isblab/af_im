@@ -40,12 +40,13 @@ class IntegrativeLearning():
 	def __init__( self, sys_name: str, topology_dict: mlc.ConfigDict ):
 		# Name of the system to be modeled.
 		self.sys_name = sys_name # "2ayo" # H1129
-		# Main directory for the modeled system.
-		self.base_dir = os.path.join( os.path.abspath( f"./benchmark/imp_dl_benchmark/{self.sys_name}/" ) )
+		self.base_dir = os.path.join( "./benchmark/" )
+		# Directory containing input data for the modeled system.
+		self.data_dir = os.path.join( self.base_dir,
+									f"imp_dl_benchmark/{self.sys_name}/" )
 		# mono/multi
 		self.pred_mode = "multi"
-		# Path for the OpenFold inference script.
-		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
+
 		# No. of CPU cores to be used.
 		self.cpu_cores = 16
 		self.prec = 4
@@ -69,15 +70,8 @@ class IntegrativeLearning():
 
 		self.add_sys_conf_to_topology()
 
-		self.create_required_paths_dirs()
-
 		# Set the PRNG seed.
 		self.seed_worker()
-		# The base directory should exist.
-		if not os.path.exists( self.base_dir ):
-			raise FileNotFoundError( f"Base dir: {self.base_dir}  does not exist..." )
-		# Move to the base directory.
-		os.chdir( self.base_dir )
 
 
 	def seed_worker( self ):
@@ -97,6 +91,13 @@ class IntegrativeLearning():
 		Serially run all the stages of the pipeline.
 		"""
 		tic = time.time()
+
+		self.create_required_paths_dirs()
+		# Move to the base directory.
+		# os.chdir( self.base_dir )
+
+		self.create_dirs()
+		self.write_objective_file()
 
 		# Save topology file on disk.
 		self.save_topology_file()
@@ -124,7 +125,7 @@ class IntegrativeLearning():
 		# self.run_analysis( fit )
 
 		toc = time.time()
-		time_file = os.path.join( self.output_dir, "Time_taken.txt" )
+		time_file = os.path.join( self.modeling_output_dir, "Time_taken.txt" )
 		if not os.path.exists( time_file ):
 			w = open_file_handler( time_file, "w" )
 			w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
@@ -139,7 +140,7 @@ class IntegrativeLearning():
 		"""
 		# Get the restraint features.
 		data_gathering = DataGathering( sys_name = self.sys_name,
-									 		base_dir = self.base_dir,
+									 		base_dir = self.data_dir,
 									 		fasta_dir = self.fasta_dir,
 									 		sys_config = self.topology.system )
 		data_gathering.forward()
@@ -151,6 +152,7 @@ class IntegrativeLearning():
 		"""
 		Instantiate and run the SystemRepresentation module.
 		"""
+		init_dir = os.getcwd()
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation( sys_name = self.sys_name,
 											ofold_dir = self.openfold_dir,
@@ -167,7 +169,7 @@ class IntegrativeLearning():
 											device = self.device ).forward()
 
 		# Move back to base dir.
-		os.chdir( self.base_dir )
+		os.chdir( init_dir )
 		return system_features
 
 
@@ -182,7 +184,7 @@ class IntegrativeLearning():
 						mode = self.pred_mode,
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
-						output_dir = self.output_dir,
+						output_dir = self.modeling_output_dir,
 						prec = self.prec,
 						seed_worker = self.seed_worker,
 						device = self.device )
@@ -214,7 +216,7 @@ class IntegrativeLearning():
 			model_ids = models_ids,
 			model_dir = fit.ensemble_dir,
 			# ensmeble_file = f"{fit.ensemble_file}.pdb",
-			output_dir = self.output_dir,
+			output_dir = self.modeling_output_dir,
 			seed_worker = self.seed_worker,
 			cores = self.cpu_cores,
 			prec = self.prec
@@ -230,17 +232,38 @@ class IntegrativeLearning():
 		"""
 		# Load the system specific configs.
 		sys_conf = read_json(
-							os.path.join( self.base_dir, f"sys_conf_{self.sys_name}.json" )
+							os.path.join( self.data_dir, f"sys_conf_{self.sys_name}.json" )
 							)
 		# Add system specific config to the topology dict.
 		sys_name = list( sys_conf.keys() )[0]
 		self.topology.system = sys_conf[sys_name]
 
 
+	def create_dirs( self ):
+		"""
+		Create all the required directories.
+		Also, check if required directories exist or not.
+		"""
+		os.makedirs( self.base_modeling_dir, exist_ok = True )
+		os.makedirs( self.sys_modeling_dir, exist_ok = True )
+		os.makedirs( self.modeling_mode, exist_ok = True )
+		os.makedirs( self.modeling_output_dir, exist_ok = True )
+
+		if not os.path.exists( self.base_dir ):
+			raise RuntimeError( f"Base directory - {self.base_dir} does not exist..." )
+		if not os.path.exists( self.data_dir ):
+			raise RuntimeError( f"Data directory - {self.data_dir} does not exist..." )
+
+
 	def create_required_paths_dirs( self ):
 		"""
 		Given the base_dir, create all the required paths.
 		"""
+		# Dir to store modeling outputs.
+		self.base_modeling_dir = os.path.join( self.base_dir, "modeling" )
+		# System specific dir modeling outputs.
+		self.sys_modeling_dir = os.path.join( self.base_modeling_dir, self.sys_name )
+
 		# Path to the OpenFold dir.
 		self.openfold_dir = os.path.join( os.path.abspath( "./openfold/" ) )
 		# Path to the OpenFold params to be used.
@@ -251,45 +274,50 @@ class IntegrativeLearning():
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" )
 		# Output directory path for OpenFold output.
-		self.ofold_output_dir = os.path.join( self.base_dir, f"{self.sys_name}_output" )
+		self.ofold_output_dir = os.path.join( self.data_dir, f"{self.sys_name}_output" )
 		# Directory storing the precomputed alignments.
 		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" )
+
+		# Path for the OpenFold inference script.
+		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 
 		# Create directory to store output.
 		# 	separate directory is created for mode = test/prod.
 		version = self.topology.train.version
 		mode = self.topology.train.mode
 
-		dir_ = os.path.join( self.base_dir, f"{mode}" )
-		if not os.path.exists( dir_ ):
-			os.makedirs( dir_ )
+		self.modeling_mode = os.path.join( self.base_dir, f"{mode}" )
 
 		# Dir to store all modeling results.
-		self.output_dir = os.path.join( self.base_dir, f"{mode}/version_{version}" )
+		self.modeling_output_dir = os.path.join( self.sys_modeling_dir,
+												f"{mode}/version_{version}" )
 
-		self.output_dir_exists()
-
-		self.topology_file = os.path.join( self.output_dir, f"topology_{version}.json" )
-		self.objective_file = os.path.join( self.output_dir, f"objective_{version}.txt" )
+		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
+		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
 
 		# File path for the loss plot.
-		self.loss_plot_file = os.path.join( self.output_dir, "Loss.png" )
+		self.loss_plot_file = os.path.join( self.modeling_output_dir, "Loss.png" )
 		# File path for the metric plot.
-		self.scalar_metric_plot_file = os.path.join( self.output_dir, "Metrics.png" )
+		self.scalar_metric_plot_file = os.path.join( self.modeling_output_dir, "Metrics.png" )
 		# File path for XL map plot.
-		self.xl_map_plot_file = os.path.join( self.output_dir, "XL_map.png" )
+		self.xl_map_plot_file = os.path.join( self.modeling_output_dir, "XL_map.png" )
 
 		# File path for the loss dict.
-		self.loss_dict_file = os.path.join( self.output_dir, "Loss.npy" )
+		self.loss_dict_file = os.path.join( self.modeling_output_dir, "Loss.npy" )
 		# File path for the metrics dict.
-		self.scalar_metric_dict_file = os.path.join( self.output_dir, "Metrics_scalar.npy" )
+		self.scalar_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_scalar.npy" )
 		# File path for the metrics dict.
-		self.other_metric_dict_file = os.path.join( self.output_dir, "Metrics_other.npy" )
+		self.other_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_other.npy" )
 
 		# Output summary file.
-		self.summary_file = os.path.join( self.output_dir, "Summary.csv" )
+		self.summary_file = os.path.join( self.modeling_output_dir, "Summary.csv" )
 
-		# Write down the system used, date, and objective of the simulation.
+
+
+	def write_objective_file( self ):
+		"""
+		Write down the system used, date, and objective of the simulation.
+		"""
 		w = open_file_handler( self.objective_file, "w" )
 		with subprocess.Popen( "hostname", shell = True, stdout = subprocess.PIPE ) as proc:
 			system = proc.communicate()[0]
@@ -305,14 +333,14 @@ class IntegrativeLearning():
 		Check if the output directory exists or not.
 		Just to avoid accidently overwriting.
 		"""
-		if os.path.exists( self.output_dir ):
-			overwrite = input( f"Output directory: '{self.output_dir}' exists. Wanna continue (Y or n)? " )
+		if os.path.exists( self.modeling_output_dir ):
+			overwrite = input( f"Output directory: '{self.modeling_output_dir}' exists. Wanna continue (Y or n)? " )
 			if overwrite:
 				pass
 			else:
 				sys.exit()
 		else:
-			os.makedirs( self.output_dir )
+			os.makedirs( self.modeling_output_dir )
 
 
 	################################################################################
@@ -348,8 +376,6 @@ class IntegrativeLearning():
 		"""
 		create_plot_from_dict( loss_dict, self.loss_plot_file )
 		plot_scalar_metrics( scalar_metric_dict, self.scalar_metric_plot_file )
-		# xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
-		# plot_xl_map( other_metric_dict["xlr"], xl_res_mask, self.xl_map_plot_file )
 
 
 
@@ -382,8 +408,6 @@ class IntegrativeLearning():
 		for k, v in scalar_metric_dict.items():
 			if k == "xlr":
 				global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
-				# xl_res_mask = restraint_features["xl_restraint"]["xl_res_mask"]
-				# total_xls = int( torch.count_nonzero( xl_res_mask ) )
 				total_xls = restraint_features["xl_restraint"]["total_xls"]
 				print( global_xl_satisfied, "  ", total_xls )
 				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
@@ -402,7 +426,7 @@ class IntegrativeLearning():
 
 
 if __name__ == "__main__":
-	sys_name = "8gtm"
+	sys_name = "8gtj"
 	topology_dict = topology_dict()
 	IntegrativeLearning( sys_name, topology_dict ).forward()
 

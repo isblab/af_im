@@ -64,10 +64,10 @@ class LoadState():
 		None
 		"""
 		if self.mode == "mono":
-			pretrained_weights = torch.load( "../../monomer_params.pt" )
+			pretrained_weights = torch.load( "./monomer_params.pt" )
 
 		elif self.mode == "multi":
-			pretrained_weights = torch.load( os.path.abspath( "../../multimer_params.pt" ) )
+			pretrained_weights = torch.load( os.path.abspath( "./multimer_params.pt" ) )
 		else:
 			raise ValueError( f"Incorrect mode: {self.mode} specified..." )
 
