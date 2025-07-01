@@ -5,7 +5,7 @@ import io
 import string
 import os
 import warnings
-from typing import Dict, Tuple, Iterator
+from typing import List, Dict, Tuple, Iterator
 import numpy as np
 from scipy.spatial import distance_matrix
 
@@ -85,6 +85,36 @@ def get_distance_map( coords1: np.array, coords2: np.array ):
 	"""
 	distance_map = distance_matrix( coords1, coords2 )
 	return distance_map
+
+
+def prep_protein( outputs: Dict, feature_dict: Dict,
+					feature_processor:feature_pipeline.FeaturePipeline ):
+	"""
+	Convert the predicted protein structure into a Protein object.
+	Need to remove the batch dim.
+	"""
+	out = {}
+	for k in outputs:
+		if isinstance( outputs[k], dict ):
+			if k not in out:
+				out[k] = {}
+			for m in outputs[k]:
+				out[k][m] = outputs[k][m].squeeze( 0 ).detach().cpu().numpy()
+		else:
+			out[k] = outputs[k].squeeze( 0 ).detach().cpu().numpy()
+
+	unrelaxed_protein = prep_output(
+		out,                     # out,
+		feature_dict,       # batch,
+		feature_dict,       # feature_dict,
+		feature_processor,  # feature_processor
+		config_preset = None,
+		multimer_ri_gap = 1,
+		subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
+	)
+
+	return unrelaxed_protein
+
 
 
 class Parser():
@@ -258,35 +288,6 @@ class SaveModels():
 		"""
 		model_group = modelcif.model.ModelGroup([], name = "Trajectory" )
 		return model_group
-
-
-	def prep_protein( self, outputs: Dict, feature_dict: Dict,
-							feature_processor:feature_pipeline.FeaturePipeline ):
-		"""
-		Convert the predicted protein structure into a Protein object.
-		Need to remove the batch dim.
-		"""
-		out = {}
-		for k in outputs:
-			if isinstance( outputs[k], dict ):
-				if k not in out:
-					out[k] = {}
-				for m in outputs[k]:
-					out[k][m] = outputs[k][m].squeeze( 0 ).detach().cpu().numpy()
-			else:
-				out[k] = outputs[k].squeeze( 0 ).detach().cpu().numpy()
-
-		unrelaxed_protein = prep_output(
-			out,                     # out,
-			feature_dict,       # batch,
-			feature_dict,       # feature_dict,
-			feature_processor,  # feature_processor
-			config_preset = None,
-			multimer_ri_gap = 1,
-			subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
-		)
-
-		return unrelaxed_protein
 
 
 	def create_attributes( self, prot: Protein ):
