@@ -114,14 +114,6 @@ class FitToData():
 	def load_feature_dict( self ) -> None:
 		"""
 		Load the feature_dict saved as a .pkl file in the system's director.
-
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
-		None
 		"""
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 		print( self.ofold_output_dir )
@@ -141,12 +133,6 @@ class FitToData():
 		Obtain the MSA, Pair, and Single representation from OpenFold.
 		These are stored in a .pkl file in the OpenFold output directory.
 
-		Input:
-		----------
-		Does not take any arguments.
-
-		Returns:
-		----------
 		msa_rep --> MSA representation for the system [n, r, 256].
 		pair_rep --> Pair representation for the system [r, r, 128].
 		single_rep --> Single representation for the system [r, 384].
@@ -171,7 +157,6 @@ class FitToData():
 		"pair": torch.from_numpy( pair_rep ),
 		"single": torch.from_numpy( single_rep )
 		}
-		# print( f"MSA rep: {msa_rep.shape} \t Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
 		print( f"Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
 
 		# return evo_output
@@ -193,20 +178,6 @@ class FitToData():
 		****
 		"""
 		print( "\nAdding singleton batch dim to all tensors..." )
-
-		# def parse_nested_dict( dict_: Dict, action: str ):
-		# 	for k in dict_:
-		# 		if isinstance( dict_[k], Dict ):
-		# 			dict_[k] = parse_nested_dict( dict_[k] )
-		# 		else:
-		# 			if isinstance( dict_[k], torch.Tensor ):
-		# 				if action == "add_dim":
-		# 					dict_[k] = dict_[k].unsqueeze( 0 )
-		# 				elif action == "add_to_device":
-		# 					dict_[k] = dict_[k].to( self.device )
-		# 				elif action == "detach":
-		# 					dict_[k] = dict_[k].detach()
-		# 	return dict_
 		
 		with torch.no_grad():
 			self.system_features = parse_nested_dict( self.system_features, "add_dim" )
@@ -456,54 +427,6 @@ class FitToData():
 		self.stats_dict["metadata"] = metadata
 
 
-
-	def relaxation( self,
-					unrelaxed_protein: protein.Protein,
-					model_num: int ):
-		"""
-		Perform AMBER relaxation for the predicted structure.
-		# Taken from openfold.utils.script_utils.py.
-		"""
-		# Not making too many changes.
-		model_device = self.device
-		cif_output = False
-		output_directory = self.relax_ensemble_dir
-		output_name = f"model_{model_num}"
-		config = self.ofold_config
-		
-		amber_relaxer = relax.AmberRelaxation(
-			use_gpu=(model_device != "cpu"),
-			**config.relax,
-		)
-
-		t = time.perf_counter()
-		visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", default="")
-		if "cuda" in model_device:
-			device_no = model_device.split(":")[-1]
-			os.environ["CUDA_VISIBLE_DEVICES"] = device_no
-		# the struct_str will contain either a PDB-format or a ModelCIF format string
-		struct_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein, cif_output=cif_output)
-		os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
-		relaxation_time = time.perf_counter() - t
-
-		# logger.info(f"Relaxation time: {relaxation_time}")
-		# update_timings({"relaxation": relaxation_time}, os.path.join(output_directory, "timings.json"))
-
-		# Save the relaxed PDB.
-		suffix = "_relaxed.pdb"
-		if cif_output:
-			suffix = "_relaxed.cif"
-		relaxed_output_path = os.path.join(
-			output_directory, f'{output_name}{suffix}'
-		)
-		with open(relaxed_output_path, 'w') as fp:
-			fp.write(struct_str)
-
-		print( f"Relaxed output written to {relaxed_output_path}..." )
-		# logger.info(f"Relaxed output written to {relaxed_output_path}...")
-
-
-
 	def add_model( self,
 					save_model_obj: SaveModels,
 					unrelaxed_protein: protein.Protein,
@@ -522,5 +445,4 @@ class FitToData():
 		Save to PDB or CIF file.
 		"""
 		save_model.save( save_model.system, self.ensemble_file )
-
 
