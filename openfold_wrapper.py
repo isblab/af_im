@@ -6,13 +6,8 @@ Contains a wrapper class that runs all the stages of integrative modeling pipeli
 	4. Analysis --> Assay
 """
 
-import math
-import time
-import random
 from typing import Dict, Optional
-import os
-import sys
-import subprocess
+import os, sys, subprocess, math, time, random, copy
 import numpy as np
 import pandas as pd
 import ml_collections as mlc
@@ -37,13 +32,17 @@ class IntegrativeLearning():
 	"""
 	A wrapper class that runs all the stages of integrative modeling pipeline.
 	"""
-	def __init__( self, sys_name: str, topology_dict: mlc.ConfigDict ):
+	def __init__( self, sys_name: str, base_dir: str, data_dir: str,
+					modeling_dir_name: str, topology_dict: mlc.ConfigDict ):
 		# Name of the system to be modeled.
 		self.sys_name = sys_name # "2ayo" # H1129
-		self.base_dir = os.path.join( "./benchmark/" )
+		self.base_dir = base_dir
 		# Directory containing input data for the modeled system.
-		self.data_dir = os.path.join( self.base_dir,
-									f"imp_dl_benchmark/{self.sys_name}/" )
+		self.data_dir = data_dir
+		# Name for the dir to store modeling output.
+		self.modeling_dir_name = modeling_dir_name
+		# If True, will overwrite an existing dir without warning.
+		self.disable_overwrite_warning = False
 		# mono/multi
 		self.pred_mode = "multi"
 
@@ -93,10 +92,11 @@ class IntegrativeLearning():
 		tic = time.time()
 
 		self.create_required_paths_dirs()
-		# Move to the base directory.
-		# os.chdir( self.base_dir )
+		# Check if modeling output dir exists.
+		self.output_dir_exists()
 
 		self.create_dirs()
+
 		self.write_objective_file()
 
 		# Save topology file on disk.
@@ -176,6 +176,8 @@ class IntegrativeLearning():
 	def run_fit_to_data( self, restraint_features: Dict, system_features: Dict ):
 		"""
 		Instantiate and run the FitToData module.
+		Save the stats file from simulation output.
+		Create the required plots and save summary metrics.
 		"""
 		# Load the models and fit to data.
 		fit = FitToData( sys_name = self.sys_name,
@@ -189,19 +191,38 @@ class IntegrativeLearning():
 						seed_worker = self.seed_worker,
 						device = self.device )
 
-		# If the simulation output doesn't already exist.
-		if not fit.ensemble_exists():
+		# If the stats file form simulation output doesn't already exist.
+		if os.path.exists( self.stats_file ):
+			stats_dict = np.load( self.stats_file, allow_pickle = True ).item()
+		else:
 			fit.forward()
+			# Store metrics metadata.
+			fit.store_metrics_metadata()
+			stats_dict = fit.stats_dict
 
-			self.save_metrics( fit.loss_dict,
-								fit.scalar_metric_dict,
-								fit.other_metric_dict )
-			self.plot_metrics( fit.loss_dict,
-								fit.scalar_metric_dict,
-								fit.other_metric_dict, restraint_features )
-			self.write_summary( fit.loss_dict, fit.scalar_metric_dict,
-								fit.other_metric_dict, restraint_features )
+			self.save_stats( stats_dict )
+
+		self.save_sampling_results( stats_dict = stats_dict,
+									restraint_features = restraint_features )
+
 		return fit
+
+
+	def save_sampling_results( self, stats_dict: Dict[str, Dict],
+								restraint_features: Dict[str, Dict] ):
+		"""
+		Create relevant plots for the sampling output and save summary metrics.
+		"""
+		loss_dict = copy.deepcopy( stats_dict["loss"] )
+		metrics_dict = copy.deepcopy( stats_dict["metrics"] )
+		metadata = copy.deepcopy( stats_dict["metadata"] )
+
+		self.plot_metrics( loss_dict = loss_dict,
+							metrics_dict = metrics_dict )
+		self.write_summary( loss_dict = loss_dict,
+							metrics_dict = metrics_dict,
+							metadata = metadata,
+							restraint_features = restraint_features )
 
 
 	def run_analysis( self, fit: FitToData ):
@@ -241,18 +262,19 @@ class IntegrativeLearning():
 
 	def create_dirs( self ):
 		"""
+		Check if required directories exist or not.
 		Create all the required directories.
-		Also, check if required directories exist or not.
 		"""
-		os.makedirs( self.base_modeling_dir, exist_ok = True )
-		os.makedirs( self.sys_modeling_dir, exist_ok = True )
-		os.makedirs( self.modeling_mode, exist_ok = True )
-		os.makedirs( self.modeling_output_dir, exist_ok = True )
-
 		if not os.path.exists( self.base_dir ):
 			raise RuntimeError( f"Base directory - {self.base_dir} does not exist..." )
 		if not os.path.exists( self.data_dir ):
 			raise RuntimeError( f"Data directory - {self.data_dir} does not exist..." )
+
+		os.makedirs( self.base_modeling_dir, exist_ok = True )
+		os.makedirs( self.sys_modeling_dir, exist_ok = True )
+		# os.makedirs( self.modeling_mode, exist_ok = True )
+		os.makedirs( self.modeling_output_dir, exist_ok = True )
+
 
 
 	def create_required_paths_dirs( self ):
@@ -260,7 +282,7 @@ class IntegrativeLearning():
 		Given the base_dir, create all the required paths.
 		"""
 		# Dir to store modeling outputs.
-		self.base_modeling_dir = os.path.join( self.base_dir, "modeling" )
+		self.base_modeling_dir = os.path.join( self.base_dir, self.modeling_dir_name )
 		# System specific dir modeling outputs.
 		self.sys_modeling_dir = os.path.join( self.base_modeling_dir, self.sys_name )
 
@@ -284,13 +306,13 @@ class IntegrativeLearning():
 		# Create directory to store output.
 		# 	separate directory is created for mode = test/prod.
 		version = self.topology.train.version
-		mode = self.topology.train.mode
+		# mode = self.topology.train.mode
 
-		self.modeling_mode = os.path.join( self.base_dir, f"{mode}" )
+		# self.modeling_mode = os.path.join( self.base_dir, f"{mode}" )
 
 		# Dir to store all modeling results.
 		self.modeling_output_dir = os.path.join( self.sys_modeling_dir,
-												f"{mode}/version_{version}" )
+												f"version_{version}/" )
 
 		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
@@ -298,16 +320,18 @@ class IntegrativeLearning():
 		# File path for the loss plot.
 		self.loss_plot_file = os.path.join( self.modeling_output_dir, "Loss.png" )
 		# File path for the metric plot.
-		self.scalar_metric_plot_file = os.path.join( self.modeling_output_dir, "Metrics.png" )
+		self.metrics_plot_file = os.path.join( self.modeling_output_dir, "Metrics.png" )
 		# File path for XL map plot.
 		self.xl_map_plot_file = os.path.join( self.modeling_output_dir, "XL_map.png" )
 
-		# File path for the loss dict.
-		self.loss_dict_file = os.path.join( self.modeling_output_dir, "Loss.npy" )
-		# File path for the metrics dict.
-		self.scalar_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_scalar.npy" )
-		# File path for the metrics dict.
-		self.other_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_other.npy" )
+		# File path for the stats file.
+		self.stats_file = os.path.join( self.modeling_output_dir, "Stats.npy" )
+		# # File path for the loss dict.
+		# self.loss_dict_file = os.path.join( self.modeling_output_dir, "Loss.npy" )
+		# # File path for the metrics dict.
+		# self.scalar_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_scalar.npy" )
+		# # File path for the metrics dict.
+		# self.other_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_other.npy" )
 
 		# Output summary file.
 		self.summary_file = os.path.join( self.modeling_output_dir, "Summary.csv" )
@@ -333,14 +357,16 @@ class IntegrativeLearning():
 		Check if the output directory exists or not.
 		Just to avoid accidently overwriting.
 		"""
-		if os.path.exists( self.modeling_output_dir ):
-			overwrite = input( f"Output directory: '{self.modeling_output_dir}' exists. Wanna continue (Y or n)? " )
-			if overwrite:
-				pass
+		
+		if not self.disable_overwrite_warning:
+			if os.path.exists( self.modeling_output_dir ):
+				overwrite = input( f"Output directory: '{self.modeling_output_dir}' exists. Wanna continue (Y or n)? " )
+				if overwrite:
+					pass
+				else:
+					sys.exit()
 			else:
-				sys.exit()
-		else:
-			os.makedirs( self.modeling_output_dir )
+				os.makedirs( self.modeling_output_dir, exist_ok = True )
 
 
 	################################################################################
@@ -354,41 +380,49 @@ class IntegrativeLearning():
 								 )
 
 
-	def save_metrics( self, loss_dict: Dict[str, float],
-							scalar_metric_dict: Dict[str, float],
-							other_metric_dict: Dict[str, float] ):
+	def save_stats( self, stats_dict: Dict[str, Dict] ):
 		"""
-		Save the loss and metric dict on disk.
-		Also create their plots.
+		Save the stats dict on disk.
 		"""
-		np.save( self.loss_dict_file, loss_dict, allow_pickle = True )
-		np.save( self.scalar_metric_dict_file, scalar_metric_dict, allow_pickle = True )
-		np.save( self.other_metric_dict_file, other_metric_dict, allow_pickle = True )
+		np.save( self.stats_file, stats_dict, allow_pickle = True )
+		# np.save( self.loss_dict_file, loss_dict, allow_pickle = True )
+		# np.save( self.scalar_metric_dict_file, scalar_metric_dict, allow_pickle = True )
+		# np.save( self.other_metric_dict_file, other_metric_dict, allow_pickle = True )
 
 
 
-	def plot_metrics( self, loss_dict: Dict[str, float],
-							scalar_metric_dict: Dict[str, float],
-							other_metric_dict: Dict[str, float],
-							restraint_features: Dict ):
+	def plot_metrics( self,
+						loss_dict: Dict[str, float],
+						metrics_dict: Dict[str, float] ):
 		"""
 		Create plots for all metrics.
 		"""
 		create_plot_from_dict( loss_dict, self.loss_plot_file )
-		plot_scalar_metrics( scalar_metric_dict, self.scalar_metric_plot_file )
+		plot_scalar_metrics( metrics_dict, self.metrics_plot_file )
 
 
 
-	def write_summary( self, loss_dict: Dict[str, float],
-							scalar_metric_dict: Dict[str, float],
-							other_metric_dict: Dict,
-							restraint_features ):
+	def write_summary( self,
+						loss_dict: Dict[str, float],
+						metrics_dict: Dict[str, float],
+						metadata: Dict,
+						restraint_features: Dict[str, Dict] ):
 		"""
-		Write all relevant losses and metrics to a csv file.
+		For all loss and metrics, compute the following:
+			epoch0 - value at 0th epoch.
+			last_epoch - value at the last epoch.
+			avg - average value across all epochs.
+			avg_first_0.1 - average value across 1st 10% epochs.
+			avg_last_0.1 - average value across last 10% epochs.
+			global satisfaction for all metrics.
+		Write the results to a csv file.
 		"""
 		df_dict = {"labels": []}
 		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1",
-								"avg_last_0.1", "global_xl_satisfied"]
+								"avg_last_0.1"]
+		num_per_epoch_labels = len( df_dict["labels"] )
+		df_dict["labels"].extend( [f"{k}_global_satisfaction" for k in metrics_dict.keys()] )
+		num_global_labels = len( df_dict["labels"] ) - num_per_epoch_labels
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
 		last_n = math.ceil( self.topology.train.max_epochs*0.9 )
@@ -400,26 +434,31 @@ class IntegrativeLearning():
 							v[-1],
 							round( np.mean( v ), self.prec ),
 							round( np.mean( v[:first_n] ), self.prec ),
-							round( np.mean( v[last_n:] ), self.prec ),
-							""]
+							round( np.mean( v[last_n:] ), self.prec )]
 							)
+			df_dict[k].extend( "" for i in range( num_global_labels ) )
 
-		df_dict.update( {f"{k}_metric":[] for k in scalar_metric_dict.keys()} )
-		for k, v in scalar_metric_dict.items():
-			if k == "xlr":
-				global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
-				total_xls = restraint_features["xl_restraint"]["total_xls"]
-				print( global_xl_satisfied, "  ", total_xls )
-				global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
-
+		print( metadata.keys() )
+		print( metadata["xlr"].keys() )
+		df_dict.update( {f"{k}_metric":[] for k in metrics_dict.keys()} )
+		for k, v in metrics_dict.items():
 			df_dict[f"{k}_metric"].extend(
 							[v[0],
 							v[-1],
 							np.mean( v ),
 							np.mean( v[:first_n] ),
 							np.mean( v[last_n:] ),
-							global_xl_satisfied]
+							round( metadata[k]["global_satisfaction"], self.prec )
+							]
 							)
+
+
+			# if k == "xlr":
+			# 	global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
+			# 	total_xls = restraint_features["xl_restraint"]["total_xls"]
+			# 	print( global_xl_satisfied, "  ", total_xls )
+			# 	global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
+
 
 		df = pd.DataFrame( df_dict )
 		df.to_csv( self.summary_file, index = False )
@@ -428,6 +467,16 @@ class IntegrativeLearning():
 if __name__ == "__main__":
 	sys_name = "8gtj"
 	topology_dict = topology_dict()
-	IntegrativeLearning( sys_name, topology_dict ).forward()
+	base_dir = os.path.join( "./benchmark/" )
+	# Directory containing input data for the modeled system.
+	data_dir = os.path.join( base_dir,
+							f"imp_dl_benchmark/{sys_name}/" )
+	modeling_dir_name = "modeling"
+
+	IntegrativeLearning( sys_name,
+						base_dir,
+						data_dir,
+						modeling_dir_name,
+						topology_dict ).forward()
 
 
