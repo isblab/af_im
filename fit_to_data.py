@@ -1,15 +1,11 @@
+from typing import Dict, Tuple, Optional
+import os, glob, time, copy, random
+from collections import ( OrderedDict, defaultdict )
+import pickle as pkl
 import numpy as np
 import pandas as pd
-import os
-import glob
-import pickle as pkl
-from collections import OrderedDict
 import ml_collections as mlc
-import time
-import copy
-import random
 
-from typing import Dict, Tuple, Optional
 
 import torch
 from torch import nn
@@ -28,7 +24,7 @@ from model import get_model
 from loss import LossFunction
 from metrics import Metrics
 from optimizer import Optimizer
-from utils.pdb_utils import SaveModels
+from utils.pdb_utils import ( prep_protein, SaveModels )
 
 
 
@@ -50,10 +46,10 @@ def parse_nested_dict( dict_: Dict, action: str,
 
 class FitToData():
 	def __init__( self, sys_name: str,
-					ofold_config: mlc.ConfigDict, 
-					topology: mlc.ConfigDict, 
-					mode: str, 
-					system_features: Dict, 
+					ofold_config: mlc.ConfigDict,
+					topology: mlc.ConfigDict,
+					mode: str,
+					system_features: Dict,
 					ofold_output_dir: str,
 					output_dir: str,
 					prec: int,
@@ -69,20 +65,20 @@ class FitToData():
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
 		self.output_dir = output_dir
-		self.use_relaxation = False
+		# self.use_relaxation = False
 		# PDB file contaiing all predicted models.
 		self.ensemble_file = os.path.join( self.output_dir, f"{self.sys_name}_output_models" )
 		# Directory to store each predicted model as separate PDB file.
 		self.ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_ensemble" )
 		# Directory to store each relaxed predicted model as separate PDB file.
-		self.relax_ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_relax_ensemble" )
+		# self.relax_ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_relax_ensemble" )
 
 		if not os.path.exists( self.ensemble_dir ):
 			os.makedirs( self.ensemble_dir )
 
-		if self.use_relaxation:
-			if not os.path.exists( self.relax_ensemble_dir ):
-				os.makedirs( self.relax_ensemble_dir )
+		# if self.use_relaxation:
+		# 	if not os.path.exists( self.relax_ensemble_dir ):
+		# 		os.makedirs( self.relax_ensemble_dir )
 		
 		# Set the seeds.
 		seed_worker()
@@ -90,6 +86,7 @@ class FitToData():
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 
+		self.stats_dict = defaultdict( dict )
 		self.loss_fn = LossFunction( self.topology["loss"], self.device )
 		self.loss_dict = {}
 		self.metrics_fn = Metrics( self.topology["metrics"], self.system_features["restraint_features"] )
@@ -105,12 +102,12 @@ class FitToData():
 		self.fit()
 
 
-	def ensemble_exists( self ):
-		"""
-		Check if the ensemble file already exists.
-			If exists --> Do not run the finetuning process
-		"""
-		return os.path.exists( f"{self.ensemble_file}.pdb" )
+	# def ensemble_exists( self ):
+	# 	"""
+	# 	Check if the ensemble file already exists.
+	# 		If exists --> Do not run the finetuning process
+	# 	"""
+	# 	return os.path.exists( f"{self.ensemble_file}.pdb" )
 
 
 
@@ -310,14 +307,20 @@ class FitToData():
 					labels = split_ground_truth_labels( gt_features )
 					batch.update( gt_features )
 
-			self.add_model( save_model_obj, outputs, epoch )
+			unrelaxed_protein  = self.get_protein_object( outputs = outputs )
+			self.add_protein_obj_to_stat( model_num = epoch,
+											unrelaxed_protein = unrelaxed_protein )
+
+			self.add_model( save_model_obj = save_model_obj,
+							unrelaxed_protein = unrelaxed_protein,
+							model_num = epoch )
 
 			self.step( outputs, batch, restraint_features, optimizer, epoch )
 			t_end = time.time()
 			t_ = time.time()
 			print( f"Time taken: {( t_end - t_start )}  seconds" )
 
-		self.save_model( save_model_obj )
+		self.save_model( save_model = save_model_obj )
 
 		t_ = time.time()
 		print( f"\n --> Time taken for fitting: {( t_ - t )}  seconds" )
@@ -338,62 +341,59 @@ class FitToData():
 
 
 
-	def update_loss_dict( self, losses: Dict ):
+	def update_loss_dict( self, losses: Dict[str, torch.Tensor] ):
 		"""
 		Keep a tab on the loss per epoch for all individual loss 
 			terms and the cumulative loss.
 		"""
-		if self.loss_dict == {}:
-			self.loss_dict = {k: [] for k in losses.keys()}
-			# self.loss_dict = {k:[round( v.item(), self.prec )] for k, v in losses.items()}
-		
+		if "loss" not in self.stats_dict:
+			self.stats_dict["loss"] = {k: [] for k in losses.keys()}
+
 		str_ = ""
 		for k, v in losses.items():
 			v = round( v.item(), self.prec )
 			str_ += f"{k}: {v} \t"
-			self.loss_dict[k].append( v )
+			self.stats_dict["loss"][k].append( v )
 		print( f"Losses: {str_}" )
 
 
 
-	def compute_metrics( self, out: Dict[str, torch.Tensor], 
-						batch: Dict[str, torch.Tensor], 
+	def compute_metrics( self,
+						out: Dict[str, torch.Tensor],
+						batch: Dict[str, torch.Tensor],
 						restraint_features: Dict,
 						last_epoch: bool
-				) -> Dict[str, Dict]:
+				) -> Dict[str, torch.Tensor]:
 		"""
 		Compute all the required metrics.
 		"""
-		scalar_metric_dict = self.metrics_fn.forward( out, last_epoch )
+		metrics_dict = self.metrics_fn.forward( out, last_epoch )
 
-		return scalar_metric_dict
+		return metrics_dict
 
 
-	def update_metric_dict( self, scalar_metric_dict: Dict[str, float],
-								other_metric_dict: Dict ) -> None:
+	def update_metric_dict( self, metrics_dict: Dict[str, float] ):
 		"""
-		Keep a tab on the metric values per epoch for all individual merics.
+		Save per epoch metric values for all individual merics in stats_dict.
 		"""
-		if self.scalar_metric_dict == {}:
-			self.scalar_metric_dict = {k: [] for k in scalar_metric_dict.keys()}
-			# self.metric_dict = {k:[round( v.item(), self.prec )] for k, v in metric_dict.items()}
+		if "metrics" not in self.stats_dict:
+			self.stats_dict["metrics"] = {k: [] for k in metrics_dict.keys()}
 
 		str_ = ""		
-		for k, v in scalar_metric_dict.items():
+		for k, v in metrics_dict.items():
 			v = round( v.item(), self.prec )
 			str_ += f"{k}: {v} \t"
-			
-			self.scalar_metric_dict[k].append( v )
+
+			self.stats_dict["metrics"][k].append( v )
+
 		print( f"Metrics: {str_}" )
 
-		for k, v in other_metric_dict.items():
-			self.other_metric_dict[k] = v
 
 
-
-	def step( self, outputs: Dict[str, torch.Tensor], 
-				batch: Dict[str, torch.Tensor], 
-				restraint_features: Dict, 
+	def step( self,
+				outputs: Dict[str, torch.Tensor],
+				batch: Dict[str, torch.Tensor],
+				restraint_features: Dict,
 				optimizer,
 				epoch: int ) -> None:
 		"""
@@ -420,15 +420,46 @@ class FitToData():
 		else:
 			last_epoch = False
 
-		scalar_metric_dict, other_metric_dict = self.compute_metrics( outputs, 
-																		batch, 
-																		restraint_features, 
-																		last_epoch )
-		self.update_metric_dict( scalar_metric_dict, other_metric_dict )
+		metrics_dict = self.compute_metrics( outputs,
+											batch,
+											restraint_features,
+											last_epoch )
+		self.update_metric_dict( metrics_dict )
 
 
 
-	def relaxation( self, unrelaxed_protein, epoch: int ):
+	def get_protein_object( self, outputs: Dict[str, torch.Tensor]
+							) -> protein.Protein:
+		"""
+		Given the structure module output dict, return an object of class Protein.
+		"""
+		unrelaxed_protein = prep_protein( 
+									outputs = outputs, 
+									feature_dict = self.feature_dict, 
+                            		feature_processor = self.feature_processor )
+		return unrelaxed_protein
+
+
+	def add_protein_obj_to_stat( self, model_num: int,
+								unrelaxed_protein: protein.Protein, ):
+		"""
+		Store the Protein object to stats_dict.
+		"""
+		self.stats_dict["protein"][model_num] = unrelaxed_protein
+
+
+	def store_metrics_metadata( self ):
+		"""
+		Store metadata for all metrics into the stats_dict.
+		"""
+		metadata = self.metrics_fn.metric_metadata_dict
+		self.stats_dict["metadata"] = metadata
+
+
+
+	def relaxation( self,
+					unrelaxed_protein: protein.Protein,
+					model_num: int ):
 		"""
 		Perform AMBER relaxation for the predicted structure.
 		# Taken from openfold.utils.script_utils.py.
@@ -437,7 +468,7 @@ class FitToData():
 		model_device = self.device
 		cif_output = False
 		output_directory = self.relax_ensemble_dir
-		output_name = f"model_{epoch}"
+		output_name = f"model_{model_num}"
 		config = self.ofold_config
 		
 		amber_relaxer = relax.AmberRelaxation(
@@ -473,27 +504,16 @@ class FitToData():
 
 
 
-	def add_model( self, save_model_obj: SaveModels, 
-					outputs: Dict[str, torch.Tensor], 
-					epoch: int ) -> None:
+	def add_model( self,
+					save_model_obj: SaveModels,
+					unrelaxed_protein: protein.Protein,
+					model_num: int ) -> None:
 		"""
-		Create a Protein object using the predicted model output.
 		For pdb: write the model as a pdb string.
 		For cif: add the predicted structure as a model to a modelcif object.
 		"""
-		unrelaxed_protein = save_model_obj.prep_protein( 
-													outputs = outputs, 
-													feature_dict = self.feature_dict, 
-			                                		feature_processor = self.feature_processor )
-		# if epoch == 0:
-			# save_model_obj.create_attributes( unrelaxed_protein )
-
 		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
-		save_model_obj.add_model( prot = unrelaxed_protein, epoch = epoch )
-
-		# Relax the predicted model.
-		if self.use_relaxation:
-			self.relaxation( unrelaxed_protein, epoch )
+		save_model_obj.add_model( prot = unrelaxed_protein, epoch = model_num )
 
 
 
