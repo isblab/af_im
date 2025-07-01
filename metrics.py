@@ -1,9 +1,8 @@
+from typing import List, Dict
 import ml_collections as mlc
+import numpy as np
 
 import torch
-from torchmetrics import Accuracy
-
-from typing import Dict, List
 
 
 def pred_to_dist_map( pred_positions: torch.Tensor, xl_max_bound: float
@@ -37,18 +36,21 @@ class XlMetrics():
 		self.total_xls = restraint_features["total_xls"]
 
 		# Used for keeping track of all satisfied XLs across all epochs.
-		self.satisfied_xls = torch.zeros( self.total_xls )
+		self.xl_satisfaction_array = np.array( [] )
 
 
 	def forward( self, out: Dict[str, torch.Tensor] ):
 		self.get_predicted_distance_map( out )
 		xl_satisfaction = self.get_satisfied_xl_pairs()
-		xl_metric = self.compute_xl_metric( xl_satisfaction )
-		self.compute_global_xl_satisfaction( xl_satisfaction )
 
-		# self.apply_xl_mask()
-		# xl_satisfaction = self.compute_xl_satisfaction()
-		# self.track_satisfied_xls()
+		# All XL residue pairs must be accounted for.
+		if xl_satisfaction.shape[0] != self.total_xls:
+			raise ValueError( f"No. of XLs accounted for ({xl_satisfaction.shape[0]}) " +
+								f"does not match the total no. of XLs ({self.total_xls})...")
+
+		xl_metric = self.compute_xl_metric( xl_satisfaction )
+		self.stack_per_model_xl_satisfaction( xl_satisfaction )
+		# self.compute_global_xl_satisfaction( xl_satisfaction )
 
 		return xl_metric
 
@@ -92,11 +94,30 @@ class XlMetrics():
 		return xl_metric
 
 
-	def compute_global_xl_satisfaction( self, xl_satisfaction: torch.Tensor ):
+	def stack_per_model_xl_satisfaction( self, xl_satisfaction: torch.Tensor ):
 		"""
-		Keep track of all satisfied/violated XLs.
+		Keep track of all satisfied XLs.
+		Stack, the xl_staisfaction array for all epochs.
 		"""
-		self.satisfied_xls += xl_satisfaction
+		if self.xl_satisfaction_array.shape[0] == 0:
+			self.xl_satisfaction_array = xl_satisfaction
+		else:
+			self.xl_satisfaction_array = np.vstack( [self.xl_satisfaction_array, xl_satisfaction] )
+
+		# self.satisfied_xls += xl_satisfaction
+
+
+
+	def compute_global_xl_satisfaction( self ):
+		"""
+		Global XL sstisfaction denotes the fraction of XLs satisfied across all models.
+		"""
+		print( self.xl_satisfaction_array.shape, "  ", self.total_xls )
+		ensemble_satisfaction = np.sum( self.xl_satisfaction_array, axis = 0 )
+		print( ensemble_satisfaction.shape )
+		total_satisfied = np.count_nonzero( ensemble_satisfaction )
+		global_xl_satisfaction = total_satisfied/self.total_xls
+		return global_xl_satisfaction
 
 
 class Metrics():
@@ -106,21 +127,39 @@ class Metrics():
 
 		self.included_metrics = self.metrics_included()
 
+		# Dict to store metadata for all metrics.
+		self.metric_metadata_dict = {}
+
 
 	def forward( self, out: torch.Tensor, last_epoch: bool ) -> Dict[str, float]:
-		# Store results for all metrics.
-		scalar_metric_dict = {}
-		other_metric_dict = {}
+		# Store per epoch results for all metrics.
+		metrics_dict = {}
 
 		for obj in self.included_metrics:
-			name = obj.name
+			metric_name = obj.name
 			value = obj.forward( out )
-			scalar_metric_dict[name] = value
+			metrics_dict[metric_name] = value
 
-			if last_epoch and name == "xlr":
-				other_metric_dict[name] = obj.satisfied_xls
+			if last_epoch and metric_name == "xlr":
+				self.store_metadata( metric_name = metric_name,
+									metric_instance = obj )
 
-		return scalar_metric_dict, other_metric_dict
+		return metrics_dict
+
+
+	def store_metadata( self, metric_name: str, metric_instance ):
+		"""
+		Store metadata for all metrics.
+		XL data:
+			XL satisfaction array for all models.
+			Global XL satisfaction.
+		"""
+		self.metric_metadata_dict[metric_name] = {
+		"global_satisfaction": metric_instance.compute_global_xl_satisfaction(),
+		"xl_satisfaction_array": metric_instance.xl_satisfaction_array
+		}
+		# other_metric_dict[name] = obj.satisfied_xls
+
 
 
 	def metrics_included( self ) -> List:
@@ -135,3 +174,4 @@ class Metrics():
 			)
 
 		return included_metrics
+
