@@ -7,6 +7,7 @@ import os
 import warnings
 from typing import Dict, Tuple, Iterator
 import numpy as np
+from scipy.spatial import distance_matrix
 
 import gemmi
 import Bio
@@ -78,6 +79,14 @@ def pdb_to_cif_bio( pdb_file_path: str, cif_file_path: str ):
 
 
 
+def get_distance_map( coords1: np.array, coords2: np.array ):
+	"""
+	Get the distance map for the given coordinates.
+	"""
+	distance_map = distance_matrix( coords1, coords2 )
+	return distance_map
+
+
 class Parser():
 	"""
 	A parser class to read from the simulation output file.
@@ -92,7 +101,7 @@ class Parser():
 									 )
 
 
-	def get_model_ids( self ):
+	def get_model_ids( self ) -> List:
 		"""
 		Get a list of all model IDs.
 		"""
@@ -123,7 +132,6 @@ class Parser():
 		return structure
 
 
-
 	def get_models( self ) -> Iterator[Model.Model]:
 		"""
 		Yield models in the structure.
@@ -132,16 +140,33 @@ class Parser():
 			yield model
 
 
-
-	def get_residues( self, model ) -> Iterator[Tuple[Residue.Residue, str]]:
+	def get_chains( self, model: Model.Model ):
 		"""
-		Get all residues in the model.
+		A generator that yields all Chain objects in a Model object.
 		"""
 		for chain in model:
-			chain_id = chain.id[0]
-			for residue in chain:
-				yield residue, chain_id
+			yield chain
 
+
+	def get_residues( self, chain ) -> Iterator[Tuple[Residue.Residue, str]]:
+		"""
+		A generator that yields all Residue objects for a Chain object.
+		"""
+		# for chain in model:
+		chain_id = chain.id[0]
+		for residue in chain:
+			yield residue, chain_id
+
+
+	def get_residues_from_model( self, model: Model.Model
+								)-> Iterator[Tuple[Residue.Residue, str]]:
+		"""
+		A generator object that yields the Residue object, Chain ID
+			for all residues in a Model object.
+		"""
+		for chain in self.get_chains( model ):
+			for residue, chain_id in self.get_residues( chain ):
+				yield residue, chain_id
 
 
 	def extract_perresidue_quantity( self, residue: Residue, quantity: str ):
@@ -167,12 +192,12 @@ class Parser():
 
 	def get_coordinates( self, model: Model.Model ) -> np.array:
 		"""
-		Extract coordinates for a models in the structure.
+		Extract coordinates for a model in the structure.
 		"""
 		# for model in self.get_models():
 		coords_dict = {}
 
-		for residue, chain_id in self.get_residues( model ):
+		for residue, chain_id in self.get_residues_from_model( model ):
 			coords = self.extract_perresidue_quantity( residue, "coords" )
 
 			if chain_id not in coords_dict:
@@ -362,6 +387,7 @@ class SaveModels():
 		For the 1st model:
 			Create all required attributes and add to model.
 		For others, just add to model.
+		Also, save each model on disk.
 		"""
 		if epoch == 0:
 			headers = get_pdb_headers(prot)
