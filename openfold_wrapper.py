@@ -33,12 +33,15 @@ class IntegrativeLearning():
 	A wrapper class that runs all the stages of integrative modeling pipeline.
 	"""
 	def __init__( self, sys_name: str, base_dir: str, data_dir: str,
-					modeling_dir_name: str, topology_dict: mlc.ConfigDict ):
+					modeling_dir_name: str,
+					topology_dict: mlc.ConfigDict ):
 		# Name of the system to be modeled.
 		self.sys_name = sys_name # "2ayo" # H1129
 		self.base_dir = base_dir
 		# Directory containing input data for the modeled system.
 		self.data_dir = data_dir
+		# Path to the FATSA dir.
+		# self.fasta_path = fasta_path
 		# Name for the dir to store modeling output.
 		self.modeling_dir_name = modeling_dir_name
 		# If True, will overwrite an existing dir without warning.
@@ -294,7 +297,9 @@ class IntegrativeLearning():
 								)
 
 		# Directory containing the fasta file for the system to be modeled.
-		self.fasta_dir = os.path.join( self.base_dir, "fasta_dir" )
+		self.fasta_dir = os.path.abspath( 
+							os.path.join( self.base_dir, "fasta_dir/" )
+							)
 		# Output directory path for OpenFold output.
 		self.ofold_output_dir = os.path.join( self.data_dir, f"{self.sys_name}_output" )
 		# Directory storing the precomputed alignments.
@@ -470,12 +475,13 @@ if __name__ == "__main__":
 	base_dir = os.path.join( "./benchmark/" )
 	# Directory containing input data for the modeled system.
 	data_dir = os.path.join( base_dir,
-							f"imp_dl_benchmark/{sys_name}/" )
+							f"afu_benchmark/{sys_name}/" )
 	modeling_dir_name = "modeling"
 
 	IntegrativeLearning( sys_name,
 						base_dir,
 						data_dir,
+						# base_path,
 						modeling_dir_name,
 						topology_dict ).forward()
 
