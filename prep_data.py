@@ -2,17 +2,17 @@
 Script to obtain and create the required files
 	for the benchmark dataset.
 """
-import os
-import glob
-import copy
 from typing import List, Dict, Tuple
+import os, glob, copy
+import numpy as np
+import pandas as pd
 from multiprocessing import Pool
 from functools import partial
-import pandas as pd
 import tqdm
 
 from utils.utils import ( run_subprocess, open_file_handler,
 						read_json, write_json )
+from utils.pdb_utils import ( get_distance_map, Parser )
 from utils.api_utils import ( PdbRestApi, get_uniprot_seq, download_pdb,
 							download_sifts_mapping, parse_sifts_xml )
 
@@ -26,30 +26,21 @@ class CreateBenchmark():
 	Create input for the benchmark dataset.
 	"""
 	def __init__( self ):
+		self.benchmark_name = "afu"
 		self.jwalk_exec = "jwalk"
 		self.xl_length = 35
+		self.max_length = 1400
 
-		# self.casp_input_csv = "./raw/targetlist_mod.csv"
-		# PDB benchmark from AF Unmasked paper.
-		self.afu_pdb_benchmark = "./raw/af_unmasked_pdb_benchmark.txt"
-		self.bm_v5_5 = "./raw/Table_BM5.5.xlsx"
-		self.base_dir = os.path.join( "./benchmark/" )
-		self.benchmark_dir = os.path.join( self.base_dir, "fool_benchmark/" )
-		self.meta_dir = os.path.join( self.base_dir, "metadata_fool" )
-		self.pdb_api_dir = os.path.join( self.meta_dir, "pdb_api_fool" )
-		self.pdb_struct_dir = os.path.join( self.meta_dir, "pdb_struct_fool" )
-		self.sifts_xml_dir = os.path.join( self.meta_dir, "sifts_xml_fool" )
-		self.sifts_dict_dir = os.path.join( self.meta_dir, "sifts_dict_fool" )
-
-
+		# Dict to store all system specific info.
 		self.pdb_benchmark_dict = {}
+		# self.benchmark_config_dict = {}
+		# Dict containing residue-level PDB to UniProt mapping.
 		self.sifts_pdb_to_uni = {}
+		# Dict tp store all UniProt sequences.
 		self.uni_seq_dict = {}
-		self.uni_seq_file = os.path.join( self.base_dir, "uni_seq_fool.json" )
-		self.benchmark_config_dict = {}
-		self.benchmark_csv = os.path.join( self.base_dir, "benchmark_fool.csv" )
 
-		self.initialize_dir()
+		self.create_required_paths()
+		self.create_required_dir()
 
 
 	def forward( self ):
@@ -112,7 +103,44 @@ class CreateBenchmark():
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
-	def initialize_dir( self ):
+	def create_required_paths( self ):
+		"""
+		Create paths for all required directories and files.
+		"""
+		# PDB benchmark from AF Unmasked paper.
+		self.afu_pdb_benchmark = "./raw/af_unmasked_pdb_benchmark.txt"
+		# Docking benchmark BM v_5.5
+		self.bm_v5_5 = "./raw/Table_BM5.5.xlsx"
+
+		# Base directory for all benchmarks.
+		self.base_dir = os.path.join( "./benchmark/" )
+		# Benchmark specific dir.
+		self.benchmark_dir = os.path.join( self.base_dir, f"{self.benchmark_name}_benchmark" )
+		# Dir to store benchmark metadata including PDB API files,
+		# 	structure file, SIFTS mapping.
+		self.meta_dir = os.path.join( self.base_dir, "metadata" )
+		# Dir containing PDB entry and entity dicts.
+		self.pdb_api_dir = os.path.join( self.meta_dir, "pdb_api" )
+		# Dir contaiing PDB structure.
+		self.pdb_struct_dir = os.path.join( self.meta_dir, "pdb_struct" )
+		# Dir containing SIFTS XML file.
+		self.sifts_xml_dir = os.path.join( self.meta_dir, "sifts_xml" )
+		# Dir containing processed SIFTS mapping.
+		self.sifts_dict_dir = os.path.join( self.meta_dir, "sifts_dict" )
+
+		# UniProt seq dict file path.
+		self.uni_seq_file = os.path.join(
+										self.base_dir,
+										f"{self.benchmark_name}_uni_seq.json"
+										)
+		self.output_benchmark_csv = os.path.join(
+										self.base_dir,
+										f"{self.benchmark_name}_benchmark.csv"
+										)
+
+
+
+	def create_required_dir( self ):
 		"""
 		Create the required directories if not already existing.
 		"""
@@ -234,7 +262,8 @@ class CreateBenchmark():
 			pos, length = rest_api.get_poly_entity_align( entity_id )
 			uni_pos.append( pos[0] )
 			pdb_pos.append( pos[0] )
-			total_length += length
+			# Account for all copies of an entity.
+			total_length += length*len( asym_ids )
 
 			stoichiometry.append( f"{len( asym_ids )}" )
 
@@ -310,7 +339,7 @@ class CreateBenchmark():
 				c4 += 1
 				continue
 
-			if self.pdb_benchmark_dict[pdb_id]["total_length"] > 1450:
+			if self.pdb_benchmark_dict[pdb_id]["total_length"] > self.max_length:
 				c5 += 1
 				continue
 
@@ -507,8 +536,9 @@ class CreateBenchmark():
 		os.makedirs( sys_dir, exist_ok = True )
 
 
-	def get_entities( self, stoichiometry: List, uniprot_ids: Dict, uni_pos: List
-					) -> List[Dict]:
+	def get_entities( self, stoichiometry: List,
+						uniprot_ids: Dict,
+						uni_pos: List ) -> List[Dict]:
 		"""
 		Create all entities part of the system. Have the following:
 			entity_id (starts from 1).
@@ -543,8 +573,9 @@ class CreateBenchmark():
 		return entities
 
 
-	def create_sys_dict_entry( self, sys_num: int, sys_name: str, entities: Dict
-								) -> Dict:
+	def create_sys_dict_entry( self, sys_num: int,
+								sys_name: str,
+								entities: Dict ) -> Dict:
 		"""
 		Create a config dict containing:
 			"system_{index}": {
@@ -723,14 +754,6 @@ class CreateBenchmark():
 		"""
 		Simulate XLs for the system uisng Jwalk.
 		Save the intraprotein and interprotein XLs as csv files.
-
-		Input:
-		----------
-		name --> System name.
-
-		Returns:
-		----------
-		None
 		"""
 		print( "Simulating XL data..." )
 		num_xls = {}
@@ -790,6 +813,164 @@ class CreateBenchmark():
 		return num_xls
 
 
+	##------------------------------------------------------------##
+	##------------------------------------------------------------##
+	def get_coords_for_pdb( self, pdb_file: str ) -> Dict[str, np.array]:
+		"""
+		Given a pdb file path, return a coordinates dict for all chains in the model.
+		"""
+		p = Parser( pdb_file )
+
+		# Just considering the 1st model.
+		model = list( p.get_models() )[0]
+		coords_dict = p.get_coordinates( model )
+		return coords_dict
+
+
+	def get_contact_map( self, coords1: np.array, coords2: np.array ):
+		"""
+		Given the coordinates, create a conntact map.
+		"""
+		distance_map = get_distance_map( coords1, coords2 )
+		contact_map = np.where( distance_map <= self.contact_threshold, 1, 0 )
+		return contact_map
+
+
+	def split_domain( self, D: str ):
+		"""
+		Split the domain D and map to int.
+		"""
+		s, e = list( map( int, D.split( "-" ) ) )
+		return s, e
+
+
+	def present_in_domain( self, d: str, R: int ):
+		"""
+		Check if a residue R is present in the domain D.
+		"""
+		s, e = self.split_domain( d )
+		if R>=s and R <e:
+			present = True
+		else:
+			present = False
+		return present
+
+
+	def find_existing_domain( self, D: List, R: int ):
+		"""
+		Find the domain which contains the residue R.
+		"""
+		domain = ""
+		for d in D:
+			if self.present_in_domain( d, R ):
+				domain = d
+
+		if len( domain ) == 0:
+			raise ValueError( f"No domain exists for {R}..." )
+		return domain
+
+
+	def check_domain_overlap( self, D1: str, D2: str ):
+		"""
+		Given two domain_id's, check if they oerlap.
+		"""
+		s, e = self.split_domain( D1 )
+		domain1 = np.arange( s, e+1, 1 )
+
+		s, e = self.split_domain( D2 )
+		domain2 = np.arange( s, e+1, 1 )
+
+		overlap = any( set( D1 ).intersection( set( D2 ) ) )
+		return overlap
+
+
+	def create_domain( self, D: List, R: int, length: int ):
+		"""
+		We represent a domain as a '-' separated string (domain_id),
+			comprising the start and end residue positions of the domain.
+		Given a residue R, we consider a domain as the set of 10-residues
+			with R at the center.
+		Assumption:
+			A domain shares no overlap with any other existing domain.
+			R represents the index of the residue not 
+				the residue position itself.
+		"""
+		# Moin index can be 0.
+		s = max( 0, R-5 )
+		e = min( length, R+5 )
+		new_D = f"{s}-{e}"
+		for d in D:
+			# Do not create a new domain if it overalps with any of the existing domains.
+			if self.check_domain_overlap( d, new_D ):
+				new_D = ""
+				break
+		return new_D
+
+
+	def contact_map_to_domains( self, contact_map: np.array ):
+		"""
+		Given a contact map, get domains spanning 10-residues.
+		Identify a contact and cosnider flanking region of 5 residues
+			on either side as a domain.
+		"""
+		p1_len, p2_len = contact_map.shape
+		p1_idx, p2_idx = np.where( contact_map == 1 )
+		# A list to keep track of all domains created for prot1/2.
+		D1, D2 = [], []
+		# A dict to store all interacting domains of prot1 with prot2.
+		domain_dict = {}
+
+		# Here we are dealing with indices. Will convert to PDB positions later.
+		for r1, r2 in zip( p1_idx, p2_idx ):
+			# Create a new domain.
+			d1 = self.create_domain( D1, r1, p1_len )
+			d2 = self.create_domain( D2, r2, p2_len )
+
+			# Find existing domains if couldn't create a new domain.
+			if len( d1 ) == 0:
+				D1.append( d1 )
+			else:
+				d1 = self.find_existing_domain( D1, r1 )
+
+			if len( D2 ) == 0:
+				D2.append( d2 )
+			else:
+				d2 = self.find_existing_domain( D2, r2 )
+
+			# Ignore if a residue is not part of any new/existing domain.
+			# 	Can happen for overlapping domains.
+			if len( d1 ) == 0 or len( d2 ) == 0:
+				continue
+			else:
+				if d1 in domain_dict:
+					if not d2 in domain_dict[d1]:
+						domain_dict[d1].append( d2 )
+				else:
+					domain_dict[d1] = [d2]
+		return domain_dict
+
+
+	def simulate_domain_interaction_data( self ):
+		"""
+		Simulate domain-level inter-protein interactions for the benchmark.
+		this is akin to data obtained from Y2H, co-IP.
+
+		For each PDB in the benchmark:
+			Get inter-chain contact maps.
+				Select the 1st model only.
+				Select chains.
+			Coarse-grain the contact maps.
+			Select interacting coarse-grained regions (domains).
+			Save as a .csv file.
+		"""
+		print( "Simulating domain-level data..." )
+		num_domains = {}
+		for idx, pdb_id in enumerate( self.pdb_benchmark_dict ):
+			print( f"\n--> {idx} --> {pdb_id}" )
+
+
+
+
 	def write_benchmark_to_csv( self, num_xls ):
 		"""
 		Create a .csv file for all the PDB IDs in the benchmark.
@@ -807,7 +988,7 @@ class CreateBenchmark():
 			flat_dict["Interprotein-XLs"].append( num_xls[pdb_id] )
 
 		df = pd.DataFrame( flat_dict )
-		df.to_csv( self.benchmark_csv, index = False )
+		df.to_csv( self.output_benchmark_csv, index = False )
 
 
 if __name__ == "__main__":
