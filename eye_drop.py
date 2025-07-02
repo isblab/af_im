@@ -1,135 +1,213 @@
 """
-Run the IntegrativeLearning module and get 
-	XL satisfaction for all PDB IDs.
+The following module runs the IntegrativeLearning pipeline
+	to obtain initial predictions for the specified benchmark.
+Filters out complexes that:
+	Have >cutoff data satisfaction.
 """
-import os
-import glob
+from typing import Dict
+import os, glob, time, subprocess
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import torch
 from scipy.spatial import distance_matrix
 from openfold_wrapper import IntegrativeLearning
 
 from topology import topology_dict
-from utils.utils import write_json
+from utils.utils import ( open_file_handler )
 
 
-class EyeDrop():
+class InitPrediction():
 	def __init__( self ):
-		self.benchmark = pd.read_csv( os.path.abspath( "./benchmark/benchmark.csv" ) )
+		self.benchmark_name = "afu"
+		# Define the modeling objective.
+		self.modeling_objective = "Obtaining initial prediction."
+		self.modeling_version = 0
+
+		self.base_dir = os.path.join( "./benchmark/" )
+		# Name for the dir to store modeling output for all systems.
+		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
+
+		self.benchmark = pd.read_csv( os.path.abspath(
+							f"./benchmark/{self.benchmark_name}_benchmark.csv" )
+							)
+
+		# self.xl_benchmark = ["8gtj", '8i2f', "7qot", "8dwl","7xad",
+		# 					"8phv", "8cxj", "8g9p", "8pfc", "8gt0",
+		# 					"8gtk", "8bzr", "8h8a", "7wr6", "7ymf",
+		# 					"7xvk", "8b3s", "7xvo", "8odr", "8gxe",
+		# 					"8t1c", "8wtd"]
+		self.num_systems = self.benchmark.shape[0]
+
+		self.selected_benchmark_file = os.path.join(
+										self.base_dir,
+										f"selected_{self.benchmark_name}_benchmark.csv"
+										)
 
 
 	def forward( self ):
 		"""
-		Run IntegrativeLearning module for the given
-			PDB IDs and check XL staisfaction for the 
-			OpenFold predicted structure.
 		"""
-		sys_xl_satisfaction = {}
-		curr_dir = os.getcwd()
-		# problem -- 7xpc
-		for sys_name in ["8ct8", "8gtj", "8i2f", "7qot", "8dwl",
-						"7xad", "7y4a", "8phv", "8cxj", "8jwj",
-						"8bs9", "8g9p", "8pfc", "8gt0",
-						"7umb", "8cqz", "8hbe", "7ysp", "8u45",
-						"8p98", "8gtm", "8bos", "8pn6", "8gtk",
-						"8iy6", "8f2p", "8hbf", "7ytu", "8dc0",
-						"8hbn", "8i5w", "8cyi", "8bzr", "8enf",
-						"8h8a", "8brt", "7zt6", "7wr6", "7ymf",
-						"7ui8", "8b06", "8gp6", "7rb3", "8ov4",
-						"8efw", "7xvk", "8hhj", "8h0n", "8t3k",
-						"7uj3", "8gtx", "8t7v", "8eoj", "8hi7",
-						"8igc", "8ipl", "8b3s", "7wge", "8sah",
-						"7wko", "7zjv", "8k5r", "8gt5", "8ain",
-						"7zcm", "8i9q", "8tj3", "8ozc", "8j64",
-						"8pfd", "7xky", "8ey4", "8bj8", "7xvo",
-						"8odr", "8ey0", "8h5b", "8jyg", "8ezs",
-						"8gxe", "7zch", "8oof"]:
-			print( "\n------------------------------------------------------------" )
-			print( "------------------------------------------------------------" )
-			print( sys_name)
-			print( "------------------------------------------------------------" )
-			print( "------------------------------------------------------------\n" )
-			# # Heteromers not run.
-			# 			"8jyg", "8ezs", "8gxe", "7zch", "8oof",
-			# 			"8p81", "8t1c", "8alk", "7wqu", "7yui",
-			# 			"8skk", "8ba1", "8jmr", "8pwb", "8wtd",
-			# 			"8alm", "8sg7"]
-			sys_path = self.get_sys_path( sys_name )
-			summary_file_path = self.summary_file_path( sys_path )
+		# self.create_dirs()
+		self.run_modeling_for_benchmark()
 
-			if not os.path.exists( summary_file_path ):
-				topo_dict = topology_dict()
-				topo_dict.objective = f"{sys_name} with rmse_xlr. Just checking XL satisfaction."
-				topo_dict.train.version = 0
-				IntegrativeLearning( sys_name, topo_dict ).forward()
-			else:
-				print( f"Summary file already present for {sys_name}..." )
+		self.filter_benchmark()
 
-			epoch0_xlr_metric, viol0, ccom0 = self.get_epoch0_metrics( summary_file_path )
 
-			sys_xl_satisfaction[sys_name] = [epoch0_xlr_metric, viol0, ccom0]
-
-			os.chdir( curr_dir )
-
-		self.save_sys_xl_satisfaction( sys_xl_satisfaction )
+	# def create_dirs( self ):
+	# 	"""
+	# 	Craete the required directories.
+	# 	"""
+	# 	os.makedirs( self.modeling_dir, exist_ok = True )
 
 
 	def get_sys_path( self, sys_name: str ):
-		sys_path = os.path.abspath( f"./benchmark/imp_dl_benchmark/{sys_name}/" )
+		# sys_path = os.path.abspath( f"./benchmark/modeling/{sys_name}/" )
+		sys_path = os.path.join( 
+					os.path.abspath( f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}" )
+			)
 		return sys_path
 
 
-	def summary_file_path( self, sys_path: str ):
-		summary_file_path = os.path.join( sys_path, f"test/version_0.0/Summary.csv" )
-		return summary_file_path
-
-
-	def get_epoch0_metrics( self, summary_file_path: str ):
+	def get_stat_file_path( self, sys_path: str ) -> pd.DataFrame:
 		"""
-		Parse the "Summary.csv" file in the output directory
-			and get the xlr_metric value at epoch 0.
+		Return the path to the stats file for the given system.
 		"""
-		df = pd.read_csv( summary_file_path )
-
-		epoch0_xlr_metric = df.loc[0, "xlr_metric"]
-		viol0 = df.loc[0, "violation"]
-		ccom0 = df.loc[0, "chain_center_of_mass"]
-		return epoch0_xlr_metric, viol0, ccom0
+		stat_file_path = os.path.join( sys_path, f"version_{self.modeling_version}/Stats.npy" )
+		return stat_file_path
 
 
-	def save_sys_xl_satisfaction( self, sys_xl_satisfaction ):
+	def load_stat_file( self, sys_path: str ) -> Dict[str, Dict]:
 		"""
-		Save the Xl satisfaction metric for all systems as a .csv file.
+		Load the stat file on memory.
 		"""
-		flat_dict = {k:[] for k in ["pdb_id", "xlr_metric_epoch0", "viol0",
-									"ccom0", "total_length",
+		stat_file_path = self.get_stat_file_path( sys_path )
+		stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
+		return stats_dict
+
+
+	def run_modeling_for_benchmark( self ):
+		"""
+		Run the Integrative modeling pipeline for the entire benchmark.
+		"""
+		print( "\033[1mRunning modeling for the benchmark...\033[0m" )
+		curr_dir = os.getcwd()
+		for idx, sys_name in enumerate( self.benchmark["pdb_id"] ):
+			print( "\n------------------------------------------------------------" )
+			print( "------------------------------------------------------------" )
+			print( f"{idx}/{self.num_systems} --> {sys_name}" )
+			print( "------------------------------------------------------------" )
+			print( "------------------------------------------------------------\n" )
+			sys_path = self.get_sys_path( sys_name )
+			stat_file_path = self.get_stat_file_path( sys_path )
+
+			if not os.path.exists( stat_file_path ):
+				self.run_modeling_for_system( sys_name )
+			else:
+				print( f"Summary file already present for {sys_name}..." )
+
+			# Return to base_dir.
+			os.chdir( curr_dir )
+
+
+	def run_modeling_for_system( self, sys_name: str ):
+		"""
+		Run the Integrative modeling pipeline for a give system.
+		If summary file exists fo a run, do not run again.
+		Empty the CUDA cache after each run.
+		"""
+
+		# Directory containing input data for the modeled system.
+		data_dir = os.path.join( self.base_dir,
+								f"{self.benchmark_name}_benchmark/{sys_name}/" )
+		# fasta_path = "./benchmark/"
+
+		topo_dict = topology_dict()
+		topo_dict.objective = f"{sys_name} {self.modeling_objective}"
+		topo_dict.train.version = self.modeling_version
+
+		il_obj = IntegrativeLearning( 
+				sys_name = sys_name,
+				base_dir = self.base_dir,
+				data_dir = data_dir,
+				# fasta_path = fasta_path,
+				modeling_dir_name = self.modeling_dir_name,
+				topology_dict = topo_dict,
+				)
+		il_obj.disable_overwrite_warning = True
+		il_obj.forward()
+		torch.cuda.empty_cache()
+
+
+	def get_summary_dict( self ):
+		"""
+		Return an empty summary dict containing all required keys.
+		"""
+		empty_dict = {k:[] for k in ["pdb_id", "xlr_metric_0", "xlr_metric_last",
+									"viol0", "viol_last", "ccom0", "ccom_last", "total_length",
 									"Interprotein-XLs", "auth_asym_ids"]}
+		return empty_dict
 
-		for k, v in sys_xl_satisfaction.items():
+
+	def filter_benchmark( self ):
+		"""
+		Remove complexes that have >cutoff data satisfaction for
+			the initial predicted structure.
+		"""
+		print( "\033[1mFiltering complexes based on data satisfaction...\033[0m" )
+
+		summary_dict = self.get_summary_dict()
+
+		for sys_name in self.benchmark["pdb_id"]:
+			sys_dict = self.get_system_data( sys_name = sys_name )
+
+			if sys_dict is None:
+				continue
+
+			for k in summary_dict:
+				summary_dict[k].append( sys_dict[k] )
+
+		df = pd.DataFrame( summary_dict )
+		df.to_csv( self.selected_benchmark_file, index = False )
+
+
+
+	def get_system_data( self, sys_name: str ):
+		"""
+		Get the following info for all complexes:
+			PDB ID (sys_name)
+			XL sstisfaction at epoch 0.
+			XL sstisfaction at last 0.
+			Total length of the system.
+			No. of Inter-protein XLs.
+			Auth asym IDs.
+		"""
+		sys_path = self.get_summary_file_path( sys_name )
+		stats_dict = self.load_stat_file( sys_path )
+
+		epoch0_xlr = stats_dict["metric"]["xlr"][0]
+		last_epoch_xlr = stats_dict["metric"]["xlr"][-1]
+
+		if epoch0_xlr > 0.75:
+			return None
+		else:
+			sys_dict = self.get_summary_dict()
+			sys_dict["pdb_id"] = sys_name
+
+			sys_dict["xlr_metric_0"] = epoch0_xlr
+			sys_dict["xlr_metric_0"] = last_epoch_xlr
+
 			idx = self.benchmark.index[self.benchmark["pdb_id"] == k].tolist()
 			aa_id = self.benchmark.loc[idx, "auth_asym_ids"].tolist()[0]
 			length = self.benchmark.loc[idx, "total_length"].tolist()[0]
 			xls = self.benchmark.loc[idx, "Interprotein-XLs"].tolist()[0]
-			flat_dict["pdb_id"].append( k )
-			flat_dict["xlr_metric_epoch0"].append( v[0] )
-			flat_dict["viol0"].append( v[1] )
-			flat_dict["ccom0"].append( v[2] )
-			flat_dict["total_length"].append( length )
-			flat_dict["Interprotein-XLs"].append( xls )
-			flat_dict["auth_asym_ids"].append( aa_id )
 
-		df = pd.DataFrame( flat_dict )
-		df.to_csv( 
-				os.path.join( "./benchmark/benchmark_xl_satisfaction.csv" ),
-				index = False
-				 )
+			sys_dict["total_length"] = length
+			sys_dict["Interprotein-XLs"] = xls
+			sys_dict["auth_asym_ids"] = aa_id
 
-		# Save only the required PDBs into another .csv file.
-		# Remove entries with al XLs satisfied.
-		selected_df = df[df["xlr_metric_epoch0"] < 1.0]
-		selected_df = selected_df.reset_index( drop = True )
-		selected_df.to_csv( "./benchmark/selected_benchmark_xl_satisfaction.csv", index = False )
+			return sys_dict
 
 
 if __name__ == "__main__":
-	EyeDrop().forward()
+	InitPrediction().forward()
