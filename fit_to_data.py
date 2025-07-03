@@ -51,7 +51,7 @@ class FitToData():
 					mode: str,
 					system_features: Dict,
 					ofold_output_dir: str,
-					output_dir: str,
+					modeling_output_dir: str,
 					prec: int,
 					seed_worker,
 					device: str ):
@@ -64,22 +64,8 @@ class FitToData():
 		self.device = device
 		self.system_features = system_features
 		self.ofold_output_dir = ofold_output_dir
-		self.output_dir = output_dir
-		# self.use_relaxation = False
-		# PDB file contaiing all predicted models.
-		self.ensemble_file = os.path.join( self.output_dir, f"{self.sys_name}_output_models" )
-		# Directory to store each predicted model as separate PDB file.
-		self.ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_ensemble" )
-		# Directory to store each relaxed predicted model as separate PDB file.
-		# self.relax_ensemble_dir = os.path.join( self.output_dir, f"{self.sys_name}_relax_ensemble" )
+		self.modeling_output_dir = modeling_output_dir
 
-		if not os.path.exists( self.ensemble_dir ):
-			os.makedirs( self.ensemble_dir )
-
-		# if self.use_relaxation:
-		# 	if not os.path.exists( self.relax_ensemble_dir ):
-		# 		os.makedirs( self.relax_ensemble_dir )
-		
 		# Set the seeds.
 		seed_worker()
 
@@ -88,26 +74,35 @@ class FitToData():
 
 		self.stats_dict = defaultdict( dict )
 		self.loss_fn = LossFunction( self.topology["loss"], self.device )
-		self.loss_dict = {}
 		self.metrics_fn = Metrics( self.topology["metrics"], self.system_features["restraint_features"] )
-		self.scalar_metric_dict = {}
-		self.other_metric_dict = {}
 
 
 
 	def forward( self ):
 		"""
 		"""
+		self.create_required_paths()
+		self.create_required_dir()
 		self.load_feature_dict()
 		self.fit()
 
 
-	# def ensemble_exists( self ):
-	# 	"""
-	# 	Check if the ensemble file already exists.
-	# 		If exists --> Do not run the finetuning process
-	# 	"""
-	# 	return os.path.exists( f"{self.ensemble_file}.pdb" )
+	def create_required_paths( self ):
+		"""
+		Create the required file paths.
+		"""
+		# PDB file contaiing all predicted models.
+		self.ensemble_file = os.path.join( self.modeling_output_dir, f"{self.sys_name}_output_models" )
+		# Directory to store each predicted model as separate PDB file.
+		self.ensemble_dir = os.path.join( self.modeling_output_dir, f"{self.sys_name}_ensemble" )		
+
+
+
+	def create_required_dir( self ):
+		"""
+		Create the required directories if not already existing.
+		"""
+		os.makedirs( self.ensemble_dir, exist_ok = True )
 
 
 
@@ -159,7 +154,6 @@ class FitToData():
 		}
 		print( f"Pair rep: {pair_rep.shape} \t Single rep: {single_rep.shape}" )
 
-		# return evo_output
 
 
 	def add_batch_dim( self ) -> None:
@@ -221,10 +215,11 @@ class FitToData():
 			Save model to a PDB file.
 		"""
 		t = time.time()
+		self.stats_dict["epochs"] = []
 		self.get_system_embeddings()
 
 		# Craete a SaveModel object.
-		save_model_obj = SaveModels( title = "2ayo", 
+		save_model_obj = SaveModels( title = self.sys_name, 
 									output_format = "pdb",
 									ensemble_dir = self.ensemble_dir )
 									# output_path = self.ensemble_file
@@ -287,6 +282,8 @@ class FitToData():
 							model_num = epoch )
 
 			self.step( outputs, batch, restraint_features, optimizer, epoch )
+			# Keep track of the no. of epochs.
+			self.stats_dict["epochs"].append( epoch )
 			t_end = time.time()
 			t_ = time.time()
 			print( f"Time taken: {( t_end - t_start )}  seconds" )

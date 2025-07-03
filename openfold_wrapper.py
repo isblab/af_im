@@ -54,11 +54,11 @@ class IntegrativeLearning():
 		self.prec = 4
 		# cpu/cuda
 		self.device = "cuda"
-		if self.pred_mode == "mono":
-			# config_preset for monomer.
-			self.config_preset = "model_1_ptm"
-			self.ckpt_path = os.path.abspath( "./openfold/resources/openfold_params/finetuning_ptm_2.pt" )
-		elif self.pred_mode == "multi":
+		# if self.pred_mode == "mono":
+		# 	# config_preset for monomer.
+		# 	self.config_preset = "model_1_ptm"
+		# 	self.ckpt_path = os.path.abspath( "./openfold/resources/openfold_params/finetuning_ptm_2.pt" )
+		if self.pred_mode == "multi":
 			# config_preset for multimer.
 			self.config_preset = "model_1_multimer_v3"
 			self.ckpt_path = None
@@ -189,7 +189,7 @@ class IntegrativeLearning():
 						mode = self.pred_mode,
 						system_features = system_features,
 						ofold_output_dir = self.ofold_output_dir,
-						output_dir = self.modeling_output_dir,
+						modeling_output_dir = self.modeling_output_dir,
 						prec = self.prec,
 						seed_worker = self.seed_worker,
 						device = self.device )
@@ -301,7 +301,9 @@ class IntegrativeLearning():
 							os.path.join( self.base_dir, "fasta_dir/" )
 							)
 		# Output directory path for OpenFold output.
-		self.ofold_output_dir = os.path.join( self.data_dir, f"{self.sys_name}_output" )
+		self.ofold_output_dir = os.path.abspath(
+								os.path.join( self.data_dir, f"{self.sys_name}_output" )
+								)
 		# Directory storing the precomputed alignments.
 		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" )
 
