@@ -383,14 +383,15 @@ class SaveModels():
 		self.modeled_assembly = modelcif.Assembly(self.asym_unit_map.values(), name='Modeled assembly')
 
 
-	def add_model( self, prot: Protein, epoch: int ):
+	def add_model( self, prot: Protein, model_id: int ):
 		"""
 		For the 1st model:
 			Create all required attributes and add to model.
 		For others, just add to model.
 		Also, save each model on disk.
+		Using the epoch no. as model_id.
 		"""
-		if epoch == 0:
+		if model_id == 0:
 			headers = get_pdb_headers(prot)
 			if len(headers) > 0:
 				self.system.extend(headers)
@@ -398,7 +399,7 @@ class SaveModels():
 		self.create_attributes( prot )
 
 		# if self.output_format == "pdb":
-		system = self.add_to_pdb( prot = prot, epoch = epoch  )
+		system = self.add_to_pdb( prot = prot, model_id = model_id  )
 		# else:
 		# 	# Currently not using this.
 		# 	if epoch == 0:
@@ -409,12 +410,12 @@ class SaveModels():
 		self.system.extend( system )
 
 		self.save( system,
-					os.path.join( self.ensemble_dir, f"model_{epoch}" )
+					os.path.join( self.ensemble_dir, f"model_{model_id}" )
 					 )
 
 
 
-	def add_to_pdb( self, prot: Protein, epoch: int ):
+	def add_to_pdb( self, prot: Protein, model_id: int ):
 		"""
 		Taken from openfold.np.protein.py
 		- Kartik - Modified to write multiple models in a PDB file format.
@@ -429,7 +430,7 @@ class SaveModels():
 		"""
 		system = []
 		# - Kartik - Using the epoch as Model index.
-		model_index = epoch
+		model_index = model_id
 		# restypes = residue_constants.restypes + ["X"]
 		res_1to3 = lambda r: residue_constants.restype_1to3.get(self.restypes[r], "UNK")
 		# atom_types = residue_constants.atom_types
@@ -558,7 +559,7 @@ class SaveModels():
 
 
 
-	def add_to_modelcif( self, epoch: int ):
+	def add_to_modelcif( self, model_id: int ):
 		"""
 		Taken from openfold.np.protein.py
 		- Kartik - modified this function to allow writing multiple models to the same CIF file.
@@ -576,7 +577,7 @@ class SaveModels():
 		  ModelCIF object.
 		"""
 		# - Kartik - Using the epoch as Model index.
-		model_index = epoch
+		model_index = model_id
 
 		class _LocalPLDDT(modelcif.qa_metric.Local, modelcif.qa_metric.PLDDT):
 			name = "pLDDT"
