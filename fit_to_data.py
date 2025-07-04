@@ -215,7 +215,7 @@ class FitToData():
 			Save model to a PDB file.
 		"""
 		t = time.time()
-		self.stats_dict["epochs"] = []
+		self.stats_dict["model_id"] = []
 		self.get_system_embeddings()
 
 		# Craete a SaveModel object.
@@ -274,16 +274,16 @@ class FitToData():
 					batch.update( gt_features )
 
 			unrelaxed_protein  = self.get_protein_object( outputs = outputs )
-			self.add_protein_obj_to_stat( model_num = epoch,
+			self.add_protein_obj_to_stat( model_id = epoch,
 											unrelaxed_protein = unrelaxed_protein )
 
 			self.add_model( save_model_obj = save_model_obj,
 							unrelaxed_protein = unrelaxed_protein,
-							model_num = epoch )
+							model_id = epoch )
 
 			self.step( outputs, batch, restraint_features, optimizer, epoch )
 			# Keep track of the no. of epochs.
-			self.stats_dict["epochs"].append( epoch )
+			self.stats_dict["model_id"].append( epoch )
 			t_end = time.time()
 			t_ = time.time()
 			print( f"Time taken: {( t_end - t_start )}  seconds" )
@@ -408,12 +408,12 @@ class FitToData():
 		return unrelaxed_protein
 
 
-	def add_protein_obj_to_stat( self, model_num: int,
+	def add_protein_obj_to_stat( self, model_id: int,
 								unrelaxed_protein: protein.Protein, ):
 		"""
 		Store the Protein object to stats_dict.
 		"""
-		self.stats_dict["protein"][model_num] = unrelaxed_protein
+		self.stats_dict["protein"][model_id] = unrelaxed_protein
 
 
 	def store_metrics_metadata( self ):
@@ -427,13 +427,13 @@ class FitToData():
 	def add_model( self,
 					save_model_obj: SaveModels,
 					unrelaxed_protein: protein.Protein,
-					model_num: int ) -> None:
+					model_id: int ) -> None:
 		"""
 		For pdb: write the model as a pdb string.
 		For cif: add the predicted structure as a model to a modelcif object.
 		"""
 		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
-		save_model_obj.add_model( prot = unrelaxed_protein, epoch = model_num )
+		save_model_obj.add_model( prot = unrelaxed_protein, epoch = model_id )
 
 
 
