@@ -11,6 +11,22 @@ import requests
 import ml_collections as mlc
 
 
+
+def ranges( positions: List ) -> List[Tuple[int, int]]:
+	"""
+	Get tuples of continous residue positions.
+	e.g. [1, 2, 3, 4, 7, 8, 9, 10]
+		[(1, 4), (7, 10)]
+	"""
+	positions = list( map( int, positions ) )
+	positions = sorted( set( positions ) )
+	# Get start, end positions for each continous confident patch.
+	gaps = [[x, y] for x, y in zip( positions, positions[1:] ) if x+1 < y]
+	edges = iter( positions[:1] + sum( gaps, [] ) + positions[-1:] )
+	return list( zip( edges, edges ) )
+
+
+
 def open_file_handler( file_path: str, mode: str ) -> TextIO:
 	"""
 	Open a file handler in the desired mode.
