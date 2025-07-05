@@ -1,25 +1,50 @@
 """
 Script to obtain and create the required files
 	for the benchmark dataset.
+Create the input files required for modeling, given the PDB ID.
+
+1. PDB IDs from any benchmark (AF_Unmasked, PINDER).
+2. We need the following details about the complex:
+	Entry/Entity data from PDB API
+	SIFTS mapping
+	PDB structure
+	UniProt sequences
+Remove PDB IDs if:
+	Could not retrieve data from PDB.
+	Complex contains non-protein entities
+	Total system length >1400 residues.
+	Monomer sequence.
+	No SIFTS mapping.
+	Missing residues present in mapping.
+		It's OK if missing residues only at termini?
+3. Obtain data: need support for both simulated and real.
+	Simulated
+		XLs -> JWalk
+Remove complexes if:
+	Couldn't run the tool.
+	No data (e.g. inter-protein XLs) obtained.
+4. Create system config dict for all systems.
+
+(1, 2, 4) can be part of the same module.
+(3) needs to be a separate module.
 """
-from typing import List, Dict, Tuple
+from typing import List, Tuple, Dict
 import os, glob, copy
+from collections import defaultdict
 import numpy as np
 import pandas as pd
 from multiprocessing import Pool
 from functools import partial
 import tqdm
 
-from utils.utils import ( run_subprocess, open_file_handler,
-						read_json, write_json )
+from utils.utils import ( run_subprocess,
+							open_file_handler,
+							read_json, write_json )
 from utils.pdb_utils import ( get_distance_map, Parser )
-from utils.api_utils import ( PdbRestApi, get_uniprot_seq, download_pdb,
-							download_sifts_mapping, parse_sifts_xml )
+from utils.api_utils import ( get_uniprot_seq,
+								download_pdb )
 
-# Using CASP15 dataset as our benchmark.
-# 	targetlist.csv for CASP15 must be present in ./raw/.
-# Shifted to AF Unmasked PDB benchmark.
-# 	.txt file containing pdb_ids must be present in ./raw/.
+
 
 class CreateBenchmark():
 	"""
@@ -45,59 +70,65 @@ class CreateBenchmark():
 
 	def forward( self ):
 		"""
-		For our benchmark we consider only protein multimer entries.
-		For each entry we need the:
-			Sequence of the constituent proteins.
-			Structure file.
-			PDB to UniProt mapping.
-			Stoichiometry.
 		"""
-		# get PDB IDs from the two benchmarks.
-		afu_benchmark = self.parse_pdb_afu_benchmark()
-		# bm_benchmark = self.parse_bm_benchmark()
 
-		# benchmark_pdb_ids = afu_benchmark + bm_benchmark
-		benchmark_pdb_ids = afu_benchmark
-		print( f"Total PDB IDs obtained: {len( benchmark_pdb_ids )}" )
 
-		print( "\n------------------------------------------------" )
-		print( "Downloading info from PDB REST API...\n" )
-		self.where_the_magic_happens( benchmark_pdb_ids )
 
-		print( "\n------------------------------------------------" )
-		print( "Filter and Segregate the PDB IDs...\n" )
-		selected_pdb_ids = self.filter_and_segregate()
+	# def forward( self ):
+	# 	"""
+	# 	For our benchmark we consider only protein multimer entries.
+	# 	For each entry we need the:
+	# 		Sequence of the constituent proteins.
+	# 		Structure file.
+	# 		PDB to UniProt mapping.
+	# 		Stoichiometry.
+	# 	"""
+	# 	# get PDB IDs from the two benchmarks.
+	# 	afu_benchmark = self.parse_pdb_afu_benchmark()
+	# 	# bm_benchmark = self.parse_bm_benchmark()
 
-		print( "\n------------------------------------------------" )
-		print( "Remove the unwanted PDB IDs...\n" )
-		self.clean_benchmark_dict( selected_pdb_ids )
+	# 	# benchmark_pdb_ids = afu_benchmark + bm_benchmark
+	# 	benchmark_pdb_ids = afu_benchmark
+	# 	print( f"Total PDB IDs obtained: {len( benchmark_pdb_ids )}" )
 
-		print( "\n------------------------------------------------" )
-		print( "Download UniProt sequences...\n" )
-		if not os.path.exists( self.uni_seq_file ):
-			self.dwnld_uni_seq( selected_pdb_ids )
-		else:
-			self.uni_seq_dict = read_json( self.uni_seq_file )
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Downloading info from PDB REST API...\n" )
+	# 	self.where_the_magic_happens( benchmark_pdb_ids )
 
-		print( "\n------------------------------------------------" )
-		print( "Download the structure from PDB in .pdb format...\n" )
-		self.dwnld_pdb_struct( selected_pdb_ids )
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Filter and Segregate the PDB IDs...\n" )
+	# 	selected_pdb_ids = self.filter_and_segregate()
 
-		print( "\n------------------------------------------------" )
-		print( "Obtain PDB-UniProt mapping using SIFTS...\n" )
-		self.map_pdb_to_uniprot( selected_pdb_ids )
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Remove the unwanted PDB IDs...\n" )
+	# 	self.clean_benchmark_dict( selected_pdb_ids )
 
-		print( "\n------------------------------------------------" )
-		print( "Create config files...\n" )
-		self.create_sys_config_dict()
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Download UniProt sequences...\n" )
+	# 	if not os.path.exists( self.uni_seq_file ):
+	# 		self.dwnld_uni_seq( selected_pdb_ids )
+	# 	else:
+	# 		self.uni_seq_dict = read_json( self.uni_seq_file )
 
-		print( "\n------------------------------------------------" )
-		print( "Simulate XL data...\n" )
-		num_xls = self.simulate_xl_data()
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Download the structure from PDB in .pdb format...\n" )
+	# 	self.dwnld_pdb_struct( selected_pdb_ids )
 
-		print( "\n------------------------------------------------" )
-		print( "Save benchmark to disk..." )
-		self.write_benchmark_to_csv( num_xls )
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Obtain PDB-UniProt mapping using SIFTS...\n" )
+	# 	self.map_pdb_to_uniprot( selected_pdb_ids )
+
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Create config files...\n" )
+	# 	self.create_sys_config_dict()
+
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Simulate XL data...\n" )
+	# 	num_xls = self.simulate_xl_data()
+
+	# 	print( "\n------------------------------------------------" )
+	# 	print( "Save benchmark to disk..." )
+	# 	self.write_benchmark_to_csv( num_xls )
 
 
 
@@ -137,6 +168,10 @@ class CreateBenchmark():
 										self.base_dir,
 										f"{self.benchmark_name}_benchmark.csv"
 										)
+		self.logs_file = os.path.join(
+									self.base_dir,
+									f"Logs_{self.benchmark_name}.json"
+									)
 
 
 
