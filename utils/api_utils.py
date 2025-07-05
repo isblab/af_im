@@ -269,7 +269,9 @@ def download_pdb( pdb_id: str, ext: str, file_name: str,
 class PdbRestApi():
 	def __init__( self, entry_id: str,
 					entry_file: Optional[str] = None,
-					entity_file: Optional[str] = None ):
+					entity_file: Optional[str] = None,
+					max_trials: Optional[int] = 5,
+					wait_time: Optional[int] = 10 ):
 		# Entry ID aka PDB ID.
 		self.entry_id = entry_id
 		self.entry_file = entry_file
@@ -280,8 +282,8 @@ class PdbRestApi():
 		self.entity_data = {}
 
 		# Accessory attributes.
-		self.max_trials = 5
-		self.wait_time = 10
+		self.max_trials = max_trials
+		self.wait_time = wait_time
 
 		# if already downloaded, use existing entry and entity dicts.
 		entry_dict_exists = self.load_predownloaded_data()
@@ -338,8 +340,11 @@ class PdbRestApi():
 							wait_time = self.wait_time )
 
 		if data in ["not_found", "bad_request"]:
-			raise requests.HTTPError( "Could not retrieve info. for the entry_id" +
-										f" = {self.entry_id}..." )
+			warnings.warn( "Could not retrieve info. for the entry_id" +
+							f" = {self.entry_id}..." )
+			# raise requests.HTTPError( "Could not retrieve info. for the entry_id" +
+			# 							f" = {self.entry_id}..." )
+			self.entry_data = None
 		else:
 			self.entry_data = data
 
