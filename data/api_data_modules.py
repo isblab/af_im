@@ -1,0 +1,698 @@
+"""
+This module contains classes for obtaining:
+	Entry details from PDB REST API
+	PDB-Uniprot mapping using SIFTS
+	UniProt sequences
+	PDB structures
+"""
+from typing import List, Tuple, Dict
+import os
+from collections import defaultdict
+import numpy as np
+import pandas as pd
+from multiprocessing import Pool
+from functools import partial
+import tqdm
+
+from utils.utils import ( open_file_handler,
+							read_json, write_json,
+							ranges )
+from utils.api_utils import ( PdbRestApi,
+							download_sifts_mapping,
+							parse_sifts_xml )
+
+
+
+class PdbData():
+	"""
+	Given a list of PDB IDs, obtain relevant data for each.
+	"""
+	def __init__( self, pdb_ids_list: List[str],
+					pdb_api_dir: str,
+					pdb_data_dict_file: str,
+					cores: int,
+					max_trials: int,
+					wait_time: int ):
+		self.pdb_ids_list = pdb_ids_list
+		self.pdb_api_dir = pdb_api_dir
+		self.pdb_data_dict_file = pdb_data_dict_file
+
+		self.cores = cores
+		self.max_trials = max_trials
+		self.wait_time = wait_time
+
+		self.pdb_data_dict = {}
+		self.pdb_logs = {}
+
+
+
+	def forward( self ):
+		"""
+		"""
+		t_start = time.time()
+		self.initialize_logs_dict()
+		self.pdb_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
+
+		self.get_entry_info_in_parallel()
+		write_json( self.pdb_data_dict, self.pdb_data_dict_file )
+
+		t_end = time.time()
+		time_taken = t_end - t_start
+		self.pdb_logs["remaining_pdb_ids"] = len( self.pdb_data_dict )
+		self.pdb_logs["time_taken"] = time_taken
+
+
+	def initialize_logs_dict( self ):
+		"""
+		Create an empty logs dict with all required keys.
+		"""
+		self.pdb_logs = {
+		k:[[], 0] for k in ["no_pdb_data", "monomer",
+						"has_non_polymer_entity",
+						"too_many_uni_ids"]
+		}
+
+
+	def get_empty_pdb_dict( self ):
+		"""
+		Create an empty dict with the required fields.
+		"""
+		empty_dict = {k: [] for k in [
+						"entity_ids", "polymer_entity_ids",
+						"uniprot_ids", "stoichiometry",
+						"uni_pos", "pdb_pos"]}
+		return empty_dict
+
+
+
+	def get_entry_entity_files( self, entry_id: str
+								) -> Tuple[str, str]:
+		"""
+		Return the file paths for the entry and entity dict.
+		"""
+		entry_file = os.path.join( self.pdb_api_dir, f"entry_dict_{entry_id}.json" )
+		entity_file = os.path.join( self.pdb_api_dir, f"entity_dict_{entry_id}.json" )
+		return entry_file, entity_file
+
+
+
+	def save_entry_entity_dict( self, rest_api: PdbRestApi,
+								entry_file: str,
+								entity_file: str ):
+		"""
+		Save the entry and entity dict on disk.
+		Assuming the entity dict contains info. for all entities to be saved.
+		"""
+		if not os.path.exists( entry_file ):
+			write_json( rest_api.entry_data, entry_file )
+		if not os.path.exists( entity_file ):
+			write_json( rest_api.entity_data, entity_file )
+
+
+
+	def instantiate_pdb_rest_api( self, entry_id: str,
+									entry_file: str,
+									entity_file: str ) -> PdbRestApi:
+
+		"""
+		Instantiate the PDB REST API object.
+		"""
+		rest_api = PdbRestApi( entry_id = entry_id,
+								entry_file = entry_file,
+								entity_file = entity_file,
+								max_trials = max_trials,
+								wait_time = wait_time )
+		return rest_api
+
+
+
+	def get_entry_info( self, polymer_entities: List[int]
+						) -> Dict[str, str]:
+		"""
+		Given a list of polymer entity IDs, obtain the following info:
+			UniProt IDs
+			Asym ID and Auth Asym ID
+			UniProt and PDB residue positions
+			Total length
+		"""
+		stoichiometry = []
+		uniprot_ids = []
+		auth_asym_ids = []
+		uni_pos, pdb_pos = [], []
+		total_length = 0
+
+		ignore = False
+		for entity_id in polymer_entities:
+			rest_api.retrieve_polymer_entity_data( entity_id )
+			uni_id = rest_api.get_uniprot_ids_for_entity( entity_id )
+			if len( uni_id ) == 1:
+				uniprot_ids.append( uni_id )
+				asym_ids = rest_api.get_asym_ids_for_entity( entity_id )
+				auth_asym_ids.append( "-".join(
+					rest_api.get_auth_asym_ids_for_entity( entity_id ) )
+				)
+				pos, length = rest_api.get_poly_entity_align( entity_id )
+				uni_pos.append( pos[0] )
+				pdb_pos.append( pos[1] )
+				# Account for all copies of an entity.
+				total_length += length*len( asym_ids )
+
+				stoichiometry.append( f"{len( asym_ids )}" )
+			else:
+				ignore = True
+				break
+
+		if ignore:
+			entry_dict = None
+		else:
+			entry_dict = {
+			"entity_ids": ",".join( all_entities ),
+			"polymer_entity_ids": ",".join( polymer_entities ),
+			"uniprot_ids": ",".join( uniprot_ids ),
+			"auth_asym_ids": ",".join( auth_asym_ids ),
+			"uni_pos": ",".join( uni_pos ),
+			"pdb_pos": ",".join( pdb_pos ),
+			"total_length": total_length,
+			}
+		return entry_dict
+
+
+
+	def entry_from_pdb_rest_api( self, entry_id: str
+								) -> Tuple[str, Dict[str, str], Dict[str, str]]:
+		"""
+		Given a PDB ID, fetch the required info. from the PDB REST API
+			(See get_entry_info()).
+		"""
+		logs = {}
+		entry_file, entity_file = self.get_entry_entity_files( entry_id )
+
+		# Instantiate the PDB REST API object.
+		rest_api = self.instantiate_pdb_rest_api( entry_id,
+													entry_file,
+													entity_file )
+
+		# Could not retrieve PDB entry data.
+		if rest_api.entry_data is None:
+			logs["no_pdb_data"] = [entry_id]
+			entry_dict = None
+
+		else:
+			# Get all entity IDs in the.
+			all_entities = rest_api.get_all_entities()
+			# Get all polymer entity IDs in the.
+			polymer_entities = rest_api.get_polymer_entities()
+
+			# Monomer entry.
+			if len( all_entities ) == 1:
+				logs["monomer"] = [entry_id]
+			# PDB contains non-polymer entities.
+			elif len( all_entities ) > len( polymer_entity_ids ):
+				logs["has_non_polymer_entity"] = [entry_id]
+				entry_dict = None
+			else:
+				entry_dict = self.get_entry_info( [entry_id] )
+
+				if entry_dict is None:
+					logs["too_many_uni_ids"] = [entry_id]
+				else:
+					self.save_entry_entity_dict( rest_api,
+												entry_file,
+												entity_file )
+				if entry_dict is None:
+					logs["exceed_max_length"] = [entry_id]
+		return entry_id, entry_dict, logs
+
+
+
+	def get_entry_info_in_parallel( self ):
+		"""
+		For all the benchmark PDB IDs, get the required info.
+		(See self.entry_from_pdb_rest_api doc-str)
+		"""
+		with Pool( self.cores ) as p:
+			for result in tqdm.tqdm(
+					p.imap_unordered( self.entry_from_pdb_rest_api,
+										self.pdb_ids_list ),
+					total = len( self.pdb_ids_list )
+					):
+				entry_id, entry_dict, logs = result
+
+				if entry_dict is None:
+					for k in logs:
+						self.pdb_logs[k][0].extend( logs[k] )
+						self.pdb_logs[k][1] += len( logs[k] )
+				else:
+					self.pdb_data_dict[entry_id] = entry_dict
+
+
+###########################################################################
+###########################################################################
+class SiftsMapping():
+	"""
+	Given a list of PDB IDs, obtain the PDB-UniProt mapping using SIFTS.
+	"""
+	def __init__( self, pdb_ids_list: List[str],
+					sifts_xml_dir: str,
+					sifts_dict_dir: str,
+					sifts_dict_file: str,
+					cores: int,
+					max_trials: int,
+					wait_time: int ):
+		self.pdb_ids_list = pdb_ids_list
+		self.sifts_xml_dir = sifts_xml_dir
+		self.sifts_dict_dir = sifts_dict_dir
+		self.sifts_dict_file = sifts_dict_file
+
+		self.cores = cores
+		self.max_trials = max_trials
+		self.wait_time = wait_time
+
+		self.sifts_data_dict = {}
+		self.sifts_logs = {}
+		self.time_taken = 0
+
+
+	def forward( self ):
+		"""
+		"""
+		t_start = time.time()
+		self.initialize_logs_dict()
+		self.sifts_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
+
+		self.get_sifts_mapping_in_parallel()
+		write_json( self.sifts_dict, self.sifts_dict_file )
+
+		t_end = time.time()
+		self.time_taken = t_end - t_start
+
+		self.sifts_logs["remaining_pdb_ids"] = len( self.sifts_data_dict )
+		self.sifts_logs["time_taken"] = time_taken
+
+
+	def initialize_logs_dict( self ):
+		"""
+		Create an empty logs dict with all required keys.
+		"""
+		self.sifts_logs = {
+		k:[[], 0] for k in ["icode_present", "mapped_length_mismatch",
+						"ambiguous_uni_id",
+						"discontiguous_residues_in_chain"]
+		}
+
+
+
+	def extract_digits( self, res_num: str ) -> str:
+		"""
+		Remove alphabets from an alphanum str.
+		e.g. "222A" -> 222
+		"""
+		match = re.match( r"( \d+ )", res_num )
+		res_num = match.group( 1 ) if match else None
+		return res_num
+
+
+
+	def remove_insertion_code( self,
+								mapping_dict: Dict[str, Dict]
+								) -> bool:
+		"""
+		Remove insertion code from the PDB residue number.
+		Make changes inplace.
+		"""
+		for chain_id in mapping_dict:
+			pdb_res_ = mapping_dict[chain_id]["resolved"]["PDB position"]
+
+			pdb_res = [self.extract_digits( res ) for res in pdb_res_]
+
+			mapping_dict[chain_id]["resolved"]["PDB position"] = pdb_res
+
+			if pdb_res != pdb_res_:
+				icode_present = True
+			else:
+				icode_present = False
+		return icode_present
+
+
+
+	def convert_to_int( self, mapping_dict: Dict[str, Dict] ):
+		"""
+		Convert the PDB and UniProt residue positions to int,
+			for the resolved residues.
+		"""
+		for k in ["PDB position", "Uniprot position"]:
+			mapping_dict["resolved"][k] = list( 
+				map( int, mapping_dict["resolved"][k] )
+			 )
+
+
+
+	def pdb_uni_length_mismatch( self, mapping_dict: Dict[str, Dict] ) -> bool:
+		"""
+		Check if for any chain in PDB the no. of resolved PDB and
+			Uniprot residues is different.
+		"""
+		passed = []
+		for chain_id in mapping_dict:
+			pdb_res = mapping_dict[chain_id]["resolved"]["PDB position"]
+			uni_res = mapping_dict[chain_id]["resolved"]["Uniprot position"]
+
+			passed.append( len( pdb_res ) == len( uni_res ) )
+		return all( passed )
+
+
+
+	def mapped_to_multiple_uni_ids( self, mapping_dict: Dict[str, Dict] ) -> bool:
+		"""
+		Check if a chain is mapped to multiple Uni IDs.
+		"""
+		passed = []
+		for chain_id in mapping_dict:
+			uni_ids = mapping_dict[chain_id]["resolved"]["Uniprot ID"]
+
+			passed.append( len( uni_ids ) == 1 )
+		return all( passed )
+
+
+
+	def contiguous_residues_in_pdb( self, mapping_dict: Dict[str, Dict] ) -> bool:
+		"""
+		Check if for any chain in PDB a contiguous set
+			of residues is not present.
+		"""
+		passed = []
+		for chain_id in mapping_dict:
+			uni_res = mapping_dict[chain_id]["resolved"]["Uniprot position"]
+			residue_ranges = ranges( uni_res )
+
+			passed.append( residue_ranges == 1 )
+		return all( passed )
+
+
+	def get_total_sys_length( self, mapping_dict: Dict[str, Dict] ) -> int:
+		"""
+		Get the total length for the system across all chains.
+		"""
+		total_length = 0
+		for chain_id in mapping_dict:
+			chain_len = len( mapping_dict[chain_id]["resolved"]["Uniprot position"] )
+			total_length += chain_len
+		return total_length
+
+
+
+	def get_pdb_to_uni_res_map( self, mapping_dict: Dict[str, Dict]
+								) -> Dict[str, Dict[int, int]]:
+		"""
+		Create a dict with PDB positions as keys and UniProt positions 
+			as values for all chains.
+		"""
+		pdb_uni_res = {}
+		for chain in mapping_dict:
+			# if chain not in pdb_uni_res:
+			# 	pdb_uni_res[chain] = {}
+			uni_id = mapping_dict[chain]["resolved"]["Uniprot ID"][0]
+			pdb_pos = mapping_dict[chain]["resolved"]["PDB position"]
+			uni_pos = mapping_dict[chain]["resolved"]["Uniprot position"]
+			pdb_uni_map[chain] = {
+			"uni_id": uni_id,
+			"pdb_to_uni": dict( zip( pdb_pos, uni_pos ) ),
+			"uni_to_pdb": dict( zip( uni_pos, pdb_pos ) )
+			}
+
+		return pdb_uni_map
+
+
+
+	def get_sifts_mapping_for_entry( self, entry_id: str
+								 ) -> Tuple[str, Dict[str, str], Dict[str, str]]:
+		"""
+		Obtain the SIFTS mapping SIFTS maping for the given entry_id.
+		Filter out cases where,
+			No SIFTS mapping available.
+		"""
+		logs = {}
+		xml_file_path = os.path.join( self.sifts_xml_dir,
+										f"{entry_id}.xml" )
+		# Don't download, if XML file already present.
+		if os.file_path.exists( xml_file_path ):
+			download_sifts_mapping( pdb_id,
+									xml_file_path,
+									max_trials = self.max_trials,
+									wait_time = self.wait_time )
+
+			sifts_dict_path = os.path.join( self.sifts_dict_dir,
+											f"{entry_id}.json" )
+			if os.path.exists( sifts_dict_path ):
+				mapping_dict = read_json( sifts_dict_path )
+			else:
+				mapping_dict = parse_sifts_xml( xml_file_path )
+				write_json( mapping_dict,
+							sifts_dict_path )
+		# Make changes inplace.
+		icode_present = self.remove_insertion_code( mapping_dict )
+		self.convert_to_int( mapping_dict )
+
+		if icode_present:
+			logs["icode_present"] = [entry_id]
+
+		if not self.pdb_uni_length_mismatch( mapping_dict ):
+			sifts_dict = None
+			log["mapped_length_mismatch"] = [entry_id]
+		elif self.mapped_to_multiple_uni_ids( mapping_dict ):
+			sifts_dict = None
+			log["ambiguous_uni_id"] = [entry_id]
+		elif not self.contiguous_residues_in_pdb( mapping_dict ):
+			sifts_dict = None
+			log["discontiguous_residues_in_chain"] = [entry_id]
+		else:
+			total_length = self.get_total_sys_length( mapping_dict )
+			if total_length > self.max_sys_length:
+				sifts_dict = None
+				log["exceed_max_length"] = [entry_id]
+			else:
+				sifts_dict = self.get_pdb_to_uni_res_map( mapping_dict )
+
+		return entry_id, total_length, sifts_dict, logs
+
+
+
+	def get_sifts_mapping_in_parallel( self ):
+		"""
+		Parallelize downloading SIFTS mapping for all PDB IDs.
+		"""
+		with Pool( self.cores ) as p:
+			for result in tqdm.tqdm( 
+				p.imap_unordered( self.get_sifts_mapping_for_entry, self.pdb_ids_list ),
+				total = len( self.pdb_ids_list ) ):
+				entry_id, total_length, sifts_dict, logs = result
+
+				if sifts_dict is None:
+					for k in logs:
+						self.sifts_logs[k][0].extend( logs[k] )
+						self.sifts_logs[k][1] += len( logs[k] )
+					else:
+					self.sifts_data_dict[entry_id] = {"mapping": sifts_dict,
+														"total_length": total_length}
+
+
+###########################################################################
+###########################################################################
+class DownloadUniprotSequences():
+	"""
+	Given a list of UniProt IDs, obtain the sequences for all.
+	"""
+	def __init__ (self, uni_ids_list: List[str],
+					uni_seq_dict_file: str,
+					cores: int,
+					max_trials: int,
+					wait_time: int ):
+		self.uni_ids_list = uni_ids_list
+		self.uni_seq_dict_file = uni_seq_dict_file
+
+		self.cores = cores
+		self.max_trials = max_trials
+		self.wait_time = wait_time
+
+		self.uni_seq_dict = {}
+		self.uni_logs = {}
+		self.time_taken = 0
+
+
+	def forward( self ):
+		"""
+		"""
+		t_start = time.time()
+		self.initialize_logs_dict()
+
+		self.uni_logs["Total_uni_ids"] = len( self.uni_ids_list )
+
+		self.deduplicate_uni_ids()
+		self.uni_logs["Unique_uni_ids"] = len( self.uni_ids_list )
+
+		self.get_uni_seq_in_parallel()
+		write_json( self.uni_seq_dict, self.uni_seq_dict_file )
+
+		t_end = time.time()
+		time_taken = t_end - t_start
+
+		self.uni_logs["remaining_uni_ids"] = len( self.uni_seq_dict )
+		self.uni_logs["time_taken"] = time_taken
+
+
+	def initialize_logs_dict( self ):
+		"""
+		Create an empty logs dict with all required keys.
+		"""
+		self.uni_logs = {
+		k:[[], 0] for k in ["uni_seq_not_found"]
+		}
+
+
+	def deduplicate_uni_ids( self ):
+		"""
+		Deduplicate the list of UniProt Ids provided.
+		"""
+		unique = set( self.uni_ids_list )
+		self.uni_ids_list = sorted( list( self.uni_ids_list ) )
+
+
+
+	def get_uni_seq( self, uni_id: str
+					) -> Tuple[Dict[str, str], Dict[str, str]]:
+		"""
+		Obtain the sequence for the given uni ID.
+		"""
+		logs = {}
+		uni_seq = get_uniprot_seq( uni_id,
+								max_trials = self.max_trials,
+								wait_time = self.wait_time,
+								return_id = False )
+
+		# uni_id, uni_seq = result
+		if len( uni_seq ) == 0:
+			logs["uni_seq_not_found"] = [uni_id]
+			seq_dict = None
+		else:
+			seq_dict = {uni_id: uni_seq}
+		return seq_dict, logs
+
+
+
+	def get_uni_seq_in_parallel( self ):
+		"""
+		Parallelize downlaoding Uniprot sequences.
+		"""
+		with Pool( self.cores ) as p:
+			for result in tqdm.tqdm( 
+				p.imap_unordered( self.get_uni_seq, self.uni_ids_list ),
+				total = len( self.uni_ids_list ) ):
+				seq_dict, logs = result
+
+				if seq_dict is None:
+					for k in logs:
+						self.uni_logs[k][0].extend( logs[k] )
+						self.uni_logs[k][1] += len( logs[k] )
+				else:
+					self.uni_seq_dict.update( seq_dict )
+
+
+###########################################################################
+###########################################################################
+class DownloadPdbStructure():
+	"""
+	Given a list of PDB IDs, download structures
+		from PDB in the specified format.
+	"""
+	def __init__ (self, pdb_ids_list: List[str],
+					pdb_struct_dir: str,
+					struct_format: str,
+					cores: int,
+					max_trials: int,
+					wait_time: int ):
+		self.pdb_ids_list = pdb_ids_list
+		self.pdb_struct_dir = pdb_struct_dir
+		self.struct_format = struct_format
+
+		self.cores = cores
+		self.max_trials = max_trials
+		self.wait_time = wait_time
+
+		self.downloaded_struct = []
+		self.struct_logs = {}
+		self.time_taken = 0
+
+
+	def forward( self ):
+		"""
+		"""
+		t_start = time.time()
+		if self.struct_format not in ["pdb", "cif"]:
+			raise ValueError( "Incorrect structure file format: " +
+								f"{self.struct_format} specified..." )
+		self.initialize_logs_dict()
+
+		self.struct_logs["Total_pdb_ids"] = len( self.uni_ids_list )
+		self.dwnld_struct_in_parallel()
+		w = open_file_handler( self.downloaded_struct_file, "w" )
+		w.writelines( ",".join( self.downloaded_struct ) )
+		w.close()
+
+		t_end = time.time()
+		time_taken = t_end - t_start
+		self.struct_logs["remaining_pdb_ids"] = len( self.uni_seq_dict )
+		self.struct_logs["time_taken"] = time_taken
+
+
+
+	def initialize_logs_dict( self ):
+		"""
+		Create an empty logs dict with all required keys.
+		"""
+		self.struct_logs = {
+		k:[] for k in ["could_not_dwnld_struct"]
+		}
+
+
+	def dwmld_struct_for_entry_id( self, entry_id: str
+									) -> [Dict[str, str]]:
+		"""
+		Download the structure for the given entry_id (PDB ID)
+			in the specified file format.
+		"""
+		struct_file_path = os.path.join( self.pdb_struct_dir,
+										f"{entry_id}.{self.struct_format}" )
+
+		if not os.path.exists( struct_file_path ):
+			result = download_pdb( entry_id,
+									self.struct_format,
+									struct_file_path )
+
+			if not result:
+				entry_id = None
+				failed = True
+			else:
+				failed = False
+
+		return entry_id, failed, logs
+
+
+
+	def dwnld_struct_in_parallel( self ):
+		"""
+		Parallelize downlaoding structures for PDB IDs.
+		"""
+		with Pool( self.cores ) as p:
+			for result in tqdm.tqdm( 
+				p.imap_unordered( self.dwmld_struct_for_entry_id,
+									self.pdb_ids_list ),
+				total = len( self.pdb_ids_list ) ):
+				entry_id, logs = result
+
+				if failed:
+					self.struct_logs[0].append( entry_id )
+					self.struct_logs[1] += 1
+				else:
+					self.downloaded_struct.append( entry_id )
+
+
