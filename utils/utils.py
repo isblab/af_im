@@ -5,7 +5,7 @@ This script contains general purpose accessory functions.
 import json
 import subprocess
 from io import StringIO
-from typing import List, Dict, TextIO
+from typing import List, Tuple, Dict, TextIO
 from Bio import SeqIO
 import requests
 import ml_collections as mlc

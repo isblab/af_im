@@ -511,8 +511,7 @@ class PdbRestApi():
 
 ####################################### SIFTS ######################################
 ####----------------------------------------------------------------------------####
-def download_sifts_mapping( pdb_id: str, file_path: str, 
-							max_trials: int = 5, wait_time: int = 5 ):
+def download_sifts_mapping( pdb_id: str, file_path: str ):
 	"""
 	Fetch the PDB to UniProt mapping from SIFTS.
 	Save as an XML file.
@@ -521,8 +520,14 @@ def download_sifts_mapping( pdb_id: str, file_path: str,
 	url = f"https://www.ebi.ac.uk/pdbe/files/sifts/{pdb_id}.xml.gz"
 	cmd = ["curl", f"{url}", "--output", f"{file_path}.gz", "--silent"]
 	run_subprocess( cmd )
-	cmd = ["gunzip", f"{file_path}"]
+	cmd = ["gunzip", "-f", f"{file_path}.gz"]
 	run_subprocess( cmd )
+	if os.path.exists( file_path ):
+		success = True
+	else:
+		success = False
+	return success
+
 
 
 def parse_sifts_xml( file: str ):
@@ -579,7 +584,7 @@ def parse_sifts_xml( file: str ):
 											sifts_dict[chain_id]["missing"]["PDB position"].append( data["dbResNum"] )
 										else:
 											sifts_dict[chain_id]["resolved"]["PDB residue"].append( data["dbResName"] )
-											sifts_dict[chain_id]["resolved"]["PDB position"].append( int( data["dbResNum"] ) )
+											sifts_dict[chain_id]["resolved"]["PDB position"].append( str( data["dbResNum"] ) )
 
 									if data["dbSource"] == "UniProt":
 										sifts_dict[chain_id]["sequence"]["Uniprot"].append( data["dbResName"] )
@@ -590,7 +595,7 @@ def parse_sifts_xml( file: str ):
 										else:
 											sifts_dict[chain_id]["resolved"]["Uniprot ID"].append( data["dbAccessionId"] )
 											sifts_dict[chain_id]["resolved"]["Uniprot residue"].append( data["dbResName"] )
-											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( int( data["dbResNum"] ) )
+											sifts_dict[chain_id]["resolved"]["Uniprot position"].append( str( data["dbResNum"] ) )
 	return sifts_dict
 
 
@@ -615,4 +620,3 @@ def get_casp_entry( casp_id: str, max_trials: int = 5, wait_time: int = 5 ):
 	# 	raise requests.HTTPError( f"Structure file for {casp_id} could not be obtained..." )
 
 	return fasta_response #, struct_response
-
