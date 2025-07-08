@@ -1,30 +1,14 @@
 """
-Script to obtain and create the required files
-	for the benchmark dataset.
-Create the input files required for modeling, given the PDB ID.
-
+Contains module to obtain metadat for benchmark dataset creation.
 1. PDB IDs from any benchmark (AF_Unmasked, PINDER).
 2. We need the following details about the complex:
 	Entry/Entity data from PDB API
 	SIFTS mapping
 	PDB structure
 	UniProt sequences
-Remove PDB IDs if:
-	Could not retrieve data from PDB.
-	Complex contains non-protein entities
-	Total system length >1400 residues.
-	Monomer sequence.
-	No SIFTS mapping.
-	Missing residues present in mapping.
-		It's OK if missing residues only at termini?
 3. Obtain data: need support for both simulated and real.
 	Simulated
 		XLs -> JWalk
-Remove complexes if:
-	Couldn't run the tool.
-	No data (e.g. inter-protein XLs) obtained.
-4. Create system config dict for all systems.
-
 """
 from typing import List, Tuple, Dict
 import os, glob, copy, time
@@ -95,6 +79,9 @@ class Metadata():
 		self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
 
 		self.run_dataset_creation_pipeline()
+		self.save_dataset_configs()
+		self.write_logs_to_csv()
+		print( "\n May the Force be with you..." )
 
 
 	##------------------------------------------------------------##
@@ -117,10 +104,14 @@ class Metadata():
 		# 	structure file, SIFTS mapping, benchamrk csv and the required intermediate files.
 		self.meta_dir = os.path.join( self.base_dir, f"{self.benchmark_name}_metadata" )
 
-		# .csv file to store relevant details for the benchmark complexes.
-		self.output_benchmark_csv = os.path.join( self.meta_dir, f"benchmark.csv" )
+		# PDB IDs remaining after metadat collection.
+		self.benchmark_pdbs_file =  os.path.join( self.meta_dir,
+										f"{self.benchmark_name}_benchmark_pdb_ids.txt" )
 		# Logs file path.
 		self.logs_file = os.path.join( self.meta_dir, f"Logs_{self.benchmark_name}.json" )
+		self.logs_csv_file = os.path.join( self.meta_dir, f"Logs_{self.benchmark_name}.csv" )
+		self.dataset_configs_file = os.path.join( self.meta_dir,
+								f"Dataset_configs_{self.benchmark_name}.csv" )
 
 		## --------------------------
 		# For PdbData module
@@ -231,6 +222,10 @@ class Metadata():
 		print(  "---------- Simulated Data ----------" )
 		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.simulate_experimental_data()
+
+		w = open_file_handler( self.benchmark_pdbs_file, "w" )
+		w.writelines( ",".join( list( self.xls_dict.keys() ) ) )
+		w.close()
 
 
 
@@ -452,7 +447,6 @@ class Metadata():
 			self.simulate_xls()
 
 
-
 	def simulate_xls( self ):
 		"""
 		Simulate XL data using JWalk.
@@ -475,7 +469,7 @@ class Metadata():
 			obj.forward()
 
 			self.xls_dict = copy.deepcopy( obj.xls_dict )
-			self.logs["jwalk"] = copy.deepcopy( obj.jwalk_logs )
+			self.logs["Jwalk"] = copy.deepcopy( obj.jwalk_logs )
 
 			del obj
 
@@ -494,24 +488,56 @@ class Metadata():
 		Columns: Protein1, Residue1, Protein1, Residue1
 		"""
 		for pdb_id in self.xls_dict:
-			df = self.xls_dict[pdb_id]["xls"]
-			for i in range( df.shape[0] ):
-				chain1 = df.loc[i, "prot1"]
-				res1 = int( df.loc[i, "res1"] )
-				chain2 = df.loc[i, "prot2"]
-				res2 = int( df.loc[i, "res2"] )
+			for xl_type in ["tp_xls", "fp_xls"]:
+				df = self.xls_dict[pdb_id][xl_type]
+				drop_index = []
+				for i in df.index:
+					try:
+						chain1 = df.iloc[i, 0]
+						res1 = int( df.iloc[i, 1] )
+					except:
+						print( pdb_id, "  ", chain1, "  ", df.loc[i, "res1"] )
+						print( df.iloc[i-4:i+4, :] )
+						df.to_csv( "./8sjj_xls.csv" )
+						exit()
+					try:
+						chain2 = df.iloc[i, 2]
+						res2 = int( df.iloc[i, 3] )
+					except:
+						print( pdb_id, "  ", chain2, "  ", df.loc[i, "res2"] )
+						exit()
 
-				df.iloc[i, 1] = self.sifts_pdb_to_uni[pdb_id]["mapping"][chain1][res1]
-				df.iloc[i, 3] = self.sifts_pdb_to_uni[pdb_id]["mapping"][chain2][res2]
+
+					chain1_map = self.sifts_data_dict[pdb_id]["mapping"][chain1]
+					chain2_map = self.sifts_data_dict[pdb_id]["mapping"][chain2]
+					# Remove a XL pair if the residue not in mapping.
+					if res1 not in chain1_map.keys():
+						drop_index.append( i )
+					else:
+						df.iloc[i, 1] = chain1_map["pdb_to_uni"][res1]
+						
+					if res2 not in chain1_map.keys():
+						drop_index.append( i )
+					else:
+						df.iloc[i, 3] = chain2_map["pdb_to_uni"][res2]
+				df = df.drop( drop_index )
+				df = df.reset_index( drop = True )
+
+
+	def save_dataset_configs( self ):
+		"""
+		Save the datset configs to a JSON file on disk.
+		"""
+		write_json( self.dataset_configs, self.dataset_configs_file )
 
 
 	def write_logs_to_csv( self ):
 		"""
 		Write the logs dict to a csv file.
 		"""
-		flat_dict = [k:[] for k in ["Module",
+		flat_dict = {k:[] for k in ["Module",
 									"Description",
-									"Count"]]
+									"Count"]}
 
 		for module in self.logs:
 			for desc in self.logs[module]:
@@ -519,10 +545,15 @@ class Metadata():
 				flat_dict["Module"].append( module )
 				flat_dict["Description"].append( desc )
 				if isinstance( desc_val, List ):
+
 					val = desc_val[1]
 				else:
 					val = desc_val
 				flat_dict["Count"].append( val )
+			[flat_dict[k].append( "" ) for k in flat_dict]
+		df = pd.DataFrame( flat_dict )
+		df.to_csv( self.logs_csv_file, index = False )
+
 
 
 

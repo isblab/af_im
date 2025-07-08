@@ -1,7 +1,7 @@
 """
 Contains classes to obtain simulated experimental data.
 """
-import os, glob, copy, time
+import os, glob, copy, time, re
 import pandas as pd
 from multiprocessing import Pool
 import tqdm
@@ -121,18 +121,20 @@ class SimulateCrosslinks():
 			SASD --> Solvent accessible surface distance.
 			Eculidean distance --> distance between CA atoms.
 		Fetch all inter-protein XLs for which the SASD is less than xl_max_bound.
+		Note: In some cases. JWalk adds "--" instead of "-" (e.g. 8sjj.
 		"""
-		inter = df[df["Atom1"].str.split( "-" ).str[2] != df["Atom2"].str.split( "-" ).str[2]]
+		inter = df[df["Atom1"].str.split( "-" ).str[2] != df["Atom2"].str.split( r'-{1,2}' ).str[2]]
 
 		# Extract chain ID and res no.
 		interprotein_xls = pd.DataFrame()
 		for i in [1, 2]:
-			interprotein_xls[f"prot{i}"] = inter[f"Atom{i}"].str.split( "-" ).str[2]
-			interprotein_xls[f"res{i}"] = inter[f"Atom{i}"].str.split( "-" ).str[1]
+			interprotein_xls[f"prot{i}"] = inter[f"Atom{i}"].str.split( r'-{1,2}' ).str[2]
+			interprotein_xls[f"res{i}"] = inter[f"Atom{i}"].str.split( r'-{1,2}' ).str[1]
 
 		interprotein_xls = interprotein_xls.reset_index( drop = True )
 
 		return interprotein_xls
+
 
 
 	def get_xls_for_entry_id( self, entry_id: str ):
@@ -152,17 +154,17 @@ class SimulateCrosslinks():
 			logs["failed_to_run_jwalk"] = entry_id
 		else:
 			tp_xls = self.get_tp_xls( xl_df )
+			tp_inter_xls = self.get_interprotein_xls( tp_xls )
 			fp_xls = self.get_fp_xls( xl_df )
+			fp_inter_xls = self.get_interprotein_xls( fp_xls )
 
-			if tp_xls.shape[0] == 0:
-				logs["no_inter_xls"]  = entry_id
+			if tp_inter_xls.shape[0] == 0:
+				logs["no_inter_xls"]  = [entry_id]
 				tp_inter_xls, fp_inter_xls = None, None
-			elif tp_xls.shape[0] < self.min_inter_xls:
-				logs["too_few_xls"]  = entry_id
+
+			elif tp_inter_xls.shape[0] < self.min_inter_xls:
+				logs["too_few_xls"]  = [entry_id]
 				tp_inter_xls, fp_inter_xls = None, None
-			else:
-				tp_inter_xls = self.get_interprotein_xls( tp_xls )
-				fp_inter_xls = self.get_interprotein_xls( fp_xls )
 
 		return entry_id, tp_inter_xls, fp_inter_xls, logs
 
@@ -170,13 +172,8 @@ class SimulateCrosslinks():
 
 	def get_xls_in_parallel( self ):
 		"""
-		Parallelize obtaining XLs for the given entry_id's.
+		Obtain XLs serially for the given entry_id's.
 		"""
-		# with Pool( self.cores ) as p:
-		# 	for result in tqdm.tqdm(
-		# 		p.imap_unordered( self.get_xls_for_entry_id, self.pdb_ids_list ),
-		# 		total = len( self.pdb_ids_list )
-		# 		):
 		curr_dir = os.getcwd()
 		os.chdir( self.pdb_struct_dir )
 		for idx, entry_id in enumerate( self.pdb_ids_list ):
@@ -195,4 +192,5 @@ class SimulateCrosslinks():
 											"count_tp_xls": tp_inter_xls.shape[0]}
 		run_subprocess( ["rm", "-r", f"./Jwalk_results/"] )
 		os.chdir( curr_dir )
+
 

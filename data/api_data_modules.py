@@ -53,7 +53,7 @@ class PdbData():
 		"""
 		t_start = time.time()
 		self.initialize_logs_dict()
-		self.pdb_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
+		self.pdb_logs["total_pdb_ids"] = len( self.pdb_ids_list )
 
 		self.get_entry_info_in_parallel()
 		# write_json( self.pdb_data_dict, self.pdb_data_dict_file )
@@ -286,7 +286,7 @@ class SiftsMapping():
 		"""
 		t_start = time.time()
 		self.initialize_logs_dict()
-		self.sifts_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
+		self.sifts_logs["total_pdb_ids"] = len( self.pdb_ids_list )
 
 		self.get_sifts_mapping_in_parallel()
 		# write_json( self.sifts_data_dict, self.sifts_dict_file )
@@ -579,10 +579,10 @@ class DownloadUniprotSequences():
 		t_start = time.time()
 		self.initialize_logs_dict()
 
-		self.uni_logs["Total_uni_ids"] = len( self.uni_ids_list )
+		self.uni_logs["total_uni_ids"] = len( self.uni_ids_list )
 
 		self.deduplicate_uni_ids()
-		self.uni_logs["Unique_uni_ids"] = len( self.uni_ids_list )
+		self.uni_logs["unique_uni_ids"] = len( self.uni_ids_list )
 
 		self.get_uni_seq_in_parallel()
 		# write_json( self.uni_seq_dict, self.uni_seq_dict_file )
@@ -608,7 +608,7 @@ class DownloadUniprotSequences():
 		Deduplicate the list of UniProt Ids provided.
 		"""
 		unique = set( self.uni_ids_list )
-		self.uni_ids_list = sorted( list( self.uni_ids_list ) )
+		self.uni_ids_list = sorted( list( unique ) )
 
 
 
@@ -685,7 +685,7 @@ class DownloadPdbStructure():
 								f"{self.struct_format} specified..." )
 		self.initialize_logs_dict()
 
-		self.struct_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
+		self.struct_logs["total_pdb_ids"] = len( self.pdb_ids_list )
 		self.dwnld_struct_in_parallel()
 		# w = open_file_handler( self.downloaded_struct_file, "w" )
 		# w.writelines( ",".join( self.downloaded_struct ) )
@@ -703,7 +703,7 @@ class DownloadPdbStructure():
 		Create an empty logs dict with all required keys.
 		"""
 		self.struct_logs = {
-		k:[] for k in ["could_not_dwnld_struct"]
+		k:[[], 0] for k in ["could_not_dwnld_struct"]
 		}
 
 
