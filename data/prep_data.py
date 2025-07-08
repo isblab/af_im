@@ -27,7 +27,7 @@ Remove complexes if:
 
 """
 from typing import List, Tuple, Dict
-import os, glob, copy
+import os, glob, copy, time
 from collections import defaultdict
 import numpy as np
 import pandas as pd
@@ -45,31 +45,36 @@ from api_data_modules import( PdbData, SiftsMapping,
 							DownloadUniprotSequences,
 							DownloadPdbStructure )
 
+from simulate_data import ( SimulateCrosslinks ) 
 
-class CreateBenchmark():
+class Metadata():
 	"""
-	Create input for the benchmark dataset.
+	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
 		self.benchmark_name = "afu"
-		self.jwalk_exec = "jwalk"
 
 		self.dataset_configs = {
 			"global": {
-				"struct_format": "cif",
-				"max_sys_length": 1400
+				"benchmark_name": self.benchmark_name,
+				"struct_format": "pdb",
+				"max_sys_length": 1400,
+				"frac_coverage": 0.99,
+				"cores": 50,
+				"max_trials": 5,
+				"wait_time": 10
 			},
 			"jwalk": {
+				"enabled": True,
 				"xl_max_bound": 35,
 				"min_inter_xls": 10
 			}
 		}
 
-		# Dict to store all system specific info.
-		self.pdb_benchmark_dict = {}
-		# self.benchmark_config_dict = {}
+		# Dict containing info. from PDB REST API.
+		self.pdb_data_dict = {}
 		# Dict containing residue-level PDB to UniProt mapping.
-		self.sifts_pdb_to_uni = {}
+		self.sifts_data_dict = {}
 		# Dict to store all UniProt sequences.
 		self.uni_seq_dict = {}
 		# Dict to store inter-protein XLs.
@@ -84,8 +89,12 @@ class CreateBenchmark():
 		self.create_required_paths()
 		self.create_required_dir()
 
-		self.run_dataset_creation_pipeline()
+		if os.path.exists( self.logs_file ):
+			self.logs = read_json( self.logs_file )
 
+		self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
+
+		self.run_dataset_creation_pipeline()
 
 
 	##------------------------------------------------------------##
@@ -98,7 +107,7 @@ class CreateBenchmark():
 		# Global paths
 		## --------------------------
 		# PDB benchmark from AF Unmasked paper.
-		self.afu_pdb_benchmark = os.path.join( "./raw/af_unmasked_pdb_benchmark.txt" )
+		self.afu_pdb_benchmark = os.path.join( "../raw/af_unmasked_pdb_benchmark.txt" )
 
 		# Base directory for all benchmarks.
 		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
@@ -119,7 +128,7 @@ class CreateBenchmark():
 		# Dir containing PDB entry and entity dicts.
 		self.pdb_api_dir = os.path.join( self.meta_dir, "pdb_api" )
 		self.pdb_data_dict_file = os.path.join( self.meta_dir,
-												"pdb_api_dict.json" )
+												"pdb_api_dict.npy" )
 
 		## --------------------------
 		# For SiftsMapping module
@@ -131,7 +140,7 @@ class CreateBenchmark():
 		# Dir containing processed SIFTS mapping.
 		self.sifts_dict_dir = os.path.join( self.meta_dir, "sifts_dict" )
 		self.sifts_dict_file = os.path.join( self.meta_dir,
-											"sifts_mapping_dict.json" )
+											"sifts_mapping_dict.npy" )
 
 		## --------------------------
 		# For DownloadUniprotSequences module
@@ -147,7 +156,12 @@ class CreateBenchmark():
 		# Dir contaiing PDB structure.
 		self.pdb_struct_dir = os.path.join( self.meta_dir, "struct" )
 		self.pdb_struct_dwnld_file = os.path.join( self.meta_dir,
-												"pdb_structdwnld.txt" )
+												"pdb_struct_dwnld.txt" )
+
+		## --------------------------
+		# For Simulated data
+		## --------------------------
+		self.xls_dict_file = os.path.join( self.meta_dir, "jwalk_xls.npy" )
 
 
 
@@ -190,17 +204,33 @@ class CreateBenchmark():
 		Get structures for all complexes.
 		Get data - simulated or real.
 		"""
+		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
+		print(  "---------- PDB API Data ----------" )
+		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.run_pdb_api_module()
 		self.transition_pdb_to_sifts_module()
 
-
+		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
+		print(  "---------- SIFTS Mapping ----------" )
+		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.run_sifts_mapping_module()
 		uni_ids_list = self.transition_sifts_to_uni_seq_module()
 
+		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
+		print(  "---------- Download UniProt Sequences ----------" )
+		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.run_download_uniprot_sequence_module( uni_ids_list )
 		self.transition_uni_seq_to_struct_module()
 
+		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
+		print(  "---------- Download PDB Structures ----------" )
+		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.run_download_pdb_structure_module()
+
+		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
+		print(  "---------- Simulated Data ----------" )
+		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
+		self.simulate_experimental_data()
 
 
 
@@ -213,16 +243,18 @@ class CreateBenchmark():
 		If data dict already present do not run again.
 		"""
 		if os.path.exists( self.pdb_data_dict_file ):
-			self.pdb_data_dict = read_json( self.pdb_data_dict_file )
+			print( "PDB API data dict already exist..." )
+			self.pdb_data_dict = np.load( self.pdb_data_dict_file,
+										allow_pickle = True ).item()
 
 		else:
 			obj = PdbData(
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_api_dir = self.pdb_api_dir,
 				pdb_data_dict_file = self.pdb_data_dict_file,
-				cores = self.cores,
-				max_trials = self.max_trials,
-				wait_time = self.wait_time
+				cores = self.dataset_configs["global"]["cores"],
+				max_trials = self.dataset_configs["global"]["max_trials"],
+				wait_time = self.dataset_configs["global"]["wait_time"]
 				)
 			obj.forward()
 
@@ -231,7 +263,7 @@ class CreateBenchmark():
 
 			del obj
 
-			write_json( self.pdb_data_dict, self.pdb_data_dict_file )
+			np.save( self.pdb_data_dict_file, self.pdb_data_dict, allow_pickle = True )
 			write_json( self.logs, self.logs_file )
 
 
@@ -242,7 +274,7 @@ class CreateBenchmark():
 			were excluded in PdbData module.
 		"""
 		self.benchmark_pdb_ids_list = sorted( list( 
-			set( self.benchmark_pdb_ids_list ) - set( self.pdb_data_dict.keys() )
+			set( self.benchmark_pdb_ids_list ).intersection( set( self.pdb_data_dict.keys() ) )
 		) )
 
 
@@ -254,7 +286,9 @@ class CreateBenchmark():
 		Obtain PDB-Uniprot mapping using SIFTS.
 		"""
 		if os.path.exists( self.sifts_dict_file ):
-			self.pdb_data_dict = read_json( self.sifts_dict_file )
+			print( "SIFTS mapping dict already exist..." )
+			self.sifts_data_dict = np.load( self.sifts_dict_file,
+										allow_pickle = True ).item()
 
 		else:
 			obj = SiftsMapping(
@@ -262,9 +296,11 @@ class CreateBenchmark():
 				sifts_xml_dir = self.sifts_xml_dir,
 				sifts_dict_dir = self.sifts_dict_dir,
 				sifts_dict_file = self.sifts_dict_file,
-				cores = self.cores,
-				max_trials = self.max_trials,
-				wait_time = self.wait_time
+				max_sys_length = self.dataset_configs["global"]["max_sys_length"],
+				frac_coverage = self.dataset_configs["global"]["frac_coverage"],
+				cores = self.dataset_configs["global"]["cores"],
+				max_trials = self.dataset_configs["global"]["max_trials"],
+				wait_time = self.dataset_configs["global"]["wait_time"]
 				)
 			obj.forward()
 
@@ -273,7 +309,9 @@ class CreateBenchmark():
 
 			del obj
 
-			write_json( self.sifts_data_dict, self.sifts_data_dict_file )
+			np.save( self.sifts_dict_file,
+					self.sifts_data_dict,
+					allow_pickle = True )
 			write_json( self.logs, self.logs_file )
 
 
@@ -289,19 +327,23 @@ class CreateBenchmark():
 		uni_ids_list = []
 		for pdb_id in self.sifts_data_dict:
 			pdb_uni_id = self.pdb_data_dict[pdb_id]["uniprot_ids"].split( "," )
-			auth_asym_id = self.pdb_data_dict[pdb_id]["auth_asym_id"].split( "," )
+			auth_asym_id = self.pdb_data_dict[pdb_id]["auth_asym_ids"].split( "," )
 
 			tmp_uni_ids = []
 			passed = True
-			for aa_id in auth_asym_id.split( "-" ):
-				mapped_uni_id = self.sifts_data_dict[pdb_id]["mapping"][aa_id]["uni_id"]
+			for i, auth_id in enumerate( auth_asym_id ):
+				for aa_id in auth_id.split( "-" ):
+					if aa_id not in self.sifts_data_dict[pdb_id]["mapping"]:
+						passed = False
+						break
+					mapped_uni_id = self.sifts_data_dict[pdb_id]["mapping"][aa_id]["uni_id"]
 
-				# Ignore a PDB ID if any single chain is mapped to incorrect Uni ID.
-				if mapped_uni_id != pdb_uni_id:
-					passed = False
-					break
-				else:
-					tmp_uni_ids.extend( pdb_uni_id )
+					# Ignore a PDB ID if any single chain is mapped to incorrect Uni ID.
+					if mapped_uni_id != pdb_uni_id[i]:
+						passed = False
+						break
+					else:
+						tmp_uni_ids.append( pdb_uni_id[i] )
 
 			if passed:
 					uni_ids_list.extend( tmp_uni_ids )
@@ -318,16 +360,17 @@ class CreateBenchmark():
 		"""
 		Obtain PDB-Uniprot mapping using SIFTS.
 		"""
-		if os.path.exists( self.sifts_dict_file ):
-			self.pdb_data_dict = read_json( self.sifts_dict_file )
+		if os.path.exists( self.uni_seq_dict_file ):
+			print( "Uniprot seq dict already exist..." )
+			self.uni_seq_dict = read_json( self.uni_seq_dict_file )
 
 		else:
 			obj = DownloadUniprotSequences(
 				uni_ids_list = uni_ids_list,
 				uni_seq_dict_file = self.uni_seq_dict_file,
-				cores = self.cores,
-				max_trials = self.max_trials,
-				wait_time = self.wait_time
+				cores = self.dataset_configs["global"]["cores"],
+				max_trials = self.dataset_configs["global"]["max_trials"],
+				wait_time = self.dataset_configs["global"]["wait_time"]
 				)
 			obj.forward()
 
@@ -364,7 +407,6 @@ class CreateBenchmark():
 		) )
 
 
-
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
 	def run_download_pdb_structure_module( self ):
@@ -372,6 +414,7 @@ class CreateBenchmark():
 		Obtain PDB-Uniprot mapping using SIFTS.
 		"""
 		if os.path.exists( self.pdb_struct_dwnld_file ):
+			print( "Structures for benchmark already downloaded..." )
 			f = open_file_handler( self.pdb_struct_dwnld_file, "r" )
 			self.benchmark_pdb_ids_list = f.readlines()[0].split( "," )
 			f.close()
@@ -381,14 +424,14 @@ class CreateBenchmark():
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_struct_dir = self.pdb_struct_dir,
 				struct_format = self.dataset_configs["global"]["struct_format"],
-				cores = self.cores,
-				max_trials = self.max_trials,
-				wait_time = self.wait_time
+				cores = self.dataset_configs["global"]["cores"],
+				max_trials = self.dataset_configs["global"]["max_trials"],
+				wait_time = self.dataset_configs["global"]["wait_time"]
 				)
 			obj.forward()
 
-			self.benchmark_pdb_ids_list = copy( obj.downloaded_struct )
-			self.logs["DownloadPdbStructure"] = copy.deepcopy( obj.uni_logs )
+			self.benchmark_pdb_ids_list = copy.copy( obj.downloaded_struct )
+			self.logs["DownloadPdbStructure"] = copy.deepcopy( obj.struct_logs )
 
 			del obj
 			
@@ -400,30 +443,13 @@ class CreateBenchmark():
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
-	def get_chain_entity_map( self, pdb_id: str ) -> Dict[str, int]:
-		"""
-		For a given PDB ID, create dict mapping the auth_asym_ids to
-			their respective entity_id.
-		"""
-		chain_entity_map = {}
-		entity_ids = self.pdb_data_dict[pdb_id]["polymer_entity_ids"].split( "," )
-		auth_asym_ids = self.pdb_data_dict[pdb_id]["auth_asym_ids"].split( "," )
-
-		for i in range( len( auth_asym_ids ) ):
-			for aa_id in auth_asym_ids[i].split( "-" ):
-				chain_entity_map[aa_id] = entity_ids[i]
-
-		return chain_entity_map
-
-
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
 	def simulate_experimental_data( self ):
 		"""
 		Simulate experimental dat for the required protein complexes.
 		Currently supporting XL data (JWalk).
 		"""
-
+		if self.dataset_configs["jwalk"]["enabled"]:
+			self.simulate_xls()
 
 
 
@@ -433,42 +459,70 @@ class CreateBenchmark():
 		Obtain inter-protein XLs.
 		Map residue numbers to UniProt numbering based on SIFTS mapping.
 		"""
+		if os.path.exists( self.xls_dict_file ):
+			print( "JWalk simulated XLs already exist..." )
+			self.xls_dict = np.load( self.xls_dict_file,
+							allow_pickle = True ).item()
+		else:
+			obj = SimulateCrosslinks(
+				pdb_ids_list = self.benchmark_pdb_ids_list,
+				pdb_struct_dir = self.pdb_struct_dir,
+				struct_format = self.dataset_configs["global"]["struct_format"],
+				xl_max_bound = self.dataset_configs["jwalk"]["xl_max_bound"],
+				min_inter_xls = self.dataset_configs["jwalk"]["min_inter_xls"],
+				cores = self.dataset_configs["global"]["cores"],
+				)
+			obj.forward()
 
-		obj = SimulateCrosslinks(
-			pdb_ids_list = self.benchmark_pdb_ids_list,
-			pdb_struct_dir = self.pdb_struct_dir,
-			struct_format = self.dataset_configs["global"]["struct_format"],
-			xl_max_bound = self.dataset_configs["jwalk"]["xl_max_bound"],
-			min_inter_xls = self.dataset_configs["jwalk"]["min_inter_xls"],
-			cores = dataset_configs["global"]["cores"]
-			)
-		obj.forward()
+			self.xls_dict = copy.deepcopy( obj.xls_dict )
+			self.logs["jwalk"] = copy.deepcopy( obj.jwalk_logs )
 
-		self.xls_dict = copy.deepcopy( obj.xl_dict )
-		self.logs["jwalk"] = copy.deepcopy( obj.logs )
+			del obj
+
+			self.map_xls_to_uni_pos()
+
+			np.save( self.xls_dict_file,
+					self.xls_dict,
+					allow_pickle = True )
+			write_json( self.logs, self.logs_file )
 
 
-	def get_uni_pos_for_xls( self, pdb_id: str, df: pd.DataFrame
-							) -> pd.DataFrame:
+	def map_xls_to_uni_pos( self ):
 		"""
 		Given a dataframe for inter-protein XLs, map the PDB positions
 			to the corresponding UniProt positions.
 		Columns: Protein1, Residue1, Protein1, Residue1
 		"""
-		for i in range( df.shape[0] ):
-			chain1 = df.loc[i, "prot1"]
-			res1 = int( df.loc[i, "res1"] )
-			chain2 = df.loc[i, "prot2"]
-			res2 = int( df.loc[i, "res2"] )
+		for pdb_id in self.xls_dict:
+			df = self.xls_dict[pdb_id]["xls"]
+			for i in range( df.shape[0] ):
+				chain1 = df.loc[i, "prot1"]
+				res1 = int( df.loc[i, "res1"] )
+				chain2 = df.loc[i, "prot2"]
+				res2 = int( df.loc[i, "res2"] )
 
-			df.iloc[i, 1] = self.sifts_pdb_to_uni[pdb_id]["maping"][chain1][res1]
-			df.iloc[i, 3] = self.sifts_pdb_to_uni[pdb_id]["maping"][chain2][res2]
-		return df
+				df.iloc[i, 1] = self.sifts_pdb_to_uni[pdb_id]["mapping"][chain1][res1]
+				df.iloc[i, 3] = self.sifts_pdb_to_uni[pdb_id]["mapping"][chain2][res2]
 
 
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
-	# def simulate_data( self ):
+	def write_logs_to_csv( self ):
+		"""
+		Write the logs dict to a csv file.
+		"""
+		flat_dict = [k:[] for k in ["Module",
+									"Description",
+									"Count"]]
+
+		for module in self.logs:
+			for desc in self.logs[module]:
+				desc_val = self.logs[module][desc]
+				flat_dict["Module"].append( module )
+				flat_dict["Description"].append( desc )
+				if isinstance( desc_val, List ):
+					val = desc_val[1]
+				else:
+					val = desc_val
+				flat_dict["Count"].append( val )
 
 
 
@@ -1276,4 +1330,4 @@ class CreateBenchmark():
 
 
 if __name__ == "__main__":
-	CreateBenchmark().forward()
+	Metadata().forward()
