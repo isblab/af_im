@@ -6,7 +6,7 @@ This module contains classes for obtaining:
 	PDB structures
 """
 from typing import List, Tuple, Dict
-import os
+import os, time, re
 from collections import defaultdict
 import numpy as np
 import pandas as pd
@@ -19,7 +19,9 @@ from utils.utils import ( open_file_handler,
 							ranges )
 from utils.api_utils import ( PdbRestApi,
 							download_sifts_mapping,
-							parse_sifts_xml )
+							parse_sifts_xml,
+							get_uniprot_seq,
+							download_pdb )
 
 
 
@@ -54,7 +56,7 @@ class PdbData():
 		self.pdb_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
 
 		self.get_entry_info_in_parallel()
-		write_json( self.pdb_data_dict, self.pdb_data_dict_file )
+		# write_json( self.pdb_data_dict, self.pdb_data_dict_file )
 
 		t_end = time.time()
 		time_taken = t_end - t_start
@@ -120,13 +122,15 @@ class PdbData():
 		rest_api = PdbRestApi( entry_id = entry_id,
 								entry_file = entry_file,
 								entity_file = entity_file,
-								max_trials = max_trials,
-								wait_time = wait_time )
+								max_trials = self.max_trials,
+								wait_time = self.wait_time )
 		return rest_api
 
 
 
-	def get_entry_info( self, polymer_entities: List[int]
+	def get_entry_info( self, all_entities: List[int],
+						polymer_entity_ids: List[int],
+						rest_api: PdbRestApi
 						) -> Dict[str, str]:
 		"""
 		Given a list of polymer entity IDs, obtain the following info:
@@ -142,11 +146,11 @@ class PdbData():
 		total_length = 0
 
 		ignore = False
-		for entity_id in polymer_entities:
+		for entity_id in polymer_entity_ids:
 			rest_api.retrieve_polymer_entity_data( entity_id )
 			uni_id = rest_api.get_uniprot_ids_for_entity( entity_id )
 			if len( uni_id ) == 1:
-				uniprot_ids.append( uni_id )
+				uniprot_ids.extend( uni_id )
 				asym_ids = rest_api.get_asym_ids_for_entity( entity_id )
 				auth_asym_ids.append( "-".join(
 					rest_api.get_auth_asym_ids_for_entity( entity_id ) )
@@ -167,7 +171,7 @@ class PdbData():
 		else:
 			entry_dict = {
 			"entity_ids": ",".join( all_entities ),
-			"polymer_entity_ids": ",".join( polymer_entities ),
+			"polymer_entity_ids": ",".join( polymer_entity_ids ),
 			"uniprot_ids": ",".join( uniprot_ids ),
 			"auth_asym_ids": ",".join( auth_asym_ids ),
 			"uni_pos": ",".join( uni_pos ),
@@ -201,17 +205,20 @@ class PdbData():
 			# Get all entity IDs in the.
 			all_entities = rest_api.get_all_entities()
 			# Get all polymer entity IDs in the.
-			polymer_entities = rest_api.get_polymer_entities()
+			polymer_entity_ids = rest_api.get_polymer_entities()
 
 			# Monomer entry.
 			if len( all_entities ) == 1:
 				logs["monomer"] = [entry_id]
-			# PDB contains non-polymer entities.
-			elif len( all_entities ) > len( polymer_entity_ids ):
-				logs["has_non_polymer_entity"] = [entry_id]
-				entry_dict = None
+			# # PDB contains non-polymer entities.
+			# elif len( all_entities ) > len( polymer_entity_ids ):
+			# 	logs["has_non_polymer_entity"] = [entry_id]
+			# 	entry_dict = None
+			# else:
 			else:
-				entry_dict = self.get_entry_info( [entry_id] )
+				entry_dict = self.get_entry_info( all_entities,
+												polymer_entity_ids,
+												rest_api )
 
 				if entry_dict is None:
 					logs["too_many_uni_ids"] = [entry_id]
@@ -219,8 +226,6 @@ class PdbData():
 					self.save_entry_entity_dict( rest_api,
 												entry_file,
 												entity_file )
-				if entry_dict is None:
-					logs["exceed_max_length"] = [entry_id]
 		return entry_id, entry_dict, logs
 
 
@@ -256,6 +261,8 @@ class SiftsMapping():
 					sifts_xml_dir: str,
 					sifts_dict_dir: str,
 					sifts_dict_file: str,
+					max_sys_length: int,
+					frac_coverage: float,
 					cores: int,
 					max_trials: int,
 					wait_time: int ):
@@ -264,13 +271,14 @@ class SiftsMapping():
 		self.sifts_dict_dir = sifts_dict_dir
 		self.sifts_dict_file = sifts_dict_file
 
+		self.max_sys_length = max_sys_length
+		self.frac_coverage = frac_coverage
 		self.cores = cores
 		self.max_trials = max_trials
 		self.wait_time = wait_time
 
 		self.sifts_data_dict = {}
 		self.sifts_logs = {}
-		self.time_taken = 0
 
 
 	def forward( self ):
@@ -281,10 +289,10 @@ class SiftsMapping():
 		self.sifts_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
 
 		self.get_sifts_mapping_in_parallel()
-		write_json( self.sifts_dict, self.sifts_dict_file )
+		# write_json( self.sifts_data_dict, self.sifts_dict_file )
 
 		t_end = time.time()
-		self.time_taken = t_end - t_start
+		time_taken = t_end - t_start
 
 		self.sifts_logs["remaining_pdb_ids"] = len( self.sifts_data_dict )
 		self.sifts_logs["time_taken"] = time_taken
@@ -295,9 +303,12 @@ class SiftsMapping():
 		Create an empty logs dict with all required keys.
 		"""
 		self.sifts_logs = {
-		k:[[], 0] for k in ["icode_present", "mapped_length_mismatch",
+		k:[[], 0] for k in ["not_mapped", "icode_present",
+						"mapped_length_mismatch",
 						"ambiguous_uni_id",
-						"discontiguous_residues_in_chain"]
+						"low_coverage",
+						"discontiguous_residues_in_chain",
+						"exceed_max_length"]
 		}
 
 
@@ -305,9 +316,10 @@ class SiftsMapping():
 	def extract_digits( self, res_num: str ) -> str:
 		"""
 		Remove alphabets from an alphanum str.
-		e.g. "222A" -> 222
+		e.g. "222A" -> "222"
+		Negative no. are also accounted.
 		"""
-		match = re.match( r"( \d+ )", res_num )
+		match = re.match( r"(-?\d+)", res_num )
 		res_num = match.group( 1 ) if match else None
 		return res_num
 
@@ -331,6 +343,7 @@ class SiftsMapping():
 				icode_present = True
 			else:
 				icode_present = False
+
 		return icode_present
 
 
@@ -341,9 +354,15 @@ class SiftsMapping():
 			for the resolved residues.
 		"""
 		for k in ["PDB position", "Uniprot position"]:
-			mapping_dict["resolved"][k] = list( 
-				map( int, mapping_dict["resolved"][k] )
-			 )
+			for chain_id in mapping_dict:
+				# try:
+				mapping_dict[chain_id]["resolved"][k] = list( 
+					map( int, mapping_dict[chain_id]["resolved"][k] )
+				 )
+				# except:
+				# 	print( entry_id, "  ", chain_id )
+				# 	print( mapping_dict[chain_id]["resolved"][k] )
+
 
 
 
@@ -374,6 +393,23 @@ class SiftsMapping():
 		return all( passed )
 
 
+	def compute_mapped_seq_coverage( self, mapping_dict: Dict[str, Dict] ) -> float:
+		"""
+		Calculate the seq coverage as the fraction of residues present in the mapping
+			vs the expected no. of residues in sequence.
+		"""
+		expected_length = 0
+		res_present = 0
+		for chain_id in mapping_dict:
+			uni_pos = mapping_dict[chain_id]["resolved"]["Uniprot position"]
+			start, end = uni_pos[0], uni_pos[-1]
+			expected_length += ( end - start + 1 )
+
+			res_present += len( uni_pos )
+		coverage = res_present/expected_length
+
+		return coverage
+
 
 	def contiguous_residues_in_pdb( self, mapping_dict: Dict[str, Dict] ) -> bool:
 		"""
@@ -385,7 +421,7 @@ class SiftsMapping():
 			uni_res = mapping_dict[chain_id]["resolved"]["Uniprot position"]
 			residue_ranges = ranges( uni_res )
 
-			passed.append( residue_ranges == 1 )
+			passed.append( len( residue_ranges ) == 1 )
 		return all( passed )
 
 
@@ -407,7 +443,7 @@ class SiftsMapping():
 		Create a dict with PDB positions as keys and UniProt positions 
 			as values for all chains.
 		"""
-		pdb_uni_res = {}
+		pdb_uni_map = {}
 		for chain in mapping_dict:
 			# if chain not in pdb_uni_res:
 			# 	pdb_uni_res[chain] = {}
@@ -423,24 +459,19 @@ class SiftsMapping():
 		return pdb_uni_map
 
 
-
-	def get_sifts_mapping_for_entry( self, entry_id: str
-								 ) -> Tuple[str, Dict[str, str], Dict[str, str]]:
+	def get_mapping_dict( self, entry_id ) -> Tuple[str, Dict]:
 		"""
-		Obtain the SIFTS mapping SIFTS maping for the given entry_id.
-		Filter out cases where,
-			No SIFTS mapping available.
+		Get the SIFTS mapping_dict for the given entry_id.		
 		"""
-		logs = {}
 		xml_file_path = os.path.join( self.sifts_xml_dir,
 										f"{entry_id}.xml" )
 		# Don't download, if XML file already present.
-		if os.file_path.exists( xml_file_path ):
-			download_sifts_mapping( pdb_id,
-									xml_file_path,
-									max_trials = self.max_trials,
-									wait_time = self.wait_time )
-
+		if os.path.exists( xml_file_path ):
+			success = True
+		else:
+			success = download_sifts_mapping( entry_id,
+											xml_file_path )
+		if success:
 			sifts_dict_path = os.path.join( self.sifts_dict_dir,
 											f"{entry_id}.json" )
 			if os.path.exists( sifts_dict_path ):
@@ -449,29 +480,53 @@ class SiftsMapping():
 				mapping_dict = parse_sifts_xml( xml_file_path )
 				write_json( mapping_dict,
 							sifts_dict_path )
-		# Make changes inplace.
-		icode_present = self.remove_insertion_code( mapping_dict )
-		self.convert_to_int( mapping_dict )
-
-		if icode_present:
-			logs["icode_present"] = [entry_id]
-
-		if not self.pdb_uni_length_mismatch( mapping_dict ):
-			sifts_dict = None
-			log["mapped_length_mismatch"] = [entry_id]
-		elif self.mapped_to_multiple_uni_ids( mapping_dict ):
-			sifts_dict = None
-			log["ambiguous_uni_id"] = [entry_id]
-		elif not self.contiguous_residues_in_pdb( mapping_dict ):
-			sifts_dict = None
-			log["discontiguous_residues_in_chain"] = [entry_id]
 		else:
-			total_length = self.get_total_sys_length( mapping_dict )
-			if total_length > self.max_sys_length:
+			mapping_dict = {}
+		return mapping_dict
+
+
+
+	def get_sifts_mapping_for_entry( self, entry_id: str
+								 ) -> Tuple[str, Dict]:
+		"""
+		Obtain the SIFTS mapping SIFTS maping for the given entry_id.
+		Filter out cases where,
+			No SIFTS mapping available.
+		"""
+		logs = {}
+		total_length = 0
+
+		mapping_dict = self.get_mapping_dict( entry_id )
+		if mapping_dict == {}:
+			logs["not_mapped"] = [entry_id]
+			sifts_dict = None
+		else:
+			# Make changes inplace.
+			icode_present = self.remove_insertion_code( mapping_dict )
+			self.convert_to_int( mapping_dict )
+
+			if icode_present:
+				logs["icode_present"] = [entry_id]
+
+			if not self.pdb_uni_length_mismatch( mapping_dict ):
 				sifts_dict = None
-				log["exceed_max_length"] = [entry_id]
+				logs["mapped_length_mismatch"] = [entry_id]
+			elif self.mapped_to_multiple_uni_ids( mapping_dict ):
+				sifts_dict = None
+				logs["ambiguous_uni_id"] = [entry_id]
+			# elif not self.contiguous_residues_in_pdb( mapping_dict ):
+			# 	sifts_dict = None
+			# 	logs["discontiguous_residues_in_chain"] = [entry_id]
+			elif self.compute_mapped_seq_coverage( mapping_dict ) <= self.frac_coverage:
+				sifts_dict = None
+				logs["low_coverage"] = [entry_id]
 			else:
-				sifts_dict = self.get_pdb_to_uni_res_map( mapping_dict )
+				total_length = self.get_total_sys_length( mapping_dict )
+				if total_length > self.max_sys_length:
+					sifts_dict = None
+					logs["exceed_max_length"] = [entry_id]
+				else:
+					sifts_dict = self.get_pdb_to_uni_res_map( mapping_dict )
 
 		return entry_id, total_length, sifts_dict, logs
 
@@ -491,7 +546,7 @@ class SiftsMapping():
 					for k in logs:
 						self.sifts_logs[k][0].extend( logs[k] )
 						self.sifts_logs[k][1] += len( logs[k] )
-					else:
+				else:
 					self.sifts_data_dict[entry_id] = {"mapping": sifts_dict,
 														"total_length": total_length}
 
@@ -516,7 +571,6 @@ class DownloadUniprotSequences():
 
 		self.uni_seq_dict = {}
 		self.uni_logs = {}
-		self.time_taken = 0
 
 
 	def forward( self ):
@@ -531,7 +585,7 @@ class DownloadUniprotSequences():
 		self.uni_logs["Unique_uni_ids"] = len( self.uni_ids_list )
 
 		self.get_uni_seq_in_parallel()
-		write_json( self.uni_seq_dict, self.uni_seq_dict_file )
+		# write_json( self.uni_seq_dict, self.uni_seq_dict_file )
 
 		t_end = time.time()
 		time_taken = t_end - t_start
@@ -620,7 +674,6 @@ class DownloadPdbStructure():
 
 		self.downloaded_struct = []
 		self.struct_logs = {}
-		self.time_taken = 0
 
 
 	def forward( self ):
@@ -632,15 +685,15 @@ class DownloadPdbStructure():
 								f"{self.struct_format} specified..." )
 		self.initialize_logs_dict()
 
-		self.struct_logs["Total_pdb_ids"] = len( self.uni_ids_list )
+		self.struct_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
 		self.dwnld_struct_in_parallel()
-		w = open_file_handler( self.downloaded_struct_file, "w" )
-		w.writelines( ",".join( self.downloaded_struct ) )
-		w.close()
+		# w = open_file_handler( self.downloaded_struct_file, "w" )
+		# w.writelines( ",".join( self.downloaded_struct ) )
+		# w.close()
 
 		t_end = time.time()
 		time_taken = t_end - t_start
-		self.struct_logs["remaining_pdb_ids"] = len( self.uni_seq_dict )
+		self.struct_logs["remaining_pdb_ids"] = len( self.downloaded_struct )
 		self.struct_logs["time_taken"] = time_taken
 
 
@@ -663,18 +716,20 @@ class DownloadPdbStructure():
 		struct_file_path = os.path.join( self.pdb_struct_dir,
 										f"{entry_id}.{self.struct_format}" )
 
-		if not os.path.exists( struct_file_path ):
+		if os.path.exists( struct_file_path ):
+			success = True
+		else:
 			result = download_pdb( entry_id,
 									self.struct_format,
 									struct_file_path )
 
 			if not result:
 				entry_id = None
-				failed = True
+				success = False
 			else:
-				failed = False
+				success = True
 
-		return entry_id, failed, logs
+		return entry_id, success
 
 
 
@@ -687,12 +742,12 @@ class DownloadPdbStructure():
 				p.imap_unordered( self.dwmld_struct_for_entry_id,
 									self.pdb_ids_list ),
 				total = len( self.pdb_ids_list ) ):
-				entry_id, logs = result
+				entry_id, success = result
 
-				if failed:
+				if success:
+					self.downloaded_struct.append( entry_id )
+				else:
 					self.struct_logs[0].append( entry_id )
 					self.struct_logs[1] += 1
-				else:
-					self.downloaded_struct.append( entry_id )
 
 
