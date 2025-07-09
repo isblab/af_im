@@ -55,6 +55,7 @@ class OpenfoldCommand():
 		["--cpus", f"{self.cpu_cores}"],
 		["--model_device", self.device],
 		["--max_template_date", "2023-01-01"],
+		["--use_deepspeed_evoformer_attention"],
 		["--subtract_plddt"],
 		["--cif_output"]
 		]
