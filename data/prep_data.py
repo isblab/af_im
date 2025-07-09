@@ -473,12 +473,12 @@ class Metadata():
 
 			del obj
 
-			self.map_xls_to_uni_pos()
+		self.map_xls_to_uni_pos()
 
-			np.save( self.xls_dict_file,
-					self.xls_dict,
-					allow_pickle = True )
-			write_json( self.logs, self.logs_file )
+		np.save( self.xls_dict_file,
+				self.xls_dict,
+				allow_pickle = True )
+		write_json( self.logs, self.logs_file )
 
 
 	def map_xls_to_uni_pos( self ):
@@ -492,36 +492,23 @@ class Metadata():
 				df = self.xls_dict[pdb_id][xl_type]
 				drop_index = []
 				for i in df.index:
-					try:
-						chain1 = df.iloc[i, 0]
-						res1 = int( df.iloc[i, 1] )
-					except:
-						print( pdb_id, "  ", chain1, "  ", df.loc[i, "res1"] )
-						print( df.iloc[i-4:i+4, :] )
-						df.to_csv( "./8sjj_xls.csv" )
-						exit()
-					try:
-						chain2 = df.iloc[i, 2]
-						res2 = int( df.iloc[i, 3] )
-					except:
-						print( pdb_id, "  ", chain2, "  ", df.loc[i, "res2"] )
-						exit()
-
+					chain1 = df.iloc[i, 0]
+					res1 = int( df.iloc[i, 1] )
+					chain2 = df.iloc[i, 2]
+					res2 = int( df.iloc[i, 3] )
 
 					chain1_map = self.sifts_data_dict[pdb_id]["mapping"][chain1]
 					chain2_map = self.sifts_data_dict[pdb_id]["mapping"][chain2]
 					# Remove a XL pair if the residue not in mapping.
-					if res1 not in chain1_map.keys():
+					if res1 not in chain1_map["pdb_to_uni"].keys():
 						drop_index.append( i )
 					else:
 						df.iloc[i, 1] = chain1_map["pdb_to_uni"][res1]
 						
-					if res2 not in chain1_map.keys():
+					if res2 not in chain2_map["pdb_to_uni"].keys():
 						drop_index.append( i )
 					else:
 						df.iloc[i, 3] = chain2_map["pdb_to_uni"][res2]
-				df = df.drop( drop_index )
-				df = df.reset_index( drop = True )
 
 
 	def save_dataset_configs( self ):
