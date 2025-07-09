@@ -32,7 +32,9 @@ class IntegrativeLearning():
 	"""
 	A wrapper class that runs all the stages of integrative modeling pipeline.
 	"""
-	def __init__( self, sys_name: str, base_dir: str, data_dir: str,
+	def __init__( self, sys_name: str, base_dir: str,
+					data_dir: str,
+					sys_config_file: str,
 					modeling_dir_name: str,
 					topology_dict: mlc.ConfigDict ):
 		# Name of the system to be modeled.
@@ -40,8 +42,8 @@ class IntegrativeLearning():
 		self.base_dir = base_dir
 		# Directory containing input data for the modeled system.
 		self.data_dir = data_dir
-		# Path to the FATSA dir.
-		# self.fasta_path = fasta_path
+		# System config file name.
+		self.sys_config_file = sys_config_file
 		# Name for the dir to store modeling output.
 		self.modeling_dir_name = modeling_dir_name
 		# If True, will overwrite an existing dir without warning.
@@ -256,7 +258,7 @@ class IntegrativeLearning():
 		"""
 		# Load the system specific configs.
 		sys_conf = read_json(
-							os.path.join( self.data_dir, f"sys_conf_{self.sys_name}.json" )
+							os.path.join( self.data_dir, self.sys_config_file )
 							)
 		# Add system specific config to the topology dict.
 		sys_name = list( sys_conf.keys() )[0]
@@ -483,6 +485,7 @@ if __name__ == "__main__":
 	IntegrativeLearning( sys_name,
 						base_dir,
 						data_dir,
+						sys_config_file =  f"sys_config_tp_{sys_name}.json"
 						# base_path,
 						modeling_dir_name,
 						topology_dict ).forward()
