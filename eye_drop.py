@@ -14,7 +14,7 @@ from scipy.spatial import distance_matrix
 from openfold_wrapper import IntegrativeLearning
 
 from topology import topology_dict
-from utils.utils import ( open_file_handler )
+from utils.utils import ( open_file_handler, run_subprocess )
 
 
 class InitPrediction():
@@ -24,12 +24,14 @@ class InitPrediction():
 		self.modeling_objective = "Obtaining initial prediction."
 		self.modeling_version = 0
 
-		self.base_dir = os.path.join( "./benchmark/" )
+		self.base_dir = os.path.join( os.path.abspath( "./benchmark/" ) )
+		self.meta_dir = os.path.join( self.base_dir,
+											f"{self.benchmark_name}_metadata" )
 		# Name for the dir to store modeling output for all systems.
 		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
 
-		self.benchmark = pd.read_csv( os.path.abspath(
-							f"./benchmark/{self.benchmark_name}_benchmark.csv" )
+		self.benchmark = pd.read_csv( os.path.join( self.meta_dir,
+							f"{self.benchmark_name}_benchmark.csv" )
 							)
 
 		# self.xl_benchmark = ["8gtj", '8i2f', "7qot", "8dwl","7xad",
@@ -40,7 +42,7 @@ class InitPrediction():
 		self.num_systems = self.benchmark.shape[0]
 
 		self.selected_benchmark_file = os.path.join(
-										self.base_dir,
+										self.meta_dir,
 										f"selected_{self.benchmark_name}_benchmark.csv"
 										)
 
@@ -92,12 +94,16 @@ class InitPrediction():
 		"""
 		print( "\033[1mRunning modeling for the benchmark...\033[0m" )
 		curr_dir = os.getcwd()
-		for idx, sys_name in enumerate( self.benchmark["pdb_id"] ):
+		for idx, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			print( "\n------------------------------------------------------------" )
 			print( "------------------------------------------------------------" )
 			print( f"{idx}/{self.num_systems} --> {sys_name}" )
 			print( "------------------------------------------------------------" )
 			print( "------------------------------------------------------------\n" )
+
+			# 7xpc -> Error in res_idx_map[chain1]
+			if sys_name in ["7ui8", "7qot"]:  # "7xpc"
+				continue
 			sys_path = self.get_sys_path( sys_name )
 			stat_file_path = self.get_stat_file_path( sys_path )
 
@@ -108,6 +114,9 @@ class InitPrediction():
 
 			# Return to base_dir.
 			os.chdir( curr_dir )
+			fasta_path = f"./benchmark/fasta_dir/{sys_name}.fasta"
+			if os.path.exists( fasta_path ):
+				run_subprocess( ["rm", f"{fasta_path}"] )
 
 
 	def run_modeling_for_system( self, sys_name: str ):
@@ -131,6 +140,7 @@ class InitPrediction():
 				base_dir = self.base_dir,
 				data_dir = data_dir,
 				# fasta_path = fasta_path,
+				sys_config_file =  f"sys_config_tp_{sys_name}.json",
 				modeling_dir_name = self.modeling_dir_name,
 				topology_dict = topo_dict,
 				)

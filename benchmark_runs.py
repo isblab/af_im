@@ -22,22 +22,25 @@ class ModelingBenchmark():
 		self.modeling_objective = "Not using FAPE and Supervised_chi loss."
 		self.modeling_version = 0
 
-		self.base_dir = os.path.join( "./benchmark/" )
+		self.base_dir = os.path.join( os.path.abspath( "./benchmark/" ) )
+		self.meta_dir = os.path.join( self.base_dir,
+											f"{self.benchmark_name}_metadata" )
 		# Name for the dir to store modeling output for all systems.
-		self.modeling_dir_name = "modeling"
+		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
 		# Output dir for storing each benchmark run results.
 		self.benchmark_output_dir = os.path.join( self.base_dir, "benchmark_results/" )
 		self.modeling_version_dir = os.path.join( self.benchmark_output_dir,
 												f"version_{self.modeling_version}/" )
 
-		# self.benchmark = pd.read_csv( os.path.abspath( "./benchmark/benchmark.csv" ) )
-
-		self.xl_benchmark = ["8gtj", '8i2f', "7qot", "8dwl","7xad",
-							"8phv", "8cxj", "8g9p", "8pfc", "8gt0",
-							"8gtk", "8bzr", "8h8a", "7wr6", "7ymf",
-							"7xvk", "8b3s", "7xvo", "8odr", "8gxe",
-							"8t1c", "8wtd"]
-		self.num_systems = len( self.xl_benchmark )
+		self.benchmark = pd.read_csv( os.path.join( self.meta_dir,
+							f"{self.benchmark_name}_benchmark.csv" )
+							)
+		# self.xl_benchmark = ["8gtj", '8i2f', "7qot", "8dwl","7xad",
+		# 					"8phv", "8cxj", "8g9p", "8pfc", "8gt0",
+		# 					"8gtk", "8bzr", "8h8a", "7wr6", "7ymf",
+		# 					"7xvk", "8b3s", "7xvo", "8odr", "8gxe",
+		# 					"8t1c", "8wtd"]
+		self.num_systems = len( self.benchmark )
 
 		# File to write system name, data and time taken.
 		self.misc_file = os.path.join( self.modeling_version_dir, "Time_taken.txt" )
@@ -65,7 +68,6 @@ class ModelingBenchmark():
 
 
 	def get_sys_path( self, sys_name: str ):
-		# sys_path = os.path.abspath( f"./benchmark/modeling/{sys_name}/" )
 		sys_path = os.path.join( 
 					os.path.abspath( f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}" )
 			)
@@ -95,7 +97,7 @@ class ModelingBenchmark():
 		"""
 		print( "\033[1mRunning modeling for the benchmark...\033[0m" )
 		curr_dir = os.getcwd()
-		for idx, sys_name in enumerate( self.xl_benchmark ):
+		for idx, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			print( "\n------------------------------------------------------------" )
 			print( "------------------------------------------------------------" )
 			print( f"{idx}/{self.num_systems} --> {sys_name}" )
@@ -132,6 +134,7 @@ class ModelingBenchmark():
 				sys_name = sys_name,
 				base_dir = self.base_dir,
 				data_dir = data_dir,
+				sys_config_file =  f"sys_config_tp_{sys_name}.json",
 				modeling_dir_name = self.modeling_dir_name,
 				topology_dict = topo_dict,
 				)
@@ -163,7 +166,7 @@ class ModelingBenchmark():
 			sys_data= []
 			categories = []
 			_, ax = plt.subplots( 1, 1, figsize = ( 30, 20 ) )
-			for sys_name in self.xl_benchmark:
+			for sys_name in self.benchmark["PDB ID"]:
 				categories.append( sys_name )
 
 				sys_path = self.get_sys_path( sys_name )
@@ -200,7 +203,7 @@ class ModelingBenchmark():
 			avg_sys_data = []
 			categories = ["Initial", "Average"]
 			_, ax = plt.subplots( 1, 1, figsize = ( 30, 20 ) )
-			for sys_name in self.xl_benchmark:
+			for sys_name in self.benchmark["PDB ID"]:
 				sys_path = self.get_sys_path( sys_name )
 				stats_dict = self.load_stat_file( sys_path )
 
