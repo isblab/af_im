@@ -215,7 +215,7 @@ class CreateBenchmark():
 			}
 		"""
 		sys_dict = {
-		f"System_{sys_num}": {
+		f"System_{sys_name}": {
 				"name": sys_name,
 				"entity": entities,
 				"data_gathering": {
@@ -358,7 +358,7 @@ class CreateBenchmark():
 						self.pdb_data_dict[sys_name]["auth_asym_ids"]
 						)
 			flat_dict["Stoichiometry"].append( 
-						",",join( self.pdb_data_dict[sys_name]["stoichiometry"] )
+						",".join( self.pdb_data_dict[sys_name]["stoichiometry"] )
 						)
 
 			uni_pos = []
