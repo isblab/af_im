@@ -85,10 +85,11 @@ class DataGathering():
 			start = entity["start"]
 			end = entity["end"]
 			seq = entity["sequence"][start - 1: end]
+			prot_name = entity["name"]
 
 			for i in range( copy_num ):
 				chain_id = self.get_chain_id( idx )
-				sys_chain_id = f"{self.sys_name}_{entity_id}_{chain_id}"
+				sys_chain_id = f"{prot_name}_{entity_id}_{chain_id}"
 
 				system_dict[sys_chain_id] = {
 											"seq": seq,
@@ -311,7 +312,14 @@ class DataGathering():
 				chain2 = xl_amb_dict[i]["prot2"][j]
 				res1 = xl_amb_dict[i]["res1"][j]
 				res2 = xl_amb_dict[i]["res2"][j]
-				index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
+				try:
+					index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
+				except Exception as e:
+					print( e )
+					print( res1 )
+					print( self.res_idx_map[chain1]["res_to_ind"].keys() )
+					print( self.res_idx_map[chain1]["res_to_ind"] )
+					exit()
 				index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
 
 				xl_amb_dict_sys[i]["prot1"].append( xl_amb_dict[i]["prot1"][j] )
