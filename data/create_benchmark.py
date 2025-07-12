@@ -183,6 +183,7 @@ class CreateBenchmark():
 
 			entities.append(
 				{
+					"name": sys_name,
 					"entity_id": entity_id,
 					"uni_id": uni_id,
 					"copy_num": copy_num,
