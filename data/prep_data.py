@@ -31,12 +31,13 @@ from api_data_modules import( PdbData, SiftsMapping,
 
 from simulate_data import ( SimulateCrosslinks ) 
 
+
 class Metadata():
 	"""
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "afu"
+		self.benchmark_name = "afu"  # "afu", "sabdab"
 
 		self.dataset_configs = {
 			"global": {
@@ -76,7 +77,7 @@ class Metadata():
 		if os.path.exists( self.logs_file ):
 			self.logs = read_json( self.logs_file )
 
-		self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
+		self.get_pdb_ids_from_input()
 
 		self.run_dataset_creation_pipeline()
 		self.save_dataset_configs()
@@ -95,6 +96,8 @@ class Metadata():
 		## --------------------------
 		# PDB benchmark from AF Unmasked paper.
 		self.afu_pdb_benchmark = os.path.join( "../raw/af_unmasked_pdb_benchmark.txt" )
+		# SAbDab dataset.
+		self.sabdab_input_file = os.path.join( "../raw/sabdab_20250712_0189200_summary.tsv" )
 
 		# Base directory for all benchmarks.
 		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
@@ -171,6 +174,18 @@ class Metadata():
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
+	def get_pdb_ids_from_input( self ):
+		"""
+		Obtain the PDB IDs from the input files of the required benchmark.
+		"""
+		if self.benchmark_name == "afu":
+			print( "Using PDB benchmark from AFUnmasked..." )
+			self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
+		elif self.benchmark_name == "sabdab":
+			print( "Using Antigen-Antibody complexes from SAbDab..." )
+			self.benchmark_pdb_ids_list = self.parse_sabdab_benchmark()
+
+
 	def parse_pdb_afu_benchmark( self ) -> List:
 		"""
 		Using the PDB benchmark provided in the AF Unmasked paper.
@@ -178,8 +193,33 @@ class Metadata():
 		fh = open_file_handler( self.afu_pdb_benchmark, "r" )
 		pdb_ids = fh.readlines()[0].strip().split( "," )
 		fh.close()
+		pdb_ids = [id_.lower() for id_ in pdb_ids]
 
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( pdb_ids )}" )
+		return pdb_ids
+
+
+	def parse_sabdab_benchmark( self ) -> List:
+		"""
+		A .tsv file was download from SAbDab database
+			(https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/sabdab)
+			using the following filters:
+				Non-redundant at 60% sequence identity.
+				In complex: bound-only
+				resolution cutoff: 3.0
+		Select entries for which the antigen type is protein/peptide.
+		"""
+		df = pd.DataFrame( self.sabdab_input_file, sep = "\t" )
+		groups = df.groupby( ["pdb"] )
+
+		pdb_ids = []
+		for group in groups:
+			pdb = group[0]
+			# Must have atleast 1 protein/peptide antigen.
+			ag_type = set( group[1]["antigen_type"]
+				).intersection set( ["protein", "peptide"] )
+			if len( ag_type ) != 0:
+				pdb_ids.append( pdb.lower() )
 		return pdb_ids
 
 
