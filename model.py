@@ -27,7 +27,7 @@ def get_model( model_config: mlc.ConfigDict, system_features: mlc.ConfigDict,
 	if model_config.name == "structure_module_finetuning":
 		model = StructureModuleFineTuning( system_features, ofold_config, model_config,
 											mode, is_multimer, device )
-	elif model_config.name == "fixed_additive_pair_bias":
+	elif model_config.name == "distogram_finetuning":
 		model = FixedAdditivePairBias( system_features, ofold_config, model_config,
 											mode, is_multimer, device )
 	else:
@@ -154,7 +154,7 @@ class Model( nn.Module, ABC ):
 
 		Input:
 		----------
-		evo_output --> dict containing MSA, Pair, Single representtaions.
+		evo_output --> dict containing Pair, Single representtaions.
 		gt_features --> dict contaiining the ground truth features.
 
 		Returns:
@@ -198,7 +198,8 @@ class StructureModuleFineTuning( LoadState, Model ):
 			print( "Using structure module in eval mode" )
 			self.structure_module.eval()
 		else:
-			raise ValueError( f"Incorrect mode: {self.model_config.mode.sm} for structure module..." )
+			raise ValueError( "Incorrect mode: " +
+							f"{self.model_config.mode.sm} for structure module..." )
 
 
 		if self.model_config.mode.plddt == "train":
@@ -208,22 +209,14 @@ class StructureModuleFineTuning( LoadState, Model ):
 			print( "Using plddt head in eval mode" )
 			self.plddt.eval()
 		else:
-			raise ValueError( f"Incorrect mode: {self.model_config.mode.sm} for plddt head..." )
+			raise ValueError( "Incorrect mode: " +
+							f"{self.model_config.mode.lddt} for structure module..." )
 
 
 
 	def predict( self, evo_output, gt_features, batch ):
 		"""
 		Run the structure module and auxillary heads module.
-
-		Input:
-		----------
-		evo_output --> dict containing MSA, Pair, Single representtaions.
-		gt_features --> dict contaiining the ground truth features.
-
-		Returns:
-		----------
-		outputs --> dict containing the output from structure module and plddt head.
 		"""
 		outputs = {}
 		# Don't need the full Evoformer dict, just the Pair and Single representation.
@@ -259,4 +252,99 @@ class StructureModuleFineTuning( LoadState, Model ):
 		Return a list of models for the optimizer.
 		"""
 		return [self.structure_module]
+
+
+
+class DistogramFineTuning( LoadState, Model ):
+	"""
+	Compose the AF2 structure module, pLDDT and distogram heads.
+	Fine-tuning only the distogram head with
+		learnable parameters added to pair rep.
+	"""
+	def __init__( self, system_features: mlc.ConfigDict,
+						ofold_config: mlc.ConfigDict,
+						model_config: mlc.ConfigDict,
+						mode: str, is_multimer: bool, device: str ):
+		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
+		Model.__init__( self )
+
+		self.ofold_config = ofold_config
+		self.model_config = model_config
+		self.system_features = system_features
+
+		layers = ["structure_module", "lddt", "distogram"]
+		self.load_pretrained_models( layers )
+
+		if self.model_config.mode.sm == "train":
+			print( "Using structure module in train mode" )
+			self.structure_module.train()
+		elif self.model_config.mode.sm == "eval":
+			print( "Using structure module in eval mode" )
+			self.structure_module.eval()
+		else:
+			raise ValueError( "Incorrect mode: " +
+							f"{self.model_config.mode.sm} for structure module..." )
+
+		if self.model_config.mode.plddt == "train":
+			print( "Using plddt head in train mode" )
+			self.plddt.train()
+		elif self.model_config.mode.plddt == "eval":
+			print( "Using plddt head in eval mode" )
+			self.plddt.eval()
+		else:
+			raise ValueError( "Incorrect mode: " +
+							f"{self.model_config.mode.lddt} for lddt head..." )
+
+		if self.model_config.mode.distogram == "train":
+			print( "Using distogram head in train mode" )
+			self.distogram_head.train()
+		elif self.model_config.mode.distogram == "eval":
+			print( "Using distogram head in eval mode" )
+			self.distogram_head.eval()
+		else:
+			raise ValueError( "Incorrect mode: " +
+							f"{self.model_config.mode.distogram} for distogram head..." )
+
+
+	def predict( self, evo_output, gt_features, batch ):
+		"""
+		Run the structure module and auxillary heads (lddt, distogram) module.
+		"""
+		outputs = {}
+		with torch.no_grad():
+			# Don't need the full Evoformer dict, just the Pair and Single representation.
+			outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output,
+															aatype = gt_features["aatype"],
+															mask = self.system_features["seq_mask"].to(
+																dtype = evo_output["single"].dtype ) )
+
+			# The  dim=0 in all structure module outputs represents the no. of
+			# 	structure module blocks (default = 8).
+			outputs["final_atom_positions"] = atom14_to_atom37(
+														outputs["sm"]["positions"][-1],
+														gt_features
+														)
+			outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
+			outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
+
+			# The AuxillaryHeads module requires pair, Single representations in the output dict.
+			# 	Even though not using the full AuxillaryHeads module, but still having this step.
+			outputs.update( evo_output )
+			# outputs.update( self.aux_heads( outputs ) )
+			lddt_logits = self.plddt( outputs["sm"]["single"] )
+			# Required for saving the structure later on.
+			outputs["plddt"] = compute_plddt( lddt_logits )
+
+		distogram_logits = self.distogram( outputs["pair"] )
+		aux_out["distogram_logits"] = distogram_logits
+
+		return outputs, batch
+
+
+	def params( self ):
+		"""
+		Return a list of models for the optimizer.
+		"""
+		return [self.distogram_head]
+
 

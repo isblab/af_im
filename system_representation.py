@@ -91,8 +91,8 @@ class SystemRepresentation():
 		
 		else:
 			print( "\nPredicting the initial structure for the system..." )
-			if not os.path.exists( os.path.abspath( init_model_path ) ):
-				self.predict_initial_structure()
+			# if not os.path.exists( os.path.abspath( init_model_path ) ):
+			self.predict_initial_structure()
 			# OpenFold predicted initial structure in CIF format.
 			print( f"Using {self.init_model_prefix} model as inital model..." )
 			self.init_struct_cif = init_model_path[0]
