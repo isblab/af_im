@@ -6,7 +6,7 @@ This module contains classes for obtaining:
 	PDB structures
 """
 from typing import List, Tuple, Dict
-import os, time, re
+import os, time, re, copy
 from collections import defaultdict
 import numpy as np
 import pandas as pd
@@ -22,6 +22,7 @@ from utils.api_utils import ( PdbRestApi,
 							parse_sifts_xml,
 							get_uniprot_seq,
 							download_pdb )
+from utils.pdb_utils import ( MmcifDictParser )
 
 
 
@@ -42,6 +43,8 @@ class PdbData():
 		self.cores = cores
 		self.max_trials = max_trials
 		self.wait_time = wait_time
+		# If True, allows entities with no Uniprot IDs.
+		self.ignore_no_uni_id = False
 
 		self.pdb_data_dict = {}
 		self.pdb_logs = {}
@@ -75,15 +78,15 @@ class PdbData():
 		}
 
 
-	def get_empty_pdb_dict( self ):
-		"""
-		Create an empty dict with the required fields.
-		"""
-		empty_dict = {k: [] for k in [
-						"entity_ids", "polymer_entity_ids",
-						"uniprot_ids", "stoichiometry",
-						"uni_pos", "pdb_pos"]}
-		return empty_dict
+	# def get_empty_pdb_dict( self ):
+	# 	"""
+	# 	Create an empty dict with the required fields.
+	# 	"""
+	# 	empty_dict = {k: [] for k in [
+	# 					"entity_ids", "polymer_entity_ids",
+	# 					"uniprot_ids", "stoichiometry",
+	# 					"uni_pos", "pdb_pos"]}
+	# 	return empty_dict
 
 
 
@@ -149,7 +152,7 @@ class PdbData():
 		for entity_id in polymer_entity_ids:
 			rest_api.retrieve_polymer_entity_data( entity_id )
 			uni_id = rest_api.get_uniprot_ids_for_entity( entity_id )
-			if len( uni_id ) == 1:
+			if len( uni_id ) <= 1 and self.ignore_no_uni_id:
 				uniprot_ids.extend( uni_id )
 				asym_ids = rest_api.get_asym_ids_for_entity( entity_id )
 				auth_asym_ids.append( "-".join(
@@ -174,6 +177,7 @@ class PdbData():
 			"polymer_entity_ids": ",".join( polymer_entity_ids ),
 			"uniprot_ids": ",".join( uniprot_ids ),
 			"auth_asym_ids": ",".join( auth_asym_ids ),
+			"stoichiometry": stoichiometry,
 			"uni_pos": ",".join( uni_pos ),
 			"pdb_pos": ",".join( pdb_pos ),
 			"total_length": total_length,
@@ -680,7 +684,7 @@ class DownloadPdbStructure():
 		"""
 		"""
 		t_start = time.time()
-		if self.struct_format not in ["pdb", "cif"]:
+		if self.struct_format not in ["pdb", "cif", "both"]:
 			raise ValueError( "Incorrect structure file format: " +
 								f"{self.struct_format} specified..." )
 		self.initialize_logs_dict()
@@ -703,7 +707,7 @@ class DownloadPdbStructure():
 		Create an empty logs dict with all required keys.
 		"""
 		self.struct_logs = {
-		k:[[], 0] for k in ["could_not_dwnld_struct"]
+		k:[[], 0] for k in ["not_downloaded"]
 		}
 
 
@@ -713,23 +717,24 @@ class DownloadPdbStructure():
 		Download the structure for the given entry_id (PDB ID)
 			in the specified file format.
 		"""
-		struct_file_path = os.path.join( self.pdb_struct_dir,
-										f"{entry_id}.{self.struct_format}" )
+		extension = ["pdb", "cif"] if self.struct_format == "both" else [self.struct_format]
+		success = []
+		for ext in extension:
+			struct_file_path = os.path.join( self.pdb_struct_dir,
+											f"{entry_id}.{ext}" )
 
-		if os.path.exists( struct_file_path ):
-			success = True
-		else:
-			result = download_pdb( entry_id,
-									self.struct_format,
-									struct_file_path )
-
-			if not result:
-				entry_id = None
-				success = False
+			if os.path.exists( struct_file_path ):
+				success.append( True )
 			else:
-				success = True
+				result = download_pdb( entry_id,
+										ext,
+										struct_file_path )
+				if not result:
+					success.append( False )
+				else:
+					success.append( True )
 
-		return entry_id, success
+		return entry_id, all( success )
 
 
 
@@ -747,7 +752,238 @@ class DownloadPdbStructure():
 				if success:
 					self.downloaded_struct.append( entry_id )
 				else:
-					self.struct_logs[0].append( entry_id )
-					self.struct_logs[1] += 1
+					self.struct_logs["not_downloaded"][0].append( entry_id )
+					self.struct_logs["not_downloaded"][1] += 1
 
 
+
+###########################################################################
+###########################################################################
+class SeqResDict():
+	"""
+	Parse a CIF file to extract the following:
+		Sequence as per the SEQRES
+		Entity ID
+		Asym, Auth asym ID
+		SEQRES and PDB residue numbering
+	"""
+	def __init__ (self, pdb_ids_list: List[str],
+					pdb_struct_dir: str,
+					cores: int,
+					max_sys_length: int,
+					frac_coverage: float ):
+		self.pdb_ids_list = pdb_ids_list
+		self.pdb_struct_dir = pdb_struct_dir
+
+		self.cores = cores
+		self.max_sys_length = max_sys_length
+		self.frac_coverage = frac_coverage
+
+		self.seqres_dict = {}
+		self.cif_logs = {}
+
+
+	def forward( self ):
+		"""
+		"""
+		t_start = time.time()
+		self.initialize_logs_dict()
+
+		self.cif_logs["total_pdb_ids"] = len( self.pdb_ids_list )
+		self.get_cif_dict_in_parallel()
+
+		t_end = time.time()
+		time_taken = t_end - t_start
+		self.cif_logs["remaining_pdb_ids"] = len( self.seqres_dict )
+		self.cif_logs["time_taken"] = time_taken
+
+
+
+	def initialize_logs_dict( self ):
+		"""
+		Create an empty logs dict with all required keys.
+		"""
+		self.cif_logs = {
+		k:[[], 0] for k in ["no_protein_entity",
+							"monomer",
+							"exceed_max_length",
+							"low_coverage",
+							"length_mismatch"]
+		}
+
+
+	def get_resolved_mask( self, auth_seq_num: np.array ) -> np.array:
+		"""
+		Create a binary mask for resolved/missing residues.
+		"""
+		mask = np.where( auth_seq_num == "?", 0, 1 )
+		return mask
+
+
+	def get_valid_res_mask( self, pdb_seq_num: List[str]
+					) -> List[int]:
+		"""
+		Create a binary mask for residues not part of the protein.
+		PDB struct can also include residues artificial/engineered
+			residues, expression-tag for example.
+		All residues part of a protein are numbered with
+			non-negative integers.
+		"""
+		tmp = copy.copy( pdb_seq_num ).astype( int )
+		mask = np.where( tmp < 1, 0, 1 )
+		return mask
+
+
+	def remove_terminal_missing( self, mask: np.array
+		) -> Tuple[int, int]:
+		"""
+		Given the binary resolved_mask,
+		Ignore missing residues at the termini.
+		Get the start and end indices for the remaining residues.
+		"""
+		idx = np.where( mask == 1 )
+		start = idx[0][0]
+		end = idx[0][-1]
+
+		return start, end, idx
+
+
+	def build_hierarchy( self, entry_id, prot_entity_ids: List[str],
+						seqres_dict: Dict[str, List[str]]
+		) -> Tuple[str, Dict[int, Dict], float]:
+		"""
+		Arrange the the seqres info hierarchically:
+			entity_id
+				chain_id
+					sequence
+					residue no.
+		Note: Some .cif files contain discontinous PDB
+			numbering (8g0q_B, 8g0q_D) in both pdb_seq_num and auth_seq_num.
+			Hence, also saving the seq_id which is always continous.
+		"""
+		coverage = []
+		hier = {}
+		length_mismatch = False
+		total_length = 0
+		
+		for entity_id in prot_entity_ids:
+			hier[entity_id] = {}
+
+			entity_index = np.where( seqres_dict["entity_id"] == entity_id )
+			# Chain IDs for an entity.
+			chain_ids = np.unique( seqres_dict["pdb_strand_id"][entity_index] )
+			for chain_id in chain_ids:
+				hier[entity_id][chain_id] = {}
+				chain_index = np.where( seqres_dict["pdb_strand_id"] == chain_id )
+
+				seq_id = seqres_dict["seq_id"][chain_index]
+				auth_seq_num = seqres_dict["auth_seq_num"][chain_index]
+				pdb_seq_num = seqres_dict["pdb_seq_num"][chain_index]
+				seq = seqres_dict["mon_id"][chain_index]
+
+				resolved_mask = self.get_resolved_mask( auth_seq_num )
+				valid_res_mask = self.get_valid_res_mask( pdb_seq_num )
+				mask = resolved_mask*valid_res_mask
+
+				start_idx, end_idx, resolved_idx = self.remove_terminal_missing( mask )
+				start_pdb_pos = int( pdb_seq_num[start_idx] )
+				end_pdb_pos = int( pdb_seq_num[end_idx] )
+
+				resolved_len = np.count_nonzero( mask[start_idx:end_idx+1] )
+				chain_len = len( mask[start_idx:end_idx+1] )
+				total_length += chain_len
+
+				coverage.append( resolved_len/chain_len )
+
+				seq = "".join( seq[start_idx:end_idx+1] )
+
+				# Select all resolved+missing residues in sequece.
+				# 	Missing residue in seq will create a mutant seq.
+				# Keep only the resolved residue indices.
+				if len( seq ) != ( end_idx - start_idx + 1 ):
+					raise ValueError( f"Sequence length ({len( seq )}) " +
+									f"does not match the residue numbering ({start_idx}-{end_idx}..." )
+				start_seq_id  = int( seq_id[start_idx] )
+				end_seq_id  = int( seq_id[end_idx] )
+				if ( end_seq_id-start_seq_id+1 ) != len( seq ):
+					length_mismatch = True
+					hier[entity_id][chain_id] = None
+				else:
+					hier[entity_id][chain_id] = {
+						"seq": seq,
+						"start_pos": start_pdb_pos,
+						"end_pos": end_pdb_pos,
+						"res_num": pdb_seq_num[resolved_idx].astype( int ),
+						"start_seq_id": start_seq_id,
+						"end_seq_id": end_seq_id,
+						"seq_id": seq_id[resolved_idx].astype( int )
+					}
+
+		return hier, coverage, total_length, length_mismatch
+
+
+	def get_cif_dict_for_entry( self, entry_id: str ):
+		"""
+		Obtain the seq and residue no. for all
+			entity and chain IDs in a given entry_id.
+		"""
+		logs = {}
+		file = os.path.join( self.pdb_struct_dir, f"{entry_id}.cif" )
+		if not os.path.exists( file ):
+			raise FileNotFoundError( f"{file} not found..." )
+
+		obj = MmcifDictParser( file )
+		prot_entity_ids, _ = obj.get_protein_entity_ids()
+		seqres_dict = copy.deepcopy(
+			obj.get_protein_entity_details()
+			)
+
+		del obj
+
+		if len( prot_entity_ids ) == 0:
+			logs["no_protein_entity"] = entry_id
+			cif_dict = None
+			coverage = []
+		elif len( prot_entity_ids ) == 1:
+			logs["monomer"] = entry_id
+			cif_dict = None
+			coverage = []
+		else:
+			( cif_dict,
+				coverage,
+				total_length,
+				length_mismatch ) = self.build_hierarchy( entry_id,
+												prot_entity_ids, seqres_dict )
+		if total_length > self.max_sys_length:
+			logs["exceed_max_length"] = entry_id
+			cif_dict = None
+			coverage = []
+		if length_mismatch:
+			logs["length_mismatch"] = entry_id
+			cif_dict = None
+			coverage = []
+		return entry_id, cif_dict, coverage, logs
+
+
+
+	def get_cif_dict_in_parallel( self ):
+		"""
+		Paralelize extracting the seq and res num from a .cif file.
+		"""
+		with Pool( self.cores ) as p:
+			for result in tqdm.tqdm( 
+				p.imap_unordered( self.get_cif_dict_for_entry,
+									self.pdb_ids_list ),
+				total = len( self.pdb_ids_list ) ):
+				entry_id, cif_dict, coverage, logs = result
+
+				if cif_dict is None:
+					for k in logs:
+						self.cif_logs[k][0].append( logs[k] )
+						self.cif_logs[k][1] += 1
+				else:
+					if any( [c < self.frac_coverage for c in coverage]):
+						self.cif_logs["low_coverage"][0].append( entry_id )
+						self.cif_logs["low_coverage"][1] += 1
+					else:
+						self.seqres_dict[entry_id] = cif_dict
