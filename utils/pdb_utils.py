@@ -12,6 +12,7 @@ from scipy.spatial import distance_matrix
 import gemmi
 import Bio
 from Bio.PDB import PDBParser, Structure, Model, Residue, MMCIFIO
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 import modelcif
 import modelcif.model
 import modelcif.dumper
@@ -33,6 +34,68 @@ warnings.filterwarnings("ignore")
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 PDB_MAX_CHAINS = len(PDB_CHAIN_IDS)
 assert PDB_MAX_CHAINS == 62
+
+
+
+####################################################################################
+####----------------------------------------------------------------------------####
+def aa_3_to_1( aa ):
+	"""
+	Converts 3-letter amino acid names to symbols
+
+	Input:
+	----------
+	aa --> 3-letter code for amino acid.
+
+	Returns:
+	----------
+	1-letter code for amino acid.
+	"""
+	if aa in ["ALA", "Ala", "ala"]:
+		symbol = "A"
+	elif aa in ["ARG", "Arg", "arg"]:
+		symbol = "R"
+	elif aa in ["ASN", "Asn", "asn"]:
+		symbol = "N"
+	elif aa in ["ASP", "Asp", "asp"]:
+		symbol = "D"
+	elif aa in ["CYS", "Cys", "cys"]:
+		symbol = "C"
+	elif aa in ["GLN", "Gln", "gln"]:
+		symbol = "Q"
+	elif aa in ["GLU", "Glu", "glu"]:
+		symbol = "E"
+	elif aa in ["GLY", "Gly", "gly"]:
+		symbol = "G"
+	elif aa in ["HIS", "His", "his"]:
+		symbol = "H"
+	elif aa in ["ILE", "Ile", "ile"]:
+		symbol = "I"
+	elif aa in ["LEU", "Leu", "leu"]:
+		symbol = "L"
+	elif aa in ["LYS", "Lys", "lys"]:
+		symbol = "K"
+	elif aa in ["MET", "Met", "met"]:
+		symbol = "M"
+	elif aa in ["PHE", "Phe", "phe"]:
+		symbol = "F"
+	elif aa in ["PRO", "Pro", "pro"]:
+		symbol = "P"
+	elif aa in ["SER", "Ser", "ser"]:
+		symbol = "S"
+	elif aa in ["THR", "Thr", "thr"]:
+		symbol = "T"
+	elif aa in ["TRP", "Trp", "trp"]:
+		symbol = "W"
+	elif aa in ["TYR", "Tyr", "tyr"]:
+		symbol = "Y"
+	elif aa in ["VAL", "Val", "val"]:
+		symbol = "V"
+	else:
+		symbol = "X"
+
+	return symbol
+
 
 
 def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
@@ -117,6 +180,136 @@ def prep_protein( outputs: Dict, feature_dict: Dict,
 
 
 
+
+################### Biopython MMCIFDict Parser ###################
+##--------------------------------------------------------------##
+class MmcifDictParser():
+	"""
+	Parse the .cif file as an MMCIFDict using Biopython.
+	"""
+	def __init__( self, cif_file: str ):
+		self.cif_file = cif_file
+		self.polymer_fields = ["asym_id", "entity_id",
+								"seq_id",
+								"pdb_seq_num",
+								"auth_seq_num",
+								"pdb_strand_id"]
+
+		self.seqres_dict = {}
+
+		self.mmcif_dict = self.parse_mmcif_dict()
+
+
+
+	def is_cif( self ):
+		"""
+		Check if the input file is .cif or not.
+		"""
+		_, ext = os.path.splitest( self.cif_file )
+		if "cif" not in ext:
+			raise ValueError( "Incorrect sile type specified " +
+						f"{self.cif_file}. Only .cif file supported..." )
+
+
+	def parse_mmcif_dict( self ):
+		"""
+		Read the .cif file as an MMCIF Dict.
+		"""
+		mmcif_dict = MMCIF2Dict( self.cif_file )
+		return mmcif_dict
+
+
+	def get_polymer_entity_ids( self ):
+		"""
+		Return all the polymer entity_id's.
+		Note: this will include protein/dna/rna.
+		"""
+		return self.mmcif_dict["_entity_poly.entity_id"]
+
+
+	def get_polymer_entity_types( self ):
+		"""
+		Return the entity type for all polymer entities.
+		"""
+		return self.mmcif_dict["_entity_poly.type"]
+
+
+	def get_protein_entity_ids( self ):
+		"""
+		Identify entity_id's for proteins.
+			entity_type -> Polypeptide(L)
+		"""
+		entity_ids = self.get_polymer_entity_ids()
+		entity_type = self.get_polymer_entity_types()
+
+		prot_entity_ids = [
+			entity_ids[i] for i in range( len( entity_ids ) ) if "peptide" in entity_type[i]
+		]
+		all_protein = len( entity_ids ) == len( prot_entity_ids )
+		return prot_entity_ids, all_protein
+
+
+	def get_all_polymer_fields( self ):
+		"""
+		Extract the following fields from the MCIF Dict:
+			asym_id -> PDB assigned chain ID.
+			entity_id -> PDB assigned ID for an entity.
+			(removed) seq_id -> residue no. as per the SEQRES.
+			mon_id -> 3-letter amino acid symbol.
+			pdb_seq_num -> PDB assigned residue no.
+			auth_seq_num -> author assigned residue no
+							(may or may not be the Uniprot residue no.).
+			pdb_strand_id -> author assigned chain ID.
+		Convert to np.array.
+		Also add a binary field (1/0) indicating resolved/missing residue.
+			This can be done using the suth_seq_num field.
+		"""
+		for field in self.polymer_fields:
+			poly_key = f"_pdbx_poly_seq_scheme.{field}"
+			self.seqres_dict[field] = np.array( self.mmcif_dict[poly_key] )
+
+
+		mon_id_key = f"_pdbx_poly_seq_scheme.mon_id"
+		self.seqres_dict["mon_id"] = np.array(
+			[aa_3_to_1( aa ) for aa in self.mmcif_dict[mon_id_key]]
+			)
+
+
+	def get_protein_entity_details( self ):
+		"""
+		Return seqres_dict for only protein entities.
+		"""
+		self.get_all_polymer_fields()
+		prot_entity_ids, all_protein = self.get_protein_entity_ids()
+
+		if all_protein:
+			return self.seqres_dict
+		else:
+			prot_seqres_dict = {}
+			prot_indices = []
+			# for entity_id in prot_entity_ids:
+			# 	prot_indices = np.append(
+			# 		prot_indices, self.seqres_dict["entity_id"] == entity_id
+			# 		)
+			# print( len( prot_indices ) )
+			prot_indices = np.isin( self.seqres_dict["entity_id"], prot_entity_ids )
+			# print( len( prot_indices ) )
+
+			for field in self.seqres_dict:
+				if len( prot_indices ) != len( self.seqres_dict[field] ):
+					raise ValueError( f"Incorrect entity_id mask..." )
+				# try:
+				prot_seqres_dict[field] = self.seqres_dict[field][prot_indices]
+				# except:
+				# 	print( prot_entity_ids )
+				# 	print( field )
+				# 	print( prot_indices )
+				# 	print( self.cif_file )
+			return prot_seqres_dict
+
+
+#################### Biopython PDB/CIF Parser ####################
+##--------------------------------------------------------------##
 class Parser():
 	"""
 	A parser class to read from the simulation output file.
@@ -241,6 +434,8 @@ class Parser():
 
 
 
+################### AF2 module to save PDB/CIF ###################
+##--------------------------------------------------------------##
 class SaveModels():
 	"""
 	A class to save predicted structures as models to a PDB/CIF file.
