@@ -209,7 +209,7 @@ class Metadata():
 				resolution cutoff: 3.0
 		Select entries for which the antigen type is protein/peptide.
 		"""
-		df = pd.DataFrame( self.sabdab_input_file, sep = "\t" )
+		df = pd.read_csv( self.sabdab_input_file, sep = "\t" )
 		groups = df.groupby( ["pdb"] )
 
 		pdb_ids = []
@@ -217,9 +217,9 @@ class Metadata():
 			pdb = group[0]
 			# Must have atleast 1 protein/peptide antigen.
 			ag_type = set( group[1]["antigen_type"]
-				).intersection set( ["protein", "peptide"] )
+				).intersection( set( ["protein", "peptide"] ) )
 			if len( ag_type ) != 0:
-				pdb_ids.append( pdb.lower() )
+				pdb_ids.append( pdb[0].lower() )
 		return pdb_ids
 
 

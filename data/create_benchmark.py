@@ -189,7 +189,7 @@ class CreateBenchmark():
 					"copy_num": copy_num,
 					"start": start,
 					"end": end,
-					"sequence": seq
+					"sequence": seq[start-1:end]
 				}
 			 )
 			entity_id += 1
