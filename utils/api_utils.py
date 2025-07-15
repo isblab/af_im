@@ -12,68 +12,12 @@ from Bio import SeqIO
 from Bio.PDB import PDBParser, MMCIFParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from utils.utils import ( read_json, write_to_file, run_subprocess )
+from utils.utils import ( read_json,
+						write_to_file,
+						run_subprocess )
+from utils.pdb_utils import aa_3_to_1
 
 warnings.filterwarnings("ignore")
-
-####################################################################################
-####----------------------------------------------------------------------------####
-def aa_3_to_1( aa ):
-	"""
-	Converts 3-letter amino acid names to symbols
-
-	Input:
-	----------
-	aa --> 3-letter code for amino acid.
-
-	Returns:
-	----------
-	1-letter code for amino acid.
-	"""
-	if aa in ["ALA", "Ala", "ala"]:
-		symbol = "A"
-	elif aa in ["ARG", "Arg", "arg"]:
-		symbol = "R"
-	elif aa in ["ASN", "Asn", "asn"]:
-		symbol = "N"
-	elif aa in ["ASP", "Asp", "asp"]:
-		symbol = "D"
-	elif aa in ["CYS", "Cys", "cys"]:
-		symbol = "C"
-	elif aa in ["GLN", "Gln", "gln"]:
-		symbol = "Q"
-	elif aa in ["GLU", "Glu", "glu"]:
-		symbol = "E"
-	elif aa in ["GLY", "Gly", "gly"]:
-		symbol = "G"
-	elif aa in ["HIS", "His", "his"]:
-		symbol = "H"
-	elif aa in ["ILE", "Ile", "ile"]:
-		symbol = "I"
-	elif aa in ["LEU", "Leu", "leu"]:
-		symbol = "L"
-	elif aa in ["LYS", "Lys", "lys"]:
-		symbol = "K"
-	elif aa in ["MET", "Met", "met"]:
-		symbol = "M"
-	elif aa in ["PHE", "Phe", "phe"]:
-		symbol = "F"
-	elif aa in ["PRO", "Pro", "pro"]:
-		symbol = "P"
-	elif aa in ["SER", "Ser", "ser"]:
-		symbol = "S"
-	elif aa in ["THR", "Thr", "thr"]:
-		symbol = "T"
-	elif aa in ["TRP", "Trp", "trp"]:
-		symbol = "W"
-	elif aa in ["TYR", "Tyr", "tyr"]:
-		symbol = "Y"
-	elif aa in ["VAL", "Val", "val"]:
-		symbol = "V"
-	else:
-		symbol = "X"
-
-	return symbol
 
 
 ####################################################################################
