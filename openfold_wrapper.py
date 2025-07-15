@@ -25,7 +25,7 @@ from utils.create_plots import ( create_plot_from_dict,
 								plot_scalar_metrics,
 								plot_xl_map )
 from utils.utils import ( read_json, write_configdict_to_json,
-							open_file_handler )
+							open_file_handler, run_subprocess )
 
 
 class IntegrativeLearning():
@@ -55,7 +55,7 @@ class IntegrativeLearning():
 		self.cpu_cores = 16
 		self.prec = 4
 		# cpu/cuda
-		self.device = "cuda"
+		# self.device = "cuda"
 		# if self.pred_mode == "mono":
 		# 	# config_preset for monomer.
 		# 	self.config_preset = "model_1_ptm"
@@ -73,6 +73,7 @@ class IntegrativeLearning():
 		self.topology = topology_dict
 
 		self.add_sys_conf_to_topology()
+		self.set_device()
 
 		# Set the PRNG seed.
 		self.seed_worker()
@@ -88,6 +89,13 @@ class IntegrativeLearning():
 		torch.cuda.manual_seed_all( seed )
 		np.random.seed( seed )
 		random.seed( seed )
+
+
+	def set_device( self ):
+		"""
+		Set the device to be used.
+		"""
+		self.device = self.topology.train.device
 
 
 	def forward( self ):
@@ -134,6 +142,7 @@ class IntegrativeLearning():
 		if not os.path.exists( time_file ):
 			w = open_file_handler( time_file, "w" )
 			w.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
+		run_subprocess( ["rm", "-r", f"{self.fasta_dir}"] )
 		print( "May the Force be with you.." )
 		print( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
 
@@ -300,7 +309,7 @@ class IntegrativeLearning():
 
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.abspath( 
-							os.path.join( self.base_dir, "fasta_dir/" )
+							os.path.join( self.base_dir, f"{self.sys_name}_fasta_dir/" )
 							)
 		# Output directory path for OpenFold output.
 		self.ofold_output_dir = os.path.abspath(
@@ -485,7 +494,7 @@ if __name__ == "__main__":
 	IntegrativeLearning( sys_name,
 						base_dir,
 						data_dir,
-						sys_config_file =  f"sys_config_tp_{sys_name}.json"
+						f"sys_config_tp_{sys_name}.json",
 						# base_path,
 						modeling_dir_name,
 						topology_dict ).forward()

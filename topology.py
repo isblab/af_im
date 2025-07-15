@@ -151,7 +151,8 @@ config = mlc.ConfigDict(
 		"mode": "test",
 		"max_epochs": 100,
 		"allow_mcpa": True,
-		"allow_grad_update": True
+		"allow_grad_update": True,
+		"device": "cuda:0"
 	}
 }
 )
