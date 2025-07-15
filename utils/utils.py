@@ -170,6 +170,6 @@ def run_subprocess( command: List ) -> None:
 	None
 	"""
 	if len( command ) != 0:
-		subprocess.call( command )
+		retcode = subprocess.run( command, check = True )
 	else:
 		raise ValueError( "Command cannot be empty..." )
