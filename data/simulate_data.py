@@ -2,14 +2,13 @@
 Contains classes to obtain simulated experimental data.
 """
 import os, glob, copy, time, re
+import numpy as np
 import pandas as pd
 from multiprocessing import Pool
 import tqdm
 
 from utils.utils import ( run_subprocess,
 						open_file_handler )
-
-
 
 
 class SimulateCrosslinks():
@@ -140,12 +139,20 @@ class SimulateCrosslinks():
 	def get_xls_for_entry_id( self, entry_id: str ):
 		"""
 		Given an entry_ids, obtain inter-protein XLs.
+		JWalk needs the PDB file in the current dir to run.
+		Instead of moving to the PDB dir, I am copying the
+			PDB to the current dir and running JWalk.
+		This allows to parallelize JWalk.
 		"""
 		logs = {}
 		struct_file = os.path.join( self.pdb_struct_dir,
 									f"{entry_id}.{self.struct_format}" )
 
+		# Copy PDB file to current dir.
+		run_subprocess( ["cp", f"{struct_file}", "./"] )
+
 		self.run_jwalk( entry_id )
+		print( f"JWalk run complete for {entry_id}." )
 
 		xl_df = self.parse_jwalk_output( entry_id )
 
@@ -166,6 +173,9 @@ class SimulateCrosslinks():
 				logs["too_few_xls"]  = [entry_id]
 				tp_inter_xls, fp_inter_xls = None, None
 
+		# remove PDB file from current dir.
+		run_subprocess( ["rm", f"./{entry_id}.{self.struct_format}"] )
+		print( f"Completed for {entry_id}." )
 		return entry_id, tp_inter_xls, fp_inter_xls, logs
 
 
@@ -174,11 +184,18 @@ class SimulateCrosslinks():
 		"""
 		Obtain XLs serially for the given entry_id's.
 		"""
-		curr_dir = os.getcwd()
-		os.chdir( self.pdb_struct_dir )
+		# curr_dir = os.getcwd()
+		# os.chdir( self.pdb_struct_dir )
 		for idx, entry_id in enumerate( self.pdb_ids_list ):
-			entry_id, tp_inter_xls, fp_inter_xls, logs = self.get_xls_for_entry_id( entry_id )
+		# curr_dir = os.getcwd()
 
+		# with Pool( self.cores ) as p:
+		# 	for result in tqdm.tqdm( p.imap_unordered( self.get_xls_for_entry_id,
+		# 								self.pdb_ids_list ),
+		# 								total = len( self.pdb_ids_list ) ):
+		# 		entry_id, tp_inter_xls, fp_inter_xls, logs = result
+
+			entry_id, tp_inter_xls, fp_inter_xls, logs = self.get_xls_for_entry_id( entry_id )
 			if tp_inter_xls is None:
 				for k in logs:
 					self.jwalk_logs[k][0].append( logs[k] )
@@ -191,6 +208,4 @@ class SimulateCrosslinks():
 											"fp_xls": fp_inter_xls,
 											"count_tp_xls": tp_inter_xls.shape[0]}
 		run_subprocess( ["rm", "-r", f"./Jwalk_results/"] )
-		os.chdir( curr_dir )
-
 
