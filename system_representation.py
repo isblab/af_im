@@ -60,6 +60,7 @@ class SystemRepresentation():
 					ofold_dir: str, ofold_script: str, 
 					fasta_dir: str, alignment_dir: str, 
 					ofold_output_dir: str, config_preset: str, 
+					ofold_db_preset: str,
 					ckpt_path: Optional[str], mode: str,
 					init_model_prefix: str,
 					cpu_cores: int, seed_worker, device: str = "cpu" ):
@@ -70,6 +71,7 @@ class SystemRepresentation():
 		self.alignment_dir = alignment_dir
 		self.ofold_output_dir = ofold_output_dir
 		self.config_preset = config_preset
+		self.ofold_db_preset = ofold_db_preset
 		self.init_model_prefix = init_model_prefix
 		self.ckpt_path = ckpt_path
 		self.cpu_cores = cpu_cores
@@ -134,6 +136,7 @@ class SystemRepresentation():
 		obj = OpenfoldCommand( script = self.script, 
 								fasta_dir = self.fasta_dir, 
 								config_preset = self.config_preset, 
+								db_preset = self.ofold_db_preset,
 								alignment_dir = self.alignment_dir, 
 								output_dir = self.ofold_output_dir,
 								mode = self.mode,

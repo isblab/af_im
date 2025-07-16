@@ -96,6 +96,8 @@ class IntegrativeLearning():
 		Set the device to be used.
 		"""
 		self.device = self.topology.train.device
+		print( f"Using device = {self.device}" )
+		time.sleep( 1 )
 
 
 	def forward( self ):
@@ -168,19 +170,22 @@ class IntegrativeLearning():
 		"""
 		init_dir = os.getcwd()
 		# Get an initial structure and the ground truth features.
-		system_features = SystemRepresentation( sys_name = self.sys_name,
-											ofold_dir = self.openfold_dir,
-											ofold_script = self.script,
-											fasta_dir = self.fasta_dir,
-											alignment_dir = self.alignment_dir,
-											ofold_output_dir = self.ofold_output_dir,
-											config_preset = self.config_preset,
-											init_model_prefix = self.topology.init_model_prefix,
-											ckpt_path = self.ckpt_path,
-											mode = self.pred_mode,
-											cpu_cores = self.cpu_cores,
-											seed_worker = self.seed_worker,
-											device = self.device ).forward()
+		system_features = SystemRepresentation(
+							sys_name = self.sys_name,
+							ofold_dir = self.openfold_dir,
+							ofold_script = self.script,
+							fasta_dir = self.fasta_dir,
+							alignment_dir = self.alignment_dir,
+							ofold_output_dir = self.ofold_output_dir,
+							config_preset = self.config_preset,
+							ofold_db_preset = self.topology.db_preset,
+							init_model_prefix = self.topology.init_model_prefix,
+							ckpt_path = self.ckpt_path,
+							mode = self.pred_mode,
+							cpu_cores = self.cpu_cores,
+							seed_worker = self.seed_worker,
+							device = self.device
+							).forward()
 
 		# Move back to base dir.
 		os.chdir( init_dir )
