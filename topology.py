@@ -19,6 +19,7 @@ config = mlc.ConfigDict(
 		"Phishing out PDB IDs..",
 	"system": {},
 	"init_model_prefix": "_unrelaxed",
+	"db_preset": "full_dbs",
 	"optimizer": {
 		"SGD": {
 			"enabled": False,
