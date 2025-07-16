@@ -20,12 +20,22 @@ from utils.utils import ( open_file_handler,
 						run_subprocess )
 
 
+"""
+SAbDab
+----------
+WARNING: maximum number of residues 32763 exceeded in sequence UniRef100_A0A1V4K6M4 Titin isoform E n=470 Tax=Aves TaxID=8782 RepID
+1kcs_B, 1f58_B, 2b1h_B
+This happens the chains in the PDB IDs map to Titin which too long.
+"""
+
+
 class InitPrediction():
 	def __init__( self ):
 		self.benchmark_name = "afu"  # afu/ sabdab
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
 		self.modeling_version = 0
+		self.device = "cuda:0"
 
 		self.logs = {}
 
@@ -34,6 +44,8 @@ class InitPrediction():
 	def forward( self ):
 		"""
 		"""
+		print( f"Using device = {self.device}" )
+		time.sleep( 1 )
 		self.create_required_paths()
 		self.initialize_logs_dict()
 		self.load_benchamrk()
@@ -55,7 +67,9 @@ class InitPrediction():
 		if os.path.exists( self.logs_file ):
 			self.logs = read_json( self.logs_file )
 		else:
-			self.logs = {k:{} for k in ["time", "memory"]}
+			self.logs = {k:{} for k in ["time",
+										"memory_allocated",
+										"memory_reserved"]}
 
 
 	def create_required_paths( self ):
@@ -114,25 +128,23 @@ class InitPrediction():
 
 	## ------------------------------------------------------ ##
 	## ------------------------------------------------------ ##
-	def log_memory_usage( self, sys_name: str, device: str ):
+	def log_memory_usage( self, sys_name: str ):
 		"""
 		Log the device memory used during modeling.
 		device must be in the following formar: cuda[0]
 		Reset the CUDA memory stats after logging.
 		"""
-		if device == "cpu":
+		if self.device == "cpu":
 			raise valueError( "Pytorch does not provide " +
 					"built-in functions to check CPU memory stats. " +
 					"Change device to cuda[0/1]..." )
 		else:
-			device_num = int( device[-1] )
-		# get peak memory since last reset.
+			device_num = int( self.device[-1] )
+		# Get peak memory since last reset.
 		max_allocated = torch.cuda.max_memory_reserved( device_num )
 		max_reserved = torch.cuda.max_memory_reserved( device_num )
 		self.logs["memory_allocated"][sys_name] = max_allocated
 		self.logs["memory_reserved"][sys_name] = max_reserved
-
-		torch.cuda.reset_peak_memory_stats( device_num )
 
 
 	def modify_topology( self, sys_name: str ):
@@ -142,6 +154,10 @@ class InitPrediction():
 		topo_dict = topology_dict()
 		topo_dict.objective = f"{sys_name} {self.modeling_objective}"
 		topo_dict.train.version = self.modeling_version
+		topo_dict.train.device = self.device
+
+		if self.benchmark_name == "sabdab":
+			topo_dict.db_preset = "reduced_dbs"
 
 		return topo_dict
 
@@ -159,6 +175,10 @@ class InitPrediction():
 			print( "-"*25 + f" {idx}/{self.num_systems} --> {sys_name} " + "-"*25 )
 			print( "\n" + "-"*70 + "\n" + "-"*70 )
 
+			# if sys_name in ["1kcs", "1f58"]:
+			# 	print( f"Skipping PDB ID: {sys_name}...\n" )
+			# 	continue
+
 			# 7xpc -> Error in res_idx_map[chain1]
 			# if sys_name in ["7ui8", "7qot"]:  # "7xpc"
 				# continue
@@ -169,16 +189,19 @@ class InitPrediction():
 				tic = time.time()
 				topo_dict = self.modify_topology( sys_name = sys_name )
 				device = topo_dict.train.device
+
+				# torch.cuda.reset_peak_memory_stats( device = torch.device( device ) )
 				self.run_modeling_for_system( sys_name = sys_name,
 												topo_dict = topo_dict )
 				toc = time.time()
 				self.logs["time"][sys_name] = toc-tic
-				self.log_memory_usage()
+				self.log_memory_usage( sys_name = sys_name )
 
+				# self.log_memory_usage( sys_name = sys_name,
+				# 						device = "cuda:0" )
+				write_json( self.logs, self.logs_file )
 			else:
 				print( f"Summary file already present for {sys_name}..." )
-
-			write_json( self.logs, self.logs_file )
 
 			# Return to base_dir.
 			os.chdir( curr_dir )
