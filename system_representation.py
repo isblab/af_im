@@ -82,7 +82,6 @@ class SystemRepresentation():
 
 
 	def forward( self ):
-
 		init_model_path = glob.glob(
 				f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif"
 				)
@@ -97,6 +96,10 @@ class SystemRepresentation():
 			self.predict_initial_structure()
 			# OpenFold predicted initial structure in CIF format.
 			print( f"Using {self.init_model_prefix} model as inital model..." )
+			init_model_path = glob.glob(
+					f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif"
+					)
+			print( f"Init model path: {init_model_path}" )
 			self.init_struct_cif = init_model_path[0]
 
 		print( "\nCreating ground truth features from the initial structure..." )
@@ -129,7 +132,7 @@ class SystemRepresentation():
 		mode = "monomer" if self.mode == "mode" else "multimer"
 		
 		if os.path.exists( self.alignment_dir ):
-			print( f"using precomputed alignments for {mode} prediction..." )
+			print( f"Using precomputed alignments for {mode} prediction..." )
 		else:
 			self.alignment_dir = None
 		
@@ -145,7 +148,8 @@ class SystemRepresentation():
 		
 		print( f"Running {mode} prediction..." )
 		command = obj.get()
-		run_subprocess( command )
+		stderr_file = os.path.join( self.ofold_output_dir, f"error_{self.sys_name}" )
+		run_subprocess( command, stderr_file = stderr_file )
 
 
 	def get_feature_from_init_struct( self ):
