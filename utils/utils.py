@@ -2,8 +2,8 @@
 This script contains general purpose accessory functions.
 """
 
-import json
-import subprocess
+import json, subprocess, traceback, time
+from datetime import datetime
 from io import StringIO
 from typing import List, Tuple, Dict, TextIO
 from Bio import SeqIO
@@ -157,7 +157,7 @@ def read_fasta_from_response( response: requests.Response ) -> Dict:
 	return fasta_dict
 
 
-def run_subprocess( command: List ) -> None:
+def run_subprocess( command: List, stderr_file: str = "err_log" ) -> None:
 	"""
 	Run shell command using subprocess.
 
@@ -170,6 +170,20 @@ def run_subprocess( command: List ) -> None:
 	None
 	"""
 	if len( command ) != 0:
-		retcode = subprocess.run( command, check = True )
+		try:
+			retcode = subprocess.run( command, capture_output = True, text = True, check = True )
+
+		except subprocess.CalledProcessError as e:
+			print( "Writing error to log file..." )
+			current_datetime = datetime.now()
+			timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
+			stderr_file = f"{stderr_file}_{timestamp}.txt"
+			w = open_file_handler( stderr_file, "w" )
+			w.write( e.stderr or "No error output captured" )
+			w.write( "\n\nTraceback\n" )
+			w.write( traceback.format_exc() )
+			w.close()
+			time.sleep( 5 )
+
 	else:
 		raise ValueError( "Command cannot be empty..." )
