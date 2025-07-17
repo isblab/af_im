@@ -63,7 +63,7 @@ class CreateBenchmark():
 												f"{self.benchmark_name}_benchmark.csv" )
 
 		self.dataset_configs_file = os.path.join( self.meta_dir,
-								f"Dataset_configs_{self.benchmark_name}.csv" )
+								f"Dataset_configs_{self.benchmark_name}.json" )
 		self.xls_dict_file = os.path.join( self.meta_dir, "jwalk_xls.npy" )
 
 
@@ -178,7 +178,7 @@ class CreateBenchmark():
 		return entities
 
 
-	def create_sys_dict( self, sys_num: int,
+	def create_sys_dict( self,
 						sys_name: str,
 						entities: Dict,
 						xl_file: str ) -> Dict:
@@ -235,7 +235,6 @@ class CreateBenchmark():
 
 
 	def save_tp_sys_dict_to_sys_dir( self,
-									sys_num: int,
 									sys_name: str,
 									sys_dir: str,
 									entities: List[Dict]
@@ -247,10 +246,10 @@ class CreateBenchmark():
 		# Save TP XLs to sys dir.
 		xl_file = f"interprotein_xls_tp.csv"
 		sys_dict_file = os.path.join( sys_dir, f"sys_config_tp_{sys_name}.json" )
-		sys_dict = self.create_sys_dict( sys_num = sys_num,
-											sys_name = sys_name,
-											entities = entities,
-											xl_file = xl_file )
+		sys_dict = self.create_sys_dict( 
+										sys_name = sys_name,
+										entities = entities,
+										xl_file = xl_file )
 		write_json( sys_dict, sys_dict_file )
 
 		tp_xls_file = os.path.join( sys_dir, xl_file )
@@ -303,7 +302,7 @@ class CreateBenchmark():
 			self.save_struct_to_sys_dir( sys_name = sys_name,
 										sys_dir = sys_dir )
 			entities = self.get_entities( sys_name )
-			self.save_tp_sys_dict_to_sys_dir( sys_num = sys_num,
+			self.save_tp_sys_dict_to_sys_dir(
 											sys_name = sys_name,
 											sys_dir = sys_dir,
 											entities = entities )
@@ -318,7 +317,7 @@ class CreateBenchmark():
 			Polymer entity IDs
 			Uniprot IDs
 			Stoichiometry
-			Uniprot positions
+			Residue positions
 			Total length
 			Total inter-XLs
 		"""
