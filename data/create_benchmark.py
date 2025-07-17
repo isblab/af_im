@@ -62,7 +62,7 @@ class CreateBenchmark():
 												f"{self.benchmark_name}_benchmark.csv" )
 
 		self.dataset_configs_file = os.path.join( self.meta_dir,
-								f"Dataset_configs_{self.benchmark_name}.csv" )
+								f"Dataset_configs_{self.benchmark_name}.json" )
 		self.pdb_data_dict_file = os.path.join( self.meta_dir,
 												"pdb_api_dict.npy" )
 		self.sifts_dict_file = os.path.join( self.meta_dir,
