@@ -808,7 +808,8 @@ class SeqResDict():
 							"monomer",
 							"exceed_max_length",
 							"low_coverage",
-							"length_mismatch"]
+							"length_mismatch",
+							"non_standard_aa"]
 		}
 
 
@@ -864,6 +865,7 @@ class SeqResDict():
 		coverage = []
 		hier = {}
 		length_mismatch = False
+		non_standard_aa = False
 		total_length = 0
 		
 		for entity_id in prot_entity_ids:
@@ -908,6 +910,9 @@ class SeqResDict():
 				if ( end_seq_id-start_seq_id+1 ) != len( seq ):
 					length_mismatch = True
 					hier[entity_id][chain_id] = None
+				elif "X" in seq:
+					non_standard_aa = True
+					hier[entity_id][chain_id] = None
 				else:
 					hier[entity_id][chain_id] = {
 						"seq": seq,
@@ -919,7 +924,7 @@ class SeqResDict():
 						"seq_id": seq_id[resolved_idx].astype( int )
 					}
 
-		return hier, coverage, total_length, length_mismatch
+		return hier, coverage, total_length, length_mismatch, non_standard_aa
 
 
 	def get_cif_dict_for_entry( self, entry_id: str ):
@@ -952,14 +957,20 @@ class SeqResDict():
 			( cif_dict,
 				coverage,
 				total_length,
-				length_mismatch ) = self.build_hierarchy( entry_id,
-												prot_entity_ids, seqres_dict )
+				length_mismatch,
+				non_standard_aa ) = self.build_hierarchy( entry_id,
+														prot_entity_ids,
+														seqres_dict )
 		if total_length > self.max_sys_length:
 			logs["exceed_max_length"] = entry_id
 			cif_dict = None
 			coverage = []
 		if length_mismatch:
 			logs["length_mismatch"] = entry_id
+			cif_dict = None
+			coverage = []
+		if non_standard_aa:
+			logs["non_standard_aa"] = entry_id
 			cif_dict = None
 			coverage = []
 		return entry_id, cif_dict, coverage, logs
