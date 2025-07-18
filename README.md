@@ -23,15 +23,41 @@ source ~/.bash_profile
 ```
 
 ## Benchmark
-Run the following script to create the required input files for the benchmark dataset.  
+### Simulated data benchmark
+Currently using the PDB benchmark from AFUnmasked and SAbDab datset for simulated data.  
 ```
-python prep_data.py
+cd ./data/
 ```
+Simulated datset creation occurs in multiple stages:  
+1. Metadata collection  
+```
+python prep_data2.py
+```
+This downloads the structure for all complexes (.pdb abd .cif), followed by parsing the CIF file to obtain the sequence, residue numbers (seq_id).  
+Further it runs JWalk to obtain crosslinks for all complexes.  
+It creates the following 2 directories: `{benchmark name}_benchmark/` and `{benchmark name}_metadata/`.  
+
+2. Creating input files for modeling
+
 Run modeling for 100 epochs for the benchmark PDB IDs and select those for which the iitial OpenFold prediction does not satisfy the data.  
 Run the follwing script to get the selected benchmark PDBs:  
 ```
+python create_benchmark2.py
+```
+For all complexes selected in step 1, it creates a directory within `{benchmark name}_benchmark/` containing the structure file (.cif mostly), data file (.csv filr for crosslinks), and a JSON dict containing configs for modeling.  
+
+**Note:** Specify the benchmark name and the dataset configs for step 1 and 2 in the constructors of the respective scripts.  
+
+3. Assessing data satisfaction for initial structure  
+```
+cd ../
 python eye_drop.py
 ```
+This script runs the modeling to obtain the initial predicted structures and data satisfaction at epoch 0.  
+
+
+### Real data benchmark
+
 
 ## Modeling
 To run the modeling, make the required changes to the parameters specified in `topology.py` file.  
