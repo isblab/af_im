@@ -20,7 +20,7 @@ from topology import topology_dict
 from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
-from assay import Assay
+# from assay import Assay
 from utils.create_plots import ( create_plot_from_dict,
 								plot_scalar_metrics,
 								plot_xl_map )
@@ -54,12 +54,7 @@ class IntegrativeLearning():
 		# No. of CPU cores to be used.
 		self.cpu_cores = 16
 		self.prec = 4
-		# cpu/cuda
-		# self.device = "cuda"
-		# if self.pred_mode == "mono":
-		# 	# config_preset for monomer.
-		# 	self.config_preset = "model_1_ptm"
-		# 	self.ckpt_path = os.path.abspath( "./openfold/resources/openfold_params/finetuning_ptm_2.pt" )
+
 		if self.pred_mode == "multi":
 			# config_preset for multimer.
 			self.config_preset = "model_1_multimer_v3"
@@ -117,26 +112,18 @@ class IntegrativeLearning():
 		# Save topology file on disk.
 		self.save_topology_file()
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"--------------------------- Data gathering ---------------------------\n" +
-				"----------------------------------------------------------------------\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*27 + " Data gathering " + "-"*27 + "\n" + "-"*70 + "\n" )
 		restraint_features = self.run_data_gathering()
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"----------------------- System representation ------------------------\n" +
-				"----------------------------------------------------------------------\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*24 + " System representation " + "-"*24 + "\n" + "-"*70 + "\n" )
 		system_features = self.run_system_representation()
 		# Add restraint features to system features dict.
 		system_features["restraint_features"] = restraint_features
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"---------------------------- Fit to Data -----------------------------\n" +
-				"----------------------------------------------------------------------\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*29 + " Fit to Data " + "-"*29 + "\n" + "-"*70 + "\n" )
 		fit = self.run_fit_to_data( restraint_features, system_features )
 
-		print( "\n----------------------------------------------------------------------\n" +
-				"-------------------------- \033[9m Analysis \033[0m Assay --------------------------\n"
-				"----------------------------------------------------------------------\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*26 + " \033[9m Analysis \033[0m Assay " + "-"*26 + "\n" + "-"*70 + "\n" )
 		# self.run_analysis( fit )
 
 		toc = time.time()
@@ -172,17 +159,10 @@ class IntegrativeLearning():
 		# Get an initial structure and the ground truth features.
 		system_features = SystemRepresentation(
 							sys_name = self.sys_name,
-							ofold_dir = self.openfold_dir,
-							ofold_script = self.script,
+							sys_rep_config = self.topology.system_representation,
 							fasta_dir = self.fasta_dir,
 							alignment_dir = self.alignment_dir,
 							ofold_output_dir = self.ofold_output_dir,
-							config_preset = self.config_preset,
-							ofold_db_preset = self.topology.db_preset,
-							init_model_prefix = self.topology.init_model_prefix,
-							ckpt_path = self.ckpt_path,
-							mode = self.pred_mode,
-							cpu_cores = self.cpu_cores,
 							seed_worker = self.seed_worker,
 							device = self.device
 							).forward()
@@ -302,15 +282,13 @@ class IntegrativeLearning():
 		"""
 		# Dir to store modeling outputs.
 		self.base_modeling_dir = os.path.join( self.base_dir, self.modeling_dir_name )
-		# System specific dir modeling outputs.
-		self.sys_modeling_dir = os.path.join( self.base_modeling_dir, self.sys_name )
 
-		# Path to the OpenFold dir.
-		self.openfold_dir = os.path.join( os.path.abspath( "./openfold/" ) )
-		# Path to the OpenFold params to be used.
-		self.openfold_params = os.path.join(
-								os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
-								)
+		# # Path to the OpenFold dir.
+		# self.openfold_dir = os.path.join( os.path.abspath( "./openfold/" ) )
+		# # Path to the OpenFold params to be used.
+		# self.openfold_params = os.path.join(
+		# 						os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
+		# 						)
 
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.abspath( 
@@ -324,7 +302,7 @@ class IntegrativeLearning():
 		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" )
 
 		# Path for the OpenFold inference script.
-		self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
+		# self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 
 		# Create directory to store output.
 		# 	separate directory is created for mode = test/prod.
@@ -333,7 +311,9 @@ class IntegrativeLearning():
 
 		# self.modeling_mode = os.path.join( self.base_dir, f"{mode}" )
 
-		# Dir to store all modeling results.
+		# System specific dir modeling outputs.
+		self.sys_modeling_dir = os.path.join( self.base_modeling_dir, self.sys_name )
+		# Dir to store all modeling results for a version.
 		self.modeling_output_dir = os.path.join( self.sys_modeling_dir,
 												f"version_{version}/" )
 
@@ -503,5 +483,4 @@ if __name__ == "__main__":
 						# base_path,
 						modeling_dir_name,
 						topology_dict ).forward()
-
 
