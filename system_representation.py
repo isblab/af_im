@@ -47,6 +47,7 @@ import os
 import glob
 from typing import Optional
 import numpy as np
+import ml_collections as mlc
 
 from openfold.config import model_config
 from mod_openfold import parse, process_mmcif, np_example_to_features
@@ -56,27 +57,38 @@ from utils.utils import run_subprocess
 
 
 class SystemRepresentation():
-	def __init__( self, sys_name: str,
-					ofold_dir: str, ofold_script: str, 
-					fasta_dir: str, alignment_dir: str, 
-					ofold_output_dir: str, config_preset: str, 
-					ofold_db_preset: str,
-					ckpt_path: Optional[str], mode: str,
-					init_model_prefix: str,
-					cpu_cores: int, seed_worker, device: str = "cpu" ):
+	def __init__( self,
+			sys_name: str,
+			sys_rep_config: mlc.ConfigDict,
+			# ofold_dir: str, ofold_script: str,
+			fasta_dir: str,
+			alignment_dir: str,
+			ofold_output_dir: str, 
+			# config_preset: str,
+			# ofold_db_preset: str,
+			# ckpt_path: Optional[str], init_model_prefix: str,
+			seed_worker,
+			device: str = "cpu"
+		):
 		self.sys_name = sys_name
-		self.openfold_dir = ofold_dir
-		self.script = ofold_script
-		self.fasta_dir = fasta_dir 
+		self.openfold_dir = sys_rep_config.ofold_dir
+		self.script = sys_rep_config.ofold_script
+		self.db_dir = sys_rep_config.db_dir
+		self.config_preset = sys_rep_config.config_preset
+		self.db_preset = sys_rep_config.db_preset
+		self.tool_base = sys_rep_config.ofold_tools
+		self.model_ckpt = sys_rep_config.model_checkpoint
+
+		self.init_model_prefix = sys_rep_config.init_model_prefix
+		self.ofold_seed = sys_rep_config.seed
+		self.cpu_cores = sys_rep_config.cpu_cores
+		self.mode = sys_rep_config.mode
+		self.max_template_date = sys_rep_config.max_template_date
+
+		self.fasta_dir = fasta_dir
 		self.alignment_dir = alignment_dir
 		self.ofold_output_dir = ofold_output_dir
-		self.config_preset = config_preset
-		self.ofold_db_preset = ofold_db_preset
-		self.init_model_prefix = init_model_prefix
-		self.ckpt_path = ckpt_path
-		self.cpu_cores = cpu_cores
 		self.device = device
-		self.mode = mode
 
 		seed_worker()
 
@@ -136,15 +148,22 @@ class SystemRepresentation():
 		else:
 			self.alignment_dir = None
 		
-		obj = OpenfoldCommand( script = self.script, 
-								fasta_dir = self.fasta_dir, 
-								config_preset = self.config_preset, 
-								db_preset = self.ofold_db_preset,
-								alignment_dir = self.alignment_dir, 
-								output_dir = self.ofold_output_dir,
-								mode = self.mode,
-								cpu_cores = self.cpu_cores, 
-								device = self.device )
+		obj = OpenfoldCommand(
+			db_dir = self.db_dir,
+			script = self.script,
+			config_preset = self.config_preset,
+			db_preset = self.db_preset,
+			tool_base = self.tool_base,
+			model_ckpt = self.model_ckpt,
+			fasta_dir = self.fasta_dir,
+			alignment_dir = self.alignment_dir,
+			output_dir = self.ofold_output_dir,
+			max_template_date = self.max_template_date,
+			mode = self.mode,
+			seed = self.ofold_seed,
+			cpu_cores = self.cpu_cores,
+			device = self.device
+		)
 		
 		print( f"Running {mode} prediction..." )
 		command = obj.get()
