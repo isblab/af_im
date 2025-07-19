@@ -7,61 +7,66 @@ class OpenfoldCommand():
 	"""
 	Create the required command to run OpenFold.
 	"""
-	def __init__( self, script: str, fasta_dir: str,
-						config_preset: str, db_preset: str,
-						alignment_dir: str,
-						output_dir: str, mode: str,
-						cpu_cores: int, device: str ):
+	def __init__( self, 
+			db_dir: str,
+			script: str,
+			config_preset: str,
+			db_preset: str,
+			tool_base: str,
+			model_ckpt: str,
+			fasta_dir: str,
+			alignment_dir: str,
+			output_dir: str,
+			max_template_date: str,
+			mode: str,
+			seed: int,
+			cpu_cores: int,
+			device: str
+		):
 		self.script = script
 		self.fasta_dir = fasta_dir
-		self.config_preset = config_preset
 		self.alignment_dir = alignment_dir
 		self.output_dir = output_dir
-		self.mode = mode
-		self.db_preset = db_preset  # reduced_dbs, full_dbs
-		self.seed = 1
-		self.cpu_cores = cpu_cores
-		self.device = device
 
-		print( f"Using {self.db_preset} for OpenFold..." )
+		self.mode = mode
+
+		print( f"Using {db_preset} for OpenFold..." )
 		time.sleep( 1 )
 
 		# Arguments for specifying path for the databases.
-		self.db_base = "/data/alpha-fold-db/"
 		self.databases = [
-		[os.path.join( self.db_base, "pdb_mmcif/mmcif_files" )],
-		["--uniref90_database_path", os.path.join( self.db_base, "uniref90/uniref90.fasta" )],
-		["--mgnify_database_path", os.path.join( self.db_base, "mgnify/mgy_clusters_2022_05.fa" )],
-		["--pdb70_database_path", os.path.join( self.db_base, "pdb70/pdb70" )],
-		["--uniclust30_database_path", os.path.join( self.db_base,
+		[os.path.join( db_dir, "pdb_mmcif/mmcif_files" )],
+		["--uniref90_database_path", os.path.join( db_dir, "uniref90/uniref90.fasta" )],
+		["--mgnify_database_path", os.path.join( db_dir, "mgnify/mgy_clusters_2022_05.fa" )],
+		["--pdb70_database_path", os.path.join( db_dir, "pdb70/pdb70" )],
+		["--uniclust30_database_path", os.path.join( db_dir,
 													"uniclust30/uniclust30_2018_08/uniclust30_2018_08" )],
-		["--pdb_seqres_database_path", os.path.join( self.db_base, "pdb_seqres/pdb_seqres.txt")],
-		["--uniref30_database_path", os.path.join( self.db_base, "uniref30/UniRef30_2021_03" )],
-		["--uniprot_database_path", os.path.join( self.db_base, "uniprot/uniprot.fasta" )],
-		["--bfd_database_path", os.path.join( self.db_base,
+		["--pdb_seqres_database_path", os.path.join( db_dir, "pdb_seqres/pdb_seqres.txt")],
+		["--uniref30_database_path", os.path.join( db_dir, "uniref30/UniRef30_2021_03" )],
+		["--uniprot_database_path", os.path.join( db_dir, "uniprot/uniprot.fasta" )],
+		["--bfd_database_path", os.path.join( db_dir,
 											"bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" )],
 		]
 
 		# Arguments for specifying path for the tools.
-		self.tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 		self.tools = [
-		["--jackhmmer_binary_path", os.path.join( self.tool_base, "jackhmmer" )],
-		["--hhblits_binary_path", os.path.join( self.tool_base, "hhblits" )],
-		["--hhsearch_binary_path", os.path.join( self.tool_base, "hhsearch" )],
-		["--kalign_binary_path", os.path.join( self.tool_base, "kalign" )],
+		["--jackhmmer_binary_path", os.path.join( tool_base, "jackhmmer" )],
+		["--hhblits_binary_path", os.path.join( tool_base, "hhblits" )],
+		["--hhsearch_binary_path", os.path.join( tool_base, "hhsearch" )],
+		["--kalign_binary_path", os.path.join( tool_base, "kalign" )],
 		]
 
 		self.other_options = [
-		["--openfold_checkpoint_path", "openfold/resources/openfold_params/finetuning_ptm_2.pt"],
-		["--preset", f"{self.db_preset}"],
-		["--config_preset", self.config_preset],
-		["--data_random_seed", f"{self.seed}"],
-		["--output_dir", self.output_dir],
+		["--openfold_checkpoint_path", f"{model_ckpt}"],
+		["--preset", f"{db_preset}"],
+		["--config_preset", f"{config_preset}"],
+		["--data_random_seed", f"{seed}"],
+		["--output_dir", output_dir],
 		["--save_outputs"],
-		["--cpus", f"{self.cpu_cores}"],
-		["--model_device", self.device],
-		["--max_template_date", "2023-01-01"],
-		["--use_deepspeed_evoformer_attention"],
+		["--cpus", f"{cpu_cores}"],
+		["--model_device", f"{device}"],
+		["--max_template_date", f"{max_template_date}"],
+		# ["--use_deepspeed_evoformer_attention"],
 		["--subtract_plddt"],
 		["--cif_output"]
 		]

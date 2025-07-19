@@ -2,7 +2,7 @@
 Define the configurations for modeling the system.
 Essentially, this script will create the topology file for modeling.
 """
-import copy
+import os, copy
 import ml_collections as mlc
 
 
@@ -15,11 +15,30 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "2ayo with mse_xlr. "+
+	"objective": "2ayo with mse_xlr. " +
 		"Phishing out PDB IDs..",
 	"system": {},
-	"init_model_prefix": "_unrelaxed",
-	"db_preset": "full_dbs",
+	"system_representation": {
+		"init_model_prefix": "_unrelaxed",
+		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
+		"ofold_script": os.path.abspath( "./openfold/run_pretrained_openfold.py" ),
+		"config_preset": "model_1_multimer_v3",
+		"ofold_params": os.path.join(
+						os.path.abspath(
+							f"openfold/resources/params/params_model_1_multimer_v3.npz"
+							)
+						),
+		"model_checkpoint": os.path.abspath(
+							"openfold/resources/openfold_params/finetuning_ptm_2.pt"
+							),
+		"ofold_tools": "/home/kartik/miniforge3/envs/il_ofold/bin/",
+		"db_dir": "/data/alpha-fold-db/",
+		"db_preset": "full_dbs",
+		"mode": "multimer",
+		"max_template_date": "2023-01-01",
+		"seed": 1,
+		"cpu_cores": 16
+	},
 	"optimizer": {
 		"SGD": {
 			"enabled": False,
@@ -136,7 +155,7 @@ config = mlc.ConfigDict(
 		"xlr": {
 				"enabled": True,
 				"add_penalty": True,
-				"type": "simple_xlr", # fape_xlr, simple_xlr, mse_xlr, rmse_xlr, disto_xlr
+				"type": "simple_xlr2", # fape_xlr, simple_xlr, mse_xlr, rmse_xlr, disto_xlr
 				"func_form": "mse",   # mse, rmse
 				"weight": 0.05,
 				"eps": 1e-8
@@ -150,7 +169,7 @@ config = mlc.ConfigDict(
 	"train": {
 		"version": 0,
 		"mode": "test",
-		"max_epochs": 100,
+		"max_epochs": 50,
 		"allow_mcpa": True,
 		"allow_grad_update": True,
 		"device": "cuda:0"
