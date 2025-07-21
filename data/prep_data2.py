@@ -29,7 +29,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "afu"  # "afu", "sabdab"
+		self.benchmark_name = "xlsim"  # "xlsim", "abag"
 
 		self.dataset_configs = {
 			"global": {
@@ -43,7 +43,7 @@ class Metadata():
 			},
 			"jwalk": {
 				"enabled": True,
-				"xl_max_bound": 35,
+				"xl_max_bound": 25,
 				"min_inter_xls": 10
 			}
 		}
@@ -85,7 +85,13 @@ class Metadata():
 		# PDB benchmark from AF Unmasked paper.
 		self.afu_pdb_benchmark = os.path.join( "../raw/af_unmasked_pdb_benchmark.txt" )
 		# SAbDab dataset.
-		self.sabdab_input_file = os.path.join( "../raw/sabdab_20250712_0189200_summary.tsv" )
+		self.sabdab_input_file = os.path.join( "../raw/sabdab_seqid60_res4.tsv" )
+		# FoldBench antigen-antibody dataset.
+		self.foldbench_ab_ag_input_file = os.path.join( "../raw/interface_antibody_antigen.csv" )
+		# FoldBench protein-protein dataset.
+		self.foldbench_prot_prot_input_file = os.path.join( "../raw/interface_protein_protein.csv" )
+		# FoldBench protein-protein dataset.
+		self.foldbench_prot_pep_input_file = os.path.join( "../raw/interface_protein_peptide.csv" )
 
 		# Base directory for all benchmarks.
 		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
@@ -102,7 +108,7 @@ class Metadata():
 		self.logs_file = os.path.join( self.meta_dir, f"Logs_{self.benchmark_name}.json" )
 		self.logs_csv_file = os.path.join( self.meta_dir, f"Logs_{self.benchmark_name}.csv" )
 		self.dataset_configs_file = os.path.join( self.meta_dir,
-								f"Dataset_configs_{self.benchmark_name}.csv" )
+								f"Dataset_configs_{self.benchmark_name}.json" )
 
 		## --------------------------
 		# For DownloadPdbStructure module
@@ -141,12 +147,57 @@ class Metadata():
 		"""
 		Obtain the PDB IDs from the input files of the required benchmark.
 		"""
-		if self.benchmark_name == "afu":
-			print( "Using PDB benchmark from AFUnmasked..." )
-			self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
-		elif self.benchmark_name == "sabdab":
-			print( "Using Antigen-Antibody complexes from SAbDab..." )
-			self.benchmark_pdb_ids_list = self.parse_sabdab_benchmark()
+		# if self.benchmark_name == "afu":
+		# 	print( "Using PDB benchmark from AFUnmasked..." )
+		# 	self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
+		# elif self.benchmark_name == "sabdab":
+		# 	print( "Using Antigen-Antibody complexes from SAbDab..." )
+		# 	self.benchmark_pdb_ids_list = self.parse_sabdab_benchmark()
+		# elif self.benchmark_name in ["fbabag", "fbpp"]:
+		# 	print( "Using Foldbench benchmark..." )
+		# 	self.benchmark_pdb_ids_list = self.parse_foldbench_benchmark()
+		if self.benchmark_name == "xlsim":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
+		elif self.benchmark_name == "abag":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
+		else:
+			raise ValueError( "Unsupported benchmark specified..." )
+
+
+	def get_pdb_ids_for_xl_benchmark( self ) -> List:
+		"""
+		For the simulated XL benchmark, obtain PDB IDs from:
+			PDB benchmark from AFUnmasked
+			Protein-protein and protein-peptide benchmark from FoldBench
+		"""
+		afu = self.parse_pdb_afu_benchmark()
+		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
+		fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
+		print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
+		fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
+		print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
+
+		# Remove duplicate PDB IDs.
+		pdb_ids = sorted( list( set( afu + fb_prot_prot + fb_prot_pep ) ) )
+
+		return pdb_ids
+
+
+	def get_pdb_ids_for_abag_benchmark( self ) -> List:
+		"""
+		For the simulated antigen-antibody XL benchmark, obtain PDB IDs from:
+			SAbDab database
+			Antigen-Antibody benchmark from FoldBench
+		"""
+		sabdab = self.parse_sabdab_benchmark()
+		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
+		fb_ab_ag = self.parse_foldbench_benchmark( "ab_ag" )
+		print( f"PDB IDs from FoldBench Ab-Ag benchmark: {len( fb_ab_ag )}" )
+
+		# Remove duplicate PDB IDs.
+		pdb_ids = sorted( list( set( sabdab + fb_ab_ag ) ) )
+
+		return pdb_ids
 
 
 	def parse_pdb_afu_benchmark( self ) -> List:
@@ -158,7 +209,6 @@ class Metadata():
 		fh.close()
 		pdb_ids = [id_.lower() for id_ in pdb_ids]
 
-		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( pdb_ids )}" )
 		return pdb_ids
 
 
@@ -185,6 +235,27 @@ class Metadata():
 				pdb_ids.append( pdb[0].lower() )
 		return pdb_ids
 
+
+	def parse_foldbench_benchmark( self, target: str ) -> List:
+		"""
+		.csv file was obtained from https://github.com/BEAM-Labs/FoldBench.git
+		Will parse the following as specified:
+			Antigen-antibody benchmark.
+			Protein-protein benchmark.
+			Protein-peptide benchmark.
+		"""
+		if target == "prot_prot":
+			df = pd.read_csv( self.foldbench_prot_prot_input_file )
+		elif target == "prot_pep":
+			df = pd.read_csv( self.foldbench_prot_pep_input_file )
+		elif target == "ab_ag":
+			df = pd.read_csv( self.foldbench_ab_ag_input_file )
+		else:
+			raise ValueError( "Incorrect FoldBench target name specified. " +
+							"Supported: prot_prot, prot_pep, ab_ag" )
+		pdb_ids = df["pdb_id"].str.split( "-" ).str[0].tolist()
+
+		return pdb_ids
 
 
 	##------------------------------------------------------------##
