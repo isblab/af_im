@@ -130,7 +130,6 @@ class PdbData():
 		return rest_api
 
 
-
 	def get_entry_info( self, all_entities: List[int],
 						polymer_entity_ids: List[int],
 						rest_api: PdbRestApi
@@ -835,7 +834,7 @@ class SeqResDict():
 		return mask
 
 
-	def remove_terminal_missing( self, mask: np.array
+	def remove_terminal_missing( self, entry_id, mask: np.array
 		) -> Tuple[int, int]:
 		"""
 		Given the binary resolved_mask,
@@ -843,8 +842,13 @@ class SeqResDict():
 		Get the start and end indices for the remaining residues.
 		"""
 		idx = np.where( mask == 1 )
-		start = idx[0][0]
-		end = idx[0][-1]
+		try:
+			start = idx[0][0]
+			end = idx[0][-1]
+		except:
+			print( entry_id )
+			print( mask )
+			print( idx )
 
 		return start, end, idx
 
@@ -862,11 +866,13 @@ class SeqResDict():
 			numbering (8g0q_B, 8g0q_D) in both pdb_seq_num and auth_seq_num.
 			Hence, also saving the seq_id which is always continous.
 		"""
-		coverage = []
 		hier = {}
-		length_mismatch = False
-		non_standard_aa = False
+		hier_logs = {}
+		# length_mismatch = False
+		# non_standard_aa = False
 		total_length = 0
+		coverage = []
+		success = True
 		
 		for entity_id in prot_entity_ids:
 			hier[entity_id] = {}
@@ -885,9 +891,15 @@ class SeqResDict():
 
 				resolved_mask = self.get_resolved_mask( auth_seq_num )
 				valid_res_mask = self.get_valid_res_mask( pdb_seq_num )
+
+				# 8sao_A
+				if np.count_nonzero( valid_res_mask ) == 0:
+					hier_logs["invalid_chain"] = False
+					success = False
+					break
 				mask = resolved_mask*valid_res_mask
 
-				start_idx, end_idx, resolved_idx = self.remove_terminal_missing( mask )
+				start_idx, end_idx, resolved_idx = self.remove_terminal_missing( entry_id, mask )
 				start_pdb_pos = int( pdb_seq_num[start_idx] )
 				end_pdb_pos = int( pdb_seq_num[end_idx] )
 
@@ -908,23 +920,27 @@ class SeqResDict():
 				start_seq_id  = int( seq_id[start_idx] )
 				end_seq_id  = int( seq_id[end_idx] )
 				if ( end_seq_id-start_seq_id+1 ) != len( seq ):
-					length_mismatch = True
-					hier[entity_id][chain_id] = None
-				elif "X" in seq:
-					non_standard_aa = True
-					hier[entity_id][chain_id] = None
-				else:
-					hier[entity_id][chain_id] = {
-						"seq": seq,
-						"start_pos": start_pdb_pos,
-						"end_pos": end_pdb_pos,
-						"res_num": pdb_seq_num[resolved_idx].astype( int ),
-						"start_seq_id": start_seq_id,
-						"end_seq_id": end_seq_id,
-						"seq_id": seq_id[resolved_idx].astype( int )
-					}
+					hier_logs["length_mismatch"] = True
+					success = False
+					break
+				if "X" in seq:
+					hier_logs["non_standard_aa"] = True
+					success = False
+					break
 
-		return hier, coverage, total_length, length_mismatch, non_standard_aa
+				hier[entity_id][chain_id] = {
+					"seq": seq,
+					"start_pos": start_pdb_pos,
+					"end_pos": end_pdb_pos,
+					"res_num": pdb_seq_num[resolved_idx].astype( int ),
+					"start_seq_id": start_seq_id,
+					"end_seq_id": end_seq_id,
+					"seq_id": seq_id[resolved_idx].astype( int )
+				}
+		if not success:
+			hier = None
+
+		return hier, coverage, total_length, hier_logs
 
 
 	def get_cif_dict_for_entry( self, entry_id: str ):
@@ -957,24 +973,30 @@ class SeqResDict():
 			( cif_dict,
 				coverage,
 				total_length,
-				length_mismatch,
-				non_standard_aa ) = self.build_hierarchy( entry_id,
+				hier_logs ) = self.build_hierarchy( entry_id,
 														prot_entity_ids,
 														seqres_dict )
-		if total_length > self.max_sys_length:
-			logs["exceed_max_length"] = entry_id
-			cif_dict = None
-			coverage = []
-		if length_mismatch:
-			logs["length_mismatch"] = entry_id
-			cif_dict = None
-			coverage = []
-		if non_standard_aa:
-			logs["non_standard_aa"] = entry_id
-			cif_dict = None
-			coverage = []
-		return entry_id, cif_dict, coverage, logs
 
+			if cif_dict == None:
+				for k in hier_logs:
+					if hier_logs[k]:
+						logs[k] = entry_id
+
+			if total_length > self.max_sys_length:
+				logs["exceed_max_length"] = entry_id
+				cif_dict = None
+			if any( [c < self.frac_coverage for c in coverage]):
+				logs["low_coverage"] = entry_id
+				cif_dict = None
+			# if length_mismatch:
+			# 	logs["length_mismatch"] = entry_id
+			# 	cif_dict = None
+			# 	coverage = []
+			# if non_standard_aa:
+			# 	logs["non_standard_aa"] = entry_id
+			# 	cif_dict = None
+			# 	coverage = []
+		return entry_id, cif_dict, logs
 
 
 	def get_cif_dict_in_parallel( self ):
@@ -986,15 +1008,15 @@ class SeqResDict():
 				p.imap_unordered( self.get_cif_dict_for_entry,
 									self.pdb_ids_list ),
 				total = len( self.pdb_ids_list ) ):
-				entry_id, cif_dict, coverage, logs = result
+				entry_id, cif_dict, logs = result
 
 				if cif_dict is None:
 					for k in logs:
 						self.cif_logs[k][0].append( logs[k] )
 						self.cif_logs[k][1] += 1
 				else:
-					if any( [c < self.frac_coverage for c in coverage]):
-						self.cif_logs["low_coverage"][0].append( entry_id )
-						self.cif_logs["low_coverage"][1] += 1
-					else:
-						self.seqres_dict[entry_id] = cif_dict
+					# if any( [c < self.frac_coverage for c in coverage]):
+					# 	self.cif_logs["low_coverage"][0].append( entry_id )
+					# 	self.cif_logs["low_coverage"][1] += 1
+					# else:
+					self.seqres_dict[entry_id] = cif_dict
