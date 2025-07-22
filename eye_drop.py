@@ -5,7 +5,8 @@ Filters out complexes that:
 	Have >cutoff data satisfaction.
 """
 from typing import Dict
-import os, glob, time, subprocess, time
+import os, glob, time, subprocess, time, traceback
+from datetime import datetime
 import ml_collections as mlc
 import numpy as np
 import pandas as pd
@@ -31,11 +32,11 @@ This happens the chains in the PDB IDs map to Titin which too long.
 
 class InitPrediction():
 	def __init__( self ):
-		self.benchmark_name = "afu"  # afu/ sabdab
+		self.benchmark_name = "abag"  # xlsim/abag
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
 		self.modeling_version = 0
-		self.device = "cuda:0"
+		self.device = "cuda:1"
 
 		self.logs = {}
 
@@ -69,7 +70,8 @@ class InitPrediction():
 		else:
 			self.logs = {k:{} for k in ["time",
 										"memory_allocated",
-										"memory_reserved"]}
+										"memory_reserved",
+										"errored"]}
 
 
 	def create_required_paths( self ):
@@ -104,24 +106,38 @@ class InitPrediction():
 
 	def get_sys_path( self, sys_name: str ):
 		sys_path = os.path.join( 
-					os.path.abspath( f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}" )
+					os.path.abspath(
+						f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}"
+						)
 			)
 		return sys_path
 
 
-	def get_stat_file_path( self, sys_path: str ) -> pd.DataFrame:
+	def get_modeling_version_path( self, sys_name: str ):
+		"""
+		Return the path to the modeling version dir.
+		"""
+		sys_path = self.get_sys_path( sys_name )
+		ver_path = os.path.join( sys_path,
+							f"version_{self.modeling_version}/"
+							)
+		return ver_path
+
+
+	def get_stat_file_path( self, sys_name: str ) -> pd.DataFrame:
 		"""
 		Return the path to the stats file for the given system.
 		"""
-		stat_file_path = os.path.join( sys_path, f"version_{self.modeling_version}/Stats.npy" )
+		ver_path = self.get_modeling_version_path( sys_name )
+		stat_file_path = os.path.join( ver_path, "Stats.npy" )
 		return stat_file_path
 
 
-	def load_stat_file( self, sys_path: str ) -> Dict[str, Dict]:
+	def load_stat_file( self, sys_name: str ) -> Dict[str, Dict]:
 		"""
 		Load the stat file on memory.
 		"""
-		stat_file_path = self.get_stat_file_path( sys_path )
+		stat_file_path = self.get_stat_file_path( sys_name )
 		stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
 		return stats_dict
 
@@ -156,8 +172,8 @@ class InitPrediction():
 		topo_dict.train.version = self.modeling_version
 		topo_dict.train.device = self.device
 
-		if self.benchmark_name == "sabdab":
-			topo_dict.db_preset = "reduced_dbs"
+		# if self.benchmark_name == "sabdab":
+		# 	topo_dict.db_preset = "reduced_dbs"
 
 		return topo_dict
 
@@ -175,15 +191,23 @@ class InitPrediction():
 			print( "-"*25 + f" {idx}/{self.num_systems} --> {sys_name} " + "-"*25 )
 			print( "\n" + "-"*70 + "\n" + "-"*70 )
 
-			# if sys_name in ["1kcs", "1f58"]:
-			# 	print( f"Skipping PDB ID: {sys_name}...\n" )
-			# 	continue
+			# 5e8e_B has a non-standard aa PCA.
+			# All these failed due to H-chain mapped to Titin.
+			if sys_name in self.logs["errored"]:
+				continue
+			# if sys_name in ["1kcs", "1f58", "2b1h", "5dmi", "1uj3",
+			# 				"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
+			# 				"3sge", "4m1d", "5dmi", "5u3j", "6db7",
+			# 				"6u6u", "6jep", "6q18", "7n4j", "7tp3",
+			# 				"8x0t", "8fdo", "6xq0", "8yor"]:
+			#             print( f"Skipping PDB ID: {sys_name}...\n" )
 
-			# 7xpc -> Error in res_idx_map[chain1]
-			# if sys_name in ["7ui8", "7qot"]:  # "7xpc"
-				# continue
+		    # 7xpc -> contains non-standard aa MSE.
+		    # if sys_name in ["7xvk", "8st9"]:
+		    #         continue
+
 			sys_path = self.get_sys_path( sys_name )
-			stat_file_path = self.get_stat_file_path( sys_path )
+			stat_file_path = self.get_stat_file_path( sys_name )
 
 			if not os.path.exists( stat_file_path ):
 				tic = time.time()
@@ -197,8 +221,6 @@ class InitPrediction():
 				self.logs["time"][sys_name] = toc-tic
 				self.log_memory_usage( sys_name = sys_name )
 
-				# self.log_memory_usage( sys_name = sys_name,
-				# 						device = "cuda:0" )
 				write_json( self.logs, self.logs_file )
 			else:
 				print( f"Summary file already present for {sys_name}..." )
@@ -210,10 +232,31 @@ class InitPrediction():
 				run_subprocess( ["rm", f"{fasta_path}"] )
 
 
+	def log_error( self, sys_name: str ):
+		"""
+		If an error occurs while modeling,
+			Log the errorneous entry_id in the dataset sepcific metadata dir.
+			log the traceback in the system dir.
+		"""
+		self.logs["errored"][sys_name] = None
+
+		ver_path = self.get_modeling_version_path( sys_name )
+		current_datetime = datetime.now()
+		timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
+		error_file = os.path.join( ver_path, f"error_init_pred_{timestamp}.txt" )
+		w = open_file_handler( error_file, "w" )
+		w.write( traceback.format_exc() )
+
+		print( f"An error occured for system: {sys_name}. " +
+				f"Check error log in {error_file}...\n" )
+
+
+
 	def run_modeling_for_system( self, sys_name: str, topo_dict: mlc.ConfigDict ):
 		"""
 		Run the Integrative modeling pipeline for a give system.
 		If summary file exists fo a run, do not run again.
+		If an error occurs, log it to the modeling dir.
 		Empty the CUDA cache after each run.
 		"""
 
@@ -221,20 +264,21 @@ class InitPrediction():
 		data_dir = os.path.join( self.base_dir,
 								f"{self.benchmark_name}_benchmark/{sys_name}/" )
 		# fasta_path = "./benchmark/"
+		try:
+			il_obj = IntegrativeLearning( 
+					sys_name = sys_name,
+					base_dir = self.base_dir,
+					data_dir = data_dir,
+					# fasta_path = fasta_path,
+					sys_config_file =  f"sys_config_{sys_name}.json",
+					modeling_dir_name = self.modeling_dir_name,
+					topology_dict = topo_dict,
+					)
+			il_obj.disable_overwrite_warning = True
+			il_obj.forward()
+		except:
+			self.log_error( sys_name = sys_name )
 
-
-
-		il_obj = IntegrativeLearning( 
-				sys_name = sys_name,
-				base_dir = self.base_dir,
-				data_dir = data_dir,
-				# fasta_path = fasta_path,
-				sys_config_file =  f"sys_config_tp_{sys_name}.json",
-				modeling_dir_name = self.modeling_dir_name,
-				topology_dict = topo_dict,
-				)
-		il_obj.disable_overwrite_warning = True
-		il_obj.forward()
 		torch.cuda.empty_cache()
 
 
@@ -244,9 +288,9 @@ class InitPrediction():
 		"""
 		Return an empty summary dict containing all required keys.
 		"""
-		empty_dict = {k:[] for k in ["pdb_id", "xlr_metric_0", "xlr_metric_last",
-									"viol0", "viol_last", "ccom0", "ccom_last", "total_length",
-									"Interprotein-XLs", "auth_asym_ids"]}
+		empty_dict = {k:[] for k in ["PDB ID", "XLR metric 0", "XLR metric last",
+									"Viol0", "CCOM0", "Total length",
+									"TP XLs", "FP XLs", "Auth Asym ID"]}
 		return empty_dict
 
 
@@ -255,13 +299,20 @@ class InitPrediction():
 		Remove complexes that have >cutoff data satisfaction for
 			the initial predicted structure.
 		"""
+		print( "\n\n" + "-"*70 )
 		print( "\033[1mFiltering complexes based on data satisfaction...\033[0m" )
+		print( "-"*70 + "\n" )
 
-		summary_dict = self.get_summary_dict()
+		# summary_dict = self.get_summary_dict()
+		summary_dict = {k:[] for k in ["PDB ID", "XLR metric 0", "XLR metric last",
+									"Viol0", "CCOM0", "Total length",
+									"TP XLs", "FP XLs", "Auth Asym ID"]}
 
-		for sys_name in self.benchmark["pdb_id"]:
+		for sys_name in self.benchmark["PDB ID"]:
+
+			if sys_name in self.logs["errored"]:
+				continue
 			sys_dict = self.get_system_data( sys_name = sys_name )
-
 			if sys_dict is None:
 				continue
 
@@ -280,35 +331,34 @@ class InitPrediction():
 			XL sstisfaction at epoch 0.
 			XL sstisfaction at last 0.
 			Total length of the system.
-			No. of Inter-protein XLs.
+			No. of TP Inter-protein XLs.
+			No. of FP Inter-protein XLs.
 			Auth asym IDs.
 		"""
-		sys_path = self.get_summary_file_path( sys_name )
-		stats_dict = self.load_stat_file( sys_path )
+		stats_dict = self.load_stat_file( sys_name )
 
-		epoch0_xlr = stats_dict["metric"]["xlr"][0]
-		last_epoch_xlr = stats_dict["metric"]["xlr"][-1]
+		epoch0_xlr = stats_dict["metrics"]["xlr"][0]
+		last_epoch_xlr = stats_dict["metrics"]["xlr"][-1]
 
 		if epoch0_xlr > 0.75:
 			return None
 		else:
-			sys_dict = self.get_summary_dict()
-			sys_dict["pdb_id"] = sys_name
-
-			sys_dict["xlr_metric_0"] = epoch0_xlr
-			sys_dict["xlr_metric_0"] = last_epoch_xlr
-
-			idx = self.benchmark.index[self.benchmark["pdb_id"] == k].tolist()
-			aa_id = self.benchmark.loc[idx, "auth_asym_ids"].tolist()[0]
-			length = self.benchmark.loc[idx, "total_length"].tolist()[0]
-			xls = self.benchmark.loc[idx, "Interprotein-XLs"].tolist()[0]
-
-			sys_dict["total_length"] = length
-			sys_dict["Interprotein-XLs"] = xls
-			sys_dict["auth_asym_ids"] = aa_id
+			idx = self.benchmark.index[self.benchmark["PDB ID"] == sys_name].tolist()
+			sys_dict = {
+				"PDB ID": sys_name,
+				"XLR metric 0": epoch0_xlr,
+				"XLR metric last": last_epoch_xlr,
+				"Viol0": stats_dict["loss"]["violation"][0],
+				"CCOM0": stats_dict["loss"]["chain_center_of_mass"][0],
+				"Total length": self.benchmark.loc[idx, "Total length"].tolist()[0],
+				"TP XLs": self.benchmark.loc[idx, "Selected TP XLs"].tolist()[0],
+				"FP XLs": self.benchmark.loc[idx, "Selected FP XLs"].tolist()[0],
+				"Auth Asym ID": self.benchmark.loc[idx, "Auth Asym ID"].tolist()[0]
+			}
 
 			return sys_dict
 
 
 if __name__ == "__main__":
 	InitPrediction().forward()
+
