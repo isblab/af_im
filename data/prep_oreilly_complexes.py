@@ -31,7 +31,7 @@ class OreillyComplexes():
 		self.benchmark_name = "oreilly"  # "afu", "sabdab", "oreilly"
 		self.oreilly_complexes = ["gata_gatc", "gcvpa_gcvpb",
 								"phes_phet", "roca_putc", "sucd_succ"]
-		self.xl_max_bound = 25
+		self.xl_max_bound = 30
 		self.pdb_dict = {}
 		self.xls_dict = {}
 
@@ -239,7 +239,7 @@ class OreillyComplexes():
 		# Copy the structure (.pdb) and XL file to sys_dir.
 		pdb_file = os.path.join( self.pdb_struct_dir, f"{sys_name}.pdb" )
 		pdb_dest = os.path.join( sys_dir, f"{sys_name}.pdb" )
-		xl_dest = os.path.join( sys_dir, f"interprotein_xls_tp.csv" )
+		xl_dest = os.path.join( sys_dir, f"interprotein_xls.csv" )
 		self.xls_dict[sys_name].to_csv( xl_dest, index = False )
 
 		run_subprocess( ["cp", f"{pdb_file}", f"{pdb_dest}"] )
@@ -248,9 +248,9 @@ class OreillyComplexes():
 		entities = self.get_entities( sys_name )
 		sys_dict = self.create_sys_dict( sys_name = sys_name,
 										entities = entities,
-										xl_file = f"interprotein_xls_tp.csv" )
+										xl_file = f"interprotein_xls.csv" )
 
-		sys_dict_file = os.path.join( sys_dir, f"sys_config_tp_{sys_name}.json" )
+		sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
 		write_json( sys_dict, sys_dict_file )
 
 
@@ -272,8 +272,10 @@ class OreillyComplexes():
 									"Stoichiometry",
 									"Residue positions",
 									"Total length",
-									"TP-interprotein XLs",
-									"FP-interprotein XLs"]}
+									"Total TP XLs",
+									"Selected TP XLs",
+									"Total FP XLs",
+									"Selected FP XLs"]}
 		for sys_name in self.oreilly_complexes:
 			# Arbitarily creating entity_id's as the complexes are heterodimeric.
 			entity_ids = ["1", "2"]
@@ -298,10 +300,14 @@ class OreillyComplexes():
 			flat_dict["Stoichiometry"].append( ",".join( stoichiometry ) )
 			flat_dict["Residue positions"].append( ",".join( pos ) )
 			flat_dict["Total length"].append( total_length )
-			flat_dict["TP-interprotein XLs"].append( 
+			flat_dict["Total TP XLs"].append( 
 						self.xls_dict[sys_name].shape[0]
 						)
-			flat_dict["FP-interprotein XLs"].append( 0 )
+			flat_dict["Selected TP XLs"].append( 
+						self.xls_dict[sys_name].shape[0]
+						)
+			flat_dict["Total FP XLs"].append( 0 )
+			flat_dict["Selected FP XLs"].append( 0 )
 		df = pd.DataFrame( flat_dict )
 		df.to_csv( self.output_benchmark_csv, index = False )
 
