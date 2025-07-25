@@ -16,9 +16,10 @@ class CreateBenchmark():
 	Create input files for modeling.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "afu"
+		self.benchmark_name = "xlsim"   # xlsim, abag
 
 		self.chain_entity_map = {}
+		self.selected_xls = {}
 
 
 	def forward( self ):
@@ -234,6 +235,59 @@ class CreateBenchmark():
 		run_subprocess( cmd )
 
 
+	def xl_mixer( self, sys_name: str ):
+		"""
+		Obtain the set of XLs to be used for modeling.
+		For TP XLs, we use a max of 50 XLs.
+			For complexes with >50 XLs we randomly select a subset.
+		Further, if specified, we add 10% FP XLs.
+		Add, an extra column indicating whether a XL pair is TP or FP.
+		"""
+		tp_xls = self.xls_dict[sys_name]["tp_xls"]
+		fp_xls = self.xls_dict[sys_name]["fp_xls"]
+		tp_fp_label = []
+
+		max_allowed = self.dataset_configs["jwalk"]["max_allowed"]
+		if tp_xls.shape[0] <= max_allowed:
+			xls_df = tp_xls.copy()
+		else:
+			indexes = list( tp_xls.index )
+			# Samle a subset of XLs without replacement.
+			sampled_idx = np.random.choice( a = indexes,
+											size = max_allowed,
+											replace = False )
+			xls_df = tp_xls.iloc[sampled_idx].copy()
+
+		self.selected_xls[sys_name] = {
+			"tp_xls": xls_df
+		}
+
+		tp_fp_label = [1 for i in range( xls_df.shape[0] )]
+
+		# Add FP XLs, if specified.
+		if self.dataset_configs["jwalk"]["add_fp"]:
+			frac_fp = self.dataset_configs["jwalk"]["frac_fp"]
+
+			num_fp_xls = self.frac_fp*xls_df.shape[0]
+			sampled_idx = np.random.choice( a = indexes,
+											size = num_fp_xls,
+											replace = False )
+			fp_df = fp_xls.iloc[sampled_idx].copy()
+
+			xls_df = pd.concat( [xls_df, fp_df] )
+
+			tp_fp_label.extend( [0 for i in range( fp_df.shape[0] )] )
+
+			self.selected_xls[sys_name]["fp_xls"] = fp_df
+		else:
+			self.selected_xls[sys_name]["fp_xls"] = pd.DataFrame( {} )
+
+		xls_df = xls_df.reset_index( drop = True )
+		xls_df["label"]  = tp_fp_label
+		return xls_df
+
+
+
 	def save_tp_sys_dict_to_sys_dir( self,
 									sys_name: str,
 									sys_dir: str,
@@ -244,47 +298,20 @@ class CreateBenchmark():
 		Save both in sys_dir.
 		"""
 		# Save TP XLs to sys dir.
-		xl_file = f"interprotein_xls_tp.csv"
-		sys_dict_file = os.path.join( sys_dir, f"sys_config_tp_{sys_name}.json" )
+		xl_file = f"interprotein_xls.csv"
+		sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
 		sys_dict = self.create_sys_dict( 
 										sys_name = sys_name,
 										entities = entities,
 										xl_file = xl_file )
 		write_json( sys_dict, sys_dict_file )
 
-		tp_xls_file = os.path.join( sys_dir, xl_file )
-		tp_xls = self.xls_dict[sys_name]["tp_xls"]
+		xls_file = os.path.join( sys_dir, xl_file )
+		# tp_xls = self.xls_dict[sys_name]["tp_xls"]
+		xls_df = self.xl_mixer( sys_name = sys_name )
 		self.map_xl_chain_to_entity( sys_name = sys_name,
-										xl_df = tp_xls )
-		tp_xls.to_csv( tp_xls_file, index = False )
-
-
-
-	# def add_fp_xls( self, sys_name: str ):
-	# 	"""
-	# 	Add 5% FP XLs to TP XLs.
-	# 	"""
-
-
-	# def save_fp_sys_dict_to_sys_dir( self,
-	# 								sys_num: int,
-	# 								sys_name: str,
-	# 								sys_dir: str,
-	# 								entities: List[Dict]
-	# 								):
-	# 	"""
-	# 	For all TP xls, create sys config dict and get the Jwalk XLs.
-	# 	Save both in sys_dir.
-	# 	"""
-	# 	# Save TP XLs to sys dir.
-	# 	xl_file = f"{sys_name}_fp_xls.csv"
-	# 	sys_dict_file = os.path.join( sys_dir, f"sys_config_fp_{sys_name}.json" )
-	# 	sys_dict = self.create_sys_dict_entry( sys_num, sys_name, entities )
-	# 	write_json( sys_dict, sys_dict_file )
-
-	# 	tp_xls_file = os.path.join( sys_dir, f"interprotein_xls_tp.csv" )
-	# 	tp_xls = self.xls_dict[pdb_id]["tp_xls"]
-	# 	tp_xls.to_csv( tp_xls_file, index = False )
+										xl_df = xls_df )
+		xls_df.to_csv( xls_file, index = False )
 
 
 
@@ -326,8 +353,10 @@ class CreateBenchmark():
 									"Stoichiometry",
 									"Residue positions",
 									"Total length",
-									"TP-interprotein XLs",
-									"FP-interprotein XLs"]}
+									"Total TP XLs",
+									"Selected TP XLs",
+									"Total FP XLs",
+									"Selected FP XLs"]}
 		for sys_name in self.benchmark_pdb_ids:
 			entity_ids = list( self.seqres_dict[sys_name].keys() )
 			auth_asym_ids = []
@@ -352,11 +381,17 @@ class CreateBenchmark():
 			flat_dict["Stoichiometry"].append( ",".join( stoichiometry ) )
 			flat_dict["Residue positions"].append( ",".join( pos ) )
 			flat_dict["Total length"].append( total_length )
-			flat_dict["TP-interprotein XLs"].append( 
+			flat_dict["Total TP XLs"].append( 
 						self.xls_dict[sys_name]["tp_xls"].shape[0]
 						)
-			flat_dict["FP-interprotein XLs"].append( 
+			flat_dict["Selected TP XLs"].append( 
+						self.selected_xls[sys_name]["tp_xls"].shape[0]
+						)
+			flat_dict["Total FP XLs"].append( 
 						self.xls_dict[sys_name]["fp_xls"].shape[0]
+						)
+			flat_dict["Selected FP XLs"].append( 
+						self.selected_xls[sys_name]["fp_xls"].shape[0]
 						)
 		df = pd.DataFrame( flat_dict )
 		df.to_csv( self.output_benchmark_csv, index = False )

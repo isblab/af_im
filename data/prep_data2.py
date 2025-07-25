@@ -43,8 +43,11 @@ class Metadata():
 			},
 			"jwalk": {
 				"enabled": True,
-				"xl_max_bound": 25,
-				"min_inter_xls": 10
+				"xl_max_bound": 30,
+				"min_inter_xls": 5,
+				"max_allowed": 80,
+				"add_fp": False,
+				"frac_fp": 0.1
 			}
 		}
 		self.seqres_dict = {}
@@ -85,7 +88,7 @@ class Metadata():
 		# PDB benchmark from AF Unmasked paper.
 		self.afu_pdb_benchmark = os.path.join( "../raw/af_unmasked_pdb_benchmark.txt" )
 		# SAbDab dataset.
-		self.sabdab_input_file = os.path.join( "../raw/sabdab_seqid60_res4.tsv" )
+		self.sabdab_input_file = os.path.join( "../raw/sabdab_seqid70_res4.tsv" )
 		# FoldBench antigen-antibody dataset.
 		self.foldbench_ab_ag_input_file = os.path.join( "../raw/interface_antibody_antigen.csv" )
 		# FoldBench protein-protein dataset.
@@ -172,13 +175,14 @@ class Metadata():
 		"""
 		afu = self.parse_pdb_afu_benchmark()
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
-		fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
-		print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
-		fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
-		print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
+		# fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
+		# print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
+		# fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
+		# print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
 
 		# Remove duplicate PDB IDs.
-		pdb_ids = sorted( list( set( afu + fb_prot_prot + fb_prot_pep ) ) )
+		# pdb_ids = sorted( list( set( afu + fb_prot_prot + fb_prot_pep ) ) )
+		pdb_ids = sorted( list( set( afu ) ) )
 
 		return pdb_ids
 
@@ -196,6 +200,7 @@ class Metadata():
 
 		# Remove duplicate PDB IDs.
 		pdb_ids = sorted( list( set( sabdab + fb_ab_ag ) ) )
+		# pdb_ids = sorted( list( set( sabdab ) ) )
 
 		return pdb_ids
 
