@@ -479,7 +479,7 @@ if __name__ == "__main__":
 	IntegrativeLearning( sys_name,
 						base_dir,
 						data_dir,
-						f"sys_config_tp_{sys_name}.json",
+						f"sys_config_{sys_name}.json",
 						# base_path,
 						modeling_dir_name,
 						topology_dict ).forward()
