@@ -110,7 +110,7 @@ def com_loss(
     all_atom_mask: torch.Tensor,
     asym_id: torch.Tensor,
     gt_chain_distance: torch.Tensor,
-    tolerance_distance: float = 10.0,
+    clamp_distance: float = 10.0,
     eps: float = 1e-10, **kwargs
     ) -> torch.Tensor:
 	"""
@@ -123,7 +123,7 @@ def com_loss(
 	Compute the distance of the COM of all chains
 		from the COM of the complex in the predicted structure.
 	Penalize deviations in the distance of each chain
-		from the ground truth distance + some tolerance (10A).
+		from the ground truth distance + some clamp_distance.
 	"""
 	chain_distance = get_chain_distances( 
 		all_atom_positions = all_atom_pred_positions,
@@ -132,8 +132,9 @@ def com_loss(
 		eps = eps
 	)
 
-	diff = pred_chain_distance - gt_chain_distance
-	squared_diff = torch.sum( diff**2, dim = -1 )
+	diff = pred_chain_distance - gt_chain_distance - clamp_distance
+	squared_diff = torch.sum(
+		torch.clamp( diff, min = 0 )**2, dim = -1 )
 	com_loss = torch.mean( squared_diff )
 	return com_loss
 
