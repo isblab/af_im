@@ -32,11 +32,12 @@ This happens the chains in the PDB IDs map to Titin which too long.
 
 class InitPrediction():
 	def __init__( self ):
-		self.benchmark_name = "abag"  # xlsim/abag
+		self.benchmark_name = "xlsim"  # xlsim/abag/oreilly
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
 		self.modeling_version = 0
-		self.device = "cuda:1"
+		self.device = "cuda:0"
+		self.data_sat_cutoff = 1.0 if self.benchmark_name == "oreilly" else 0.75
 
 		self.logs = {}
 
@@ -340,7 +341,7 @@ class InitPrediction():
 		epoch0_xlr = stats_dict["metrics"]["xlr"][0]
 		last_epoch_xlr = stats_dict["metrics"]["xlr"][-1]
 
-		if epoch0_xlr > 0.75:
+		if epoch0_xlr > self.data_sat_cutoff:
 			return None
 		else:
 			idx = self.benchmark.index[self.benchmark["PDB ID"] == sys_name].tolist()
