@@ -166,6 +166,30 @@ config = mlc.ConfigDict(
 			"enabled": True
 		}
 	},
+	"analysis": {
+		"assessment_metrics": ["loss-violation", "loss-chain_center_of_mass", "metric-xlr"],
+		"clustering": {
+			"method": {
+				"kmeans": {
+					"enabled": True,
+					"n_cluster": 2,
+					"random_state": 1,
+					"n_init": "auto"
+				},
+				"gmm": {
+					"enabled": False,
+					"n_components": 2,
+					"random_state": 1
+				},
+				# "hdbscan": {
+				# 	"enabled": False,
+				# 	"min_cluster_size": 5,
+				# 	"min_sample": None,
+				# 	"store_centers": False
+				# }
+			}
+		}
+	}
 	"train": {
 		"version": 0,
 		"mode": "test",
