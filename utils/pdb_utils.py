@@ -403,6 +403,10 @@ class Parser():
 		if quantity == "res_pos":
 			quantity = residue.id[1]
 
+		elif quantity == "res_name":
+			resname = residue.get_resname()
+			quantity = aa_3_to_1( resname )
+
 		elif quantity == "coords":
 			coords = residue[rep_atom].coord
 			quantity = coords
@@ -441,16 +445,27 @@ class SaveModels():
 	A class to save predicted structures as models to a PDB/CIF file.
 	Only supporting PDB for now.
 	"""
-	def __init__( self, title: str, output_format: str, ensemble_dir: str ):
+	def __init__( self,
+			title: str,
+			output_format: str,
+			ensemble_dir: str,
+			save_single_models: bool = True ):
 		self.title = title
 		self.entities_map = {}
 		self.asym_unit_map = {}
 		self.output_format = output_format
 		self.ensemble_dir = ensemble_dir
+		self.save_single_models = save_single_models
 		# self.output_path = output_path
 
 		if self.output_format not in ["pdb", "cif"]:
 			raise ValueError( "Invalid output format specified. Use 'pdb' or 'cif'... " )
+
+		# If save_single_models is True, ensemble_dir mjust exist.
+		if self.save_single_models:
+			if not os.path.exists( self.ensemble_dir ):
+				raise ValueError( f"Ensemble dir = {self.ensemble_dir} " +
+					"must exist if saving single models..." )
 
 
 	def initialize_system( self ):
@@ -604,9 +619,10 @@ class SaveModels():
 		# Add to the global system storing all models.
 		self.system.extend( system )
 
-		self.save( system,
-					os.path.join( self.ensemble_dir, f"model_{model_id}" )
-					 )
+		if self.save_single_models:
+			self.save( system,
+						os.path.join( self.ensemble_dir, f"model_{model_id}" )
+						 )
 
 
 
