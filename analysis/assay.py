@@ -1,9 +1,10 @@
 """
 Script to perform analysis for the set of models obtained after fine-tuning.
-Select models based on their loss.
-	Use HDBSCAN for clustering.
-	Select the largest cluster.
-	Alternatively, 
+Select good-scoring models.
+Filter out structurally similar models.
+Assess data satisfaction.
+Perform AMBER relaxation.
+Perform Molprobity validation.
 """
 from typing import List, Dict, Iterator
 import os, glob
@@ -16,10 +17,11 @@ from utils.utils import open_file_handler, run_subprocess
 class Assay():
 	"""
 	Perform analysis and validation of the predicted ensemble of models.
-		1. Segregate models into good and bad models.
-		2. Assess data satisfaction for good models.
-		3. Perfrom AMBER relaxation.
-		4. Perform MolProbity validation.
+		1. Select good-scoring models.
+		2. Filter out structurally similar models.
+		3. Assess data satisfaction.
+		4. Perform AMBER relaxation.
+		5. Perform Molprobity validation.
 	"""
 	def __init__( self, sys_name: str,
 						analysis_config = analysis_config,
@@ -91,8 +93,6 @@ class Assay():
 
 
 
-
-
 	def get_assessment_metrics( self ) -> Dict[str, np.array]:
 		"""
 		Select the required metrics for downstream assessment.
@@ -116,25 +116,25 @@ class Assay():
 		) -> Dict[str, np.array]:
 		"""
 		Given the ensemble of predicted structures, separate good and bad models.
-		For this we use the violation loss, ccom loss, and xl satisfaction.
-		Bad models have: more violations, chain clashes, and low data satisfaction.
+		For this we use the loss trems: violation loss, ccom loss, and
+			data satisfaction metrics: xl satisfaction.
+		Good models: high data satisfaction and low physical violations.
 		"""
 		clust = Clustering(
-				"clustering_config": self.analysis_config.clustering,
+				"config": self.analysis_config.model_selection,
 				"assessment_metrics": self.analysis_config.assessment_metrics
 			)
 		clust.forward( input_dict = input_dict )
-		cluster_dict = clust.cluster_dict
-		return cluster_dict
+		good_models = clust.good_models
+		return good_models
 
 
 
 	def assess_data_satisfaction( self, good_models: np.array ):
 		"""
 		Assess data satisfaction for the good-scoring models.
+		Currently implemented only for XL data.
 		"""
-		good_models = cluster_dict["good_models"]
-
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models]
 
@@ -145,11 +145,11 @@ class Assay():
 		return data_satisfaction
 
 
-	# def run_amber_relaxation( self, good_models: np.array ):
-	# 	"""
-	# 	Run AMBER relaxation for the good-scoring models.
-	# 	"""
-	# 	model_ids = self.stats_dict["model_id"][good_models]
+	def run_amber_relaxation( self, good_models: np.array ):
+		"""
+		Run AMBER relaxation for the good-scoring models.
+		"""
+		model_ids = self.stats_dict["model_id"][good_models]
 
 
 
