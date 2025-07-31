@@ -167,11 +167,11 @@ config = mlc.ConfigDict(
 		}
 	},
 	"analysis": {
-		"assessment_metrics": ["loss-violation", "loss-chain_center_of_mass", "metric-xlr"],
-		"clustering": {
+		"assessment_metrics": ["loss-violation", "metric-xlr"],
+		"model_selection": {
 			"method": {
 				"kmeans": {
-					"enabled": True,
+					"enabled": False,
 					"n_cluster": 2,
 					"random_state": 1,
 					"n_init": "auto"
@@ -181,6 +181,13 @@ config = mlc.ConfigDict(
 					"n_components": 2,
 					"random_state": 1
 				},
+				"quant_filter": {
+					"enabled": True,
+					"quantiles": {"xlr": 0.75, "violation": 0.25}
+				},
+				"nds": {
+					"enabled": False,
+				},
 				# "hdbscan": {
 				# 	"enabled": False,
 				# 	"min_cluster_size": 5,
@@ -188,7 +195,21 @@ config = mlc.ConfigDict(
 				# 	"store_centers": False
 				# }
 			}
-		}
+		},
+		"amber":{
+			"max_iterations": ,
+			"tolerance": ,
+			"stiffness": ,
+			"exclude_residues": ,
+			"max_outer_iterations": ,
+			"use_gpu": False,
+			"parallelize": True,
+			"cpu_cores": 16,
+			"output_format": "pdb",
+			"relaxed_model_dir": "relaxed_models",
+			"save_single_model": True
+			"amber_logs_file": "Logs_amber"
+			}
 	}
 	"train": {
 		"version": 0,
