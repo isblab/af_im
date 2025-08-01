@@ -1,84 +1,79 @@
 """
 This module contains wrapper classes for using MolProbity.
-Run MolProbity for and provide the validation output.
+Run MolProbity and provide the validation output.
 """
+from typing import List, Tuple, Dict
+import os
+from ml_collections import ConfigDict
+
 
 class Molprobity():
 	"""
 	Perform Molprobity validation on the input models.
 	"""
-	def __init__( self, sys_name: str, model_ids: int, base_dir: str, model_dir: str ):
+	def __init__( self,
+				sys_name: str,
+				model_ids: int,
+				molprob_config: ConfigDict,
+				analysis_dir: str,
+				ensemble_dir: str ):
 		self.sys_name = sys_name
-		# Path to the Molprobity dir.
-		self.molprob_dir = os.path.join( base_dir, "molprobity_output" )
-		# Dit containing PDB files for models.
-		self.model_dir = model_dir
 		# Identifier for a model.
 		self.model_ids = model_ids
+		self.molprob_config = molprob_config
+		# Dit containing PDB files for models.
+		self.model_dir = model_dir
 		# Dict to store Molprobity validation metrics.
-		self.molprob_val_dict = {}
-		# Note the time taken.
-		self.time_file = os.path.join( self.molprob_dir, "Time_taken_molprob.txt" )
+		self.molprob_dict = {}
 
 
 	def forward( self ):
 		"""
 		"""
-		# Do not redo molprobity validation if already done.
-		# 	Using the time_file as a marker.
-		if not os.path.exists( self.time_file ):
-			tic = time.time()
-			# Create a temporary dir to store output files.
-			self.create_dir()
-
-			self.parallelize_molprobity_validation()
-			toc = time.time()
-
-			fh = open_file_handler( self.time_file, "w" )
-			fh.writelines( f"Time taken: {( toc-tic )/3600} hours OR {( toc-tic )/60} minutes" )
-		else:
-			print( "Molprobity validation already done..." )
+		self.create_tmp_dir()
+		self.run_molprobity_in_parallel()
+		if self.molprob_config.clean_up:
+			self.remove_tmp_dir()
 
 
-	def create_dir( self ):
+	def create_tmp_dir( self ):
 		"""
 		Temporary directory is used for storing the intermediate files
 			from running Molprobity validation.
 		"""
-		if not os.path.exists( self.molprob_dir ):
-			os.makedirs( self.molprob_dir )
-
-		self.tmp_dir = os.path.join( self.molprob_dir, "tmp" )
-		if not os.path.exists( self.tmp_dir ):
-			os.makedirs( self.tmp_dir )
+		# Temporary directory is used for storing the intermediate files
+		self.tmp_dir = os.path.join( self.analysis_dir, "molprob_tmp" )
+		os.makedirs( self.tmp_dir, exist_ok = True )
 
 
 	def remove_tmp_dir( self ):
 		cmd = ["rm", "-r", f"{self.tmp_dir}"]
-		run_subprocess( cmd )
+		run_subprocess( command = cmd )
 
 
-	def validate( self, model_id: int ) -> Dict[str, float]:
+	def get_model_file( self, model_id: int ):
 		"""
-		Perform Molprobity validation.
-		Get the Molprobity metrics.
+		Return path to the model file.
 		"""
-		# model_file = os.path.join( self.ensmeble_dir, f"model_{model_id}_relaxed.pdb" )
-		model_file = os.path.join( self.model_dir, f"model_{model_id}.pdb" )
-		molprob_output_dir = os.path.join( self.tmp_dir, f"molprob_{self.sys_name}_{model_id}" )
-
-		self.run_molprobity( model_file, molprob_output_dir )
-		summary_dict = {}
-		summary_dict[model_id] = self.get_molprobity_validation_summary( molprob_output_dir )
-
-		files_to_remove = glob.glob( f"{molprob_output_dir}*" )
-		cmd = ["rm", "-r"] + files_to_remove
-		run_subprocess( cmd )
-
-		return summary_dict
+		model_file = os.path.join(
+			self.ensemble_dir,
+			f"model_{model_id}.{self.output_format}" )
+		return model_file
 
 
-	def parallelize_molprobity_validation( self ):
+	def get_molprob_tmp_out_dir( self, model_id: int ):
+		"""
+		Return the path for a tmp dir to store
+			Molprobity output for a given model.
+		"""
+		molprob_output_dir = os.path.join(
+			self.tmp_dir,
+			f"molprob_{self.sys_name}_{model_id}" )
+		return molprob_output_dir
+
+	################################################################################
+	################################################################################
+	def run_molprobity_in_parallel( self ):
 		"""
 		Perfom Molprobity validation on the given set of models in parallel.
 		"""
@@ -86,7 +81,49 @@ class Molprobity():
 			for result in p.imap_unordered( self.validate, self.model_ids ):
 				summary_dict = result
 
-				self.molprob_val_dict.update( summary_dict )
+				self.molprob_dict.update( summary_dict )
+
+
+	def validate( self, model_id: int ) -> Dict[int, Dict[str, float]]:
+		"""
+		Perform Molprobity validation.
+		Get the Molprobity metrics.
+		"""
+		model_file = self.get_model_file( model_id = model_id )
+		molprob_output_dir = self.get_molprob_tmp_out_dir( model_id = model_id )
+
+		self.run_molprobity( model_file = model_file,
+							output_dir = molprob_output_dir )
+
+		summary_dict = {
+			model_id: self.get_molprobity_validation_summary( molprob_output_dir )
+		}
+
+		# files_to_remove = glob.glob( f"{molprob_output_dir}*" )
+		# cmd = ["rm", "-r"] + files_to_remove
+		run_subprocess( command = cmd )
+
+		return summary_dict
+
+
+	def run_molprobity( self, model_file: str, output_dir: str ):
+		"""
+		Run Molprobity validation using Phenix.
+		requires a PDB file with just 1 model.
+		Generates the following files:
+			{prefix}_coot.py  {prefix}.out  {prefix}.pkl  {prefix}.txt
+
+		output_dir --> must be in the format "/path/prefix".
+			where path is the output directory path and prefix is the 
+				name for the output files generated.
+		"""
+		molprob_cmd = [
+						"phenix.molprobity",
+						f"{model_file}",
+						f"output.prefix={output_dir}"
+						]
+
+		run_subprocess( command = molprob_cmd )
 
 
 	def get_molprobity_validation_summary( self, output_dir: str
@@ -136,24 +173,3 @@ class Molprobity():
 						summary_dict[key] = float( value )
 
 		return summary_dict
-
-
-	def run_molprobity( self, model_file: str, output_dir: str ) -> None:
-		"""
-		Run Molprobity validation using Phenix.
-		requires a PDB file with just 1 model.
-		Generates the following files:
-			{prefix}_coot.py  {prefix}.out  {prefix}.pkl  {prefix}.txt
-
-		output_dir --> must be in the format "/path/prefix".
-			where path is the output directory path and prefix is the 
-				name for the output files generated.
-		"""
-		molprob_cmd = [
-						"phenix.molprobity",
-						f"{model_file}",
-						f"output.prefix={output_dir}"
-						]
-
-		run_subprocess( molprob_cmd )
-
