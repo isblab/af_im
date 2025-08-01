@@ -157,13 +157,17 @@ def read_fasta_from_response( response: requests.Response ) -> Dict:
 	return fasta_dict
 
 
-def run_subprocess( command: List, stderr_file: str = "err_log" ) -> None:
+def run_subprocess( command: List,
+	stdout_file: str = None,
+	stderr_file: str = "err_log" ) -> None:
 	"""
 	Run shell command using subprocess.
 
 	Input:
 	----------
 	command --> a list in subprocess acceptable format.
+	stdout_file --> file_path to save stdout.
+	stderr_file --> file to log stderr is it occurs.
 
 	Returns:
 	----------
@@ -171,7 +175,19 @@ def run_subprocess( command: List, stderr_file: str = "err_log" ) -> None:
 	"""
 	if len( command ) != 0:
 		try:
-			retcode = subprocess.run( command, capture_output = True, text = True, check = True )
+			if stdout_file is None:
+				retcode = subprocess.run( command,
+										capture_output = True,
+										text = True,
+										check = True )
+			else:
+				w = open_file_handler( stdout_file, "w" )
+				retcode = subprocess.run( command,
+										stdout_obj = w,
+										capture_output = True,
+										text = True,
+										check = True )
+				w.close()
 
 		except subprocess.CalledProcessError as e:
 			print( "Writing error to log file..." )
