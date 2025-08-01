@@ -103,11 +103,11 @@ class SimulateCrosslinks():
 	def get_fp_xls( self, xl_df: pd.DataFrame ) -> pd.DataFrame:
 		"""
 		Obtain false positive (FP) XLs.
-			We consider XLs with distance > the (max bound + 5A) as FP.
+			We consider XLs with distance > the (max bound + 10A) as FP.
 		"""
 		fp_xl_df = copy.copy( xl_df )
 		# Using SASD provides more accurate XLs.
-		fp_xl_df = fp_xl_df.loc[fp_xl_df["SASD"] > self.xl_max_bound+5.0]
+		fp_xl_df = fp_xl_df.loc[fp_xl_df["SASD"] > self.xl_max_bound+10.0]
 		return fp_xl_df
 
 
@@ -198,7 +198,7 @@ class SimulateCrosslinks():
 			entry_id, tp_inter_xls, fp_inter_xls, logs = self.get_xls_for_entry_id( entry_id )
 			if tp_inter_xls is None:
 				for k in logs:
-					self.jwalk_logs[k][0].append( logs[k] )
+					self.jwalk_logs[k][0].extend( logs[k] )
 					self.jwalk_logs[k][1] += len( logs[k] )
 			else:
 				print( f"{idx}/{len( self.pdb_ids_list )} --> {entry_id}" )
