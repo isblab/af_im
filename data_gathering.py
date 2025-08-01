@@ -6,7 +6,7 @@ This script assumes a specific directory structure:
 		System specific JSON file.
 		Restraint input files --> e.g. For Xl restraint *_xls.csv.
 """
-import os
+import os, warnings
 from typing import List, Tuple, Dict
 import numpy as np
 import pandas as pd
@@ -84,7 +84,7 @@ class DataGathering():
 			copy_num = entity["copy_num"]
 			start = entity["start"]
 			end = entity["end"]
-			seq = entity["sequence"][start - 1: end]
+			seq = entity["sequence"] #[start - 1: end]
 			prot_name = entity["name"]
 
 			for i in range( copy_num ):
@@ -312,15 +312,25 @@ class DataGathering():
 				chain2 = xl_amb_dict[i]["prot2"][j]
 				res1 = xl_amb_dict[i]["res1"][j]
 				res2 = xl_amb_dict[i]["res2"][j]
-				try:
+				if res1 not in self.res_idx_map[chain1]["res_to_ind"]:
+					warnings.warn( f"Cross-linked residue {res1} " +
+								f"missing in chain {chain1}..." )
+				else:
 					index1 = self.res_idx_map[chain1]["res_to_ind"][res1]
-				except Exception as e:
-					print( e )
-					print( res1 )
-					print( self.res_idx_map[chain1]["res_to_ind"].keys() )
-					print( self.res_idx_map[chain1]["res_to_ind"] )
-					exit()
-				index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
+
+				if res2 not in self.res_idx_map[chain2]["res_to_ind"]:
+					warnings.warn( f"Cross-linked residue {res1} " +
+								f"missing in chain {chain1}..." )
+				else:
+					index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
+				# try:
+				# 	index2 = self.res_idx_map[chain2]["res_to_ind"][res2]
+				# except Exception as e:
+				# 	print( e )
+				# 	print( res2, "  ", chain2 )
+				# 	print( self.res_idx_map[chain2]["res_to_ind"].keys() )
+				# 	print( self.res_idx_map[chain2]["res_to_ind"] )
+				# 	exit()
 
 				xl_amb_dict_sys[i]["prot1"].append( xl_amb_dict[i]["prot1"][j] )
 				xl_amb_dict_sys[i]["res1"].append( index1 )

@@ -111,10 +111,7 @@ class FitToData():
 		Load the feature_dict saved as a .pkl file in the system's director.
 		"""
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
-		print( self.ofold_output_dir )
-		print( os.getcwd() )
 		feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
-		print( feature_dict_path )
 		if len( feature_dict_path ) == 0:
 			raise FileNotFoundError( f"Incorrect path -- {feature_dict_path}..." )
 
@@ -433,7 +430,7 @@ class FitToData():
 		For cif: add the predicted structure as a model to a modelcif object.
 		"""
 		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
-		save_model_obj.add_model( prot = unrelaxed_protein, epoch = model_id )
+		save_model_obj.add_model( prot = unrelaxed_protein, model_id = model_id )
 
 
 
