@@ -9,6 +9,7 @@ Perform Molprobity validation.
 from typing import List, Dict
 import os, glob, copy, time
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from ml_collections import ConfigDict
 
@@ -64,7 +65,7 @@ class Assay():
 		self.run_analysis_pipeline()
 		self.create_analysis_plot()
 
-		time_taken = ts - time.perf_counter()
+		time_taken = time.perf_counter() - ts
 		self.analysis_dict["time_taken"] = time_taken
 		print( f"Time taken for analysis = {time_taken/60} minutes " +
 				f"OR {time_taken/3600} hours")
@@ -82,6 +83,8 @@ class Assay():
 
 		self.ensemble_dir = os.path.join( self.modeling_output_dir,
 										f"{self.sys_name}_ensemble" )
+		self.molprobity_csv_file = os.path.join( self.analysis_dir,
+										"molprobity_validation.csv" )
 		self.plot_file = os.path.join( self.analysis_dir,
 										"analysis_plot1.png" )
 
@@ -135,51 +138,74 @@ class Assay():
 
 		print( "\n--> Selecting good-scoring models <--" )
 		if not "good_models" in self.analysis_dict:
+			ts = time.perf_counter()
 			good_models_index = self.select_good_scoring_models( input_dict )
 			good_models = model_ids[good_models_index]
 			self.analysis_dict["good_models_index"] = good_models_index
 			self.analysis_dict["good_models"] = good_models
 			self.save_analysis_dict()
+			time_taken = time.perf_counter() - ts
+			print( f"Time taken = {time_taken} seconds" )
 		else:
 			good_models = self.analysis_dict["good_models"]
 			good_models_index = self.analysis_dict["good_models_index"]
+		print( "Good-scoring models = ", len( good_models ) )
 
 		print( "\n--> Removing structurally similar models <--" )
 		if not "selected_good_models" in self.analysis_dict:
+			ts = time.perf_counter()
 			selected_model_index, rmsd_dict = self.filter_similar_models(
 				good_models = good_models
 			)
-			print( selected_model_index )
 			selected_good_models = model_ids[selected_model_index]
 			self.analysis_dict["selected_model_index"] = selected_model_index
 			self.analysis_dict["selected_good_models"] = selected_good_models
 			self.analysis_dict["rmsd"] = rmsd_dict
 			self.save_analysis_dict()
+			time_taken = time.perf_counter() - ts
+			print( f"Time taken = {time_taken} seconds" )
 		else:
-			selected_good_models = self.analysis_dict["good_models"]
-			selected_model_index = self.analysis_dict["good_models_index"]
+			selected_good_models = self.analysis_dict["selected_good_models"]
+			selected_model_index = self.analysis_dict["selected_model_index"]
+		print( "Selected good models = ", selected_good_models )
 
 		print( "\n--> Assessing data satisfaction for good-scoring models <--" )
 		self.assess_data_satisfaction( good_models_index = selected_model_index )
 
-		print( "\n--> Running AMBER relaxation <--" )
-		if not "relax" in self.analysis_dict:
-			subset_protein_obj = {k: protein_obj[k] for k in protein_obj if k in selected_model_index}
-			relax_dict, relaxed_model_dir = self.run_amber_relaxation(
-				good_models = selected_good_models,
-				protein_obj = subset_protein_obj
-			)
-			self.analysis_dict["relax"]  = relax_dict
-			self.save_analysis_dict()
+		if self.analysis_config.enable_relax_validate:
+			print( "\n--> Running AMBER relaxation <--" )
+			if not "relax" in self.analysis_dict:
+				ts = time.perf_counter()
+				subset_protein_obj = {k: protein_obj[k] for k in protein_obj if k in selected_model_index}
+				relax_dict = self.run_amber_relaxation(
+					good_models = selected_good_models,
+					protein_obj = subset_protein_obj
+				)
+				self.analysis_dict["relax"]  = relax_dict
+				self.save_analysis_dict()
+				time_taken = time.perf_counter() - ts
+				print( f"Time taken = {time_taken} seconds" )
 
-		print( "\n--> Running MolProbity validation <--" )
-		if not "molprob" in self.analysis_dict:
-			molprob_dict = self.run_molprobity_validation(
-				good_models = selected_good_models,
-				relaxed_model_dir = relaxed_model_dir
-			)
-			self.analysis_dict["molprob"] = molprob_dict
-			self.save_analysis_dict()
+			relaxed_model_dir = os.path.join(
+				self.analysis_dir,
+				self.analysis_config.relax.relaxed_model_dir )
+
+			print( "\n--> Running MolProbity validation <--" )
+			if not "molprob" in self.analysis_dict:
+				ts = time.perf_counter()
+				molprob_dict = self.run_molprobity_validation(
+					good_models = selected_good_models,
+					relaxed_model_dir = relaxed_model_dir
+				)
+				self.analysis_dict["molprob"] = molprob_dict
+				self.save_analysis_dict()
+				time_taken = time.perf_counter() - ts
+				print( f"Time taken = {time_taken} seconds" )
+			else:
+				molprob_dict = self.analysis_dict["molprob"]
+			self.write_molprobity_output_to_csv( molprob_dict = molprob_dict )
+		else:
+			print( "AMBER relaxation and Molprobity validation have been disabled..." )
 
 	################################################################################
 	################################################################################
@@ -248,6 +274,7 @@ class Assay():
 		"""
 		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
 		violation = np.array( self.stats_dict["loss"]["violation"] )
+		ccom = np.array( self.stats_dict["loss"]["chain_center_of_mass"] )
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models_index]
 
@@ -258,10 +285,13 @@ class Assay():
 		global_data_sat = total_satisfied/num_xls
 		per_model_xl_sat = xlr[good_models_index]
 		per_model_viol = violation[good_models_index]
+		per_model_ccom = ccom[good_models_index]
 
 		self.analysis_dict["per_model_xl_sat"] = per_model_xl_sat
 		self.analysis_dict["per_model_viol"] = per_model_viol
+		self.analysis_dict["per_model_ccom"] = per_model_ccom
 		self.analysis_dict["global_data_satisfaction"] = global_data_sat
+		print( "global data satisfaction = ", global_data_sat )
 
 	################################################################################
 	################################################################################
@@ -279,9 +309,8 @@ class Assay():
 		relax.forward()
 
 		relax_dict = copy.deepcopy( relax.relax_dict )
-		relaxed_model_dir = self.relaxed_model_dir
 		del relax
-		return relax_dict, relaxed_model_dir
+		return relax_dict
 
 	################################################################################
 	################################################################################
@@ -307,13 +336,51 @@ class Assay():
 		return molprob_dict
 
 
-	def write_molprobity_output_to_csv( self ):
+	def write_molprobity_output_to_csv( self, molprob_dict: Dict[str, Dict] ):
 		"""
-		Write the MolProbity validation metrics
+		Write the MolProbity validation metrics to a csv file.
 		"""
+		flat_dict = {k:[] for k in ["model_id", "type"]}
+		for model_id in molprob_dict:
+			for t in ["unrelaxed","relaxed"]:
+				flat_dict["model_id"].append( model_id )
+				flat_dict["type"].append( t )
+				for k in molprob_dict[model_id]["unrelaxed"]:
+					if k not in flat_dict:
+						flat_dict[k] = []
+					flat_dict[k].append( molprob_dict[model_id][t][k] )
+		df = pd.DataFrame( flat_dict )
+		df.to_csv( self.molprobity_csv_file, index = False )
 
 	################################################################################
 	################################################################################
+	def create_violin( self, data: List, ax, r: int, color: str, ylabel: str ):
+		"""
+		Create a violinplot with the required formatting.
+		"""
+		vp = ax[r].violinplot( dataset = data, orientation = "vertical",
+									showmeans = True, showextrema = True )
+		for body in vp["bodies"]:
+			# Adjust transparency (transparent: 0; opaque: 1).
+			body.set_alpha( 0.7 )
+			body.set_facecolor( color )
+		# Change color and width of the central line.
+		vp["cbars"].set_color( "black" )
+		vp["cbars"].set_linewidth( 2 )
+		# Change color and width of the minimum line.
+		vp["cmins"].set_color( "black" )
+		vp["cmins"].set_linewidth( 2 )
+		# Change color and width of the maximum line.
+		vp["cmaxes"].set_color( "black" )
+		vp["cmaxes"].set_linewidth( 2 )
+		# Change color and width of the mean line.
+		vp["cmeans"].set_color( "blue" )
+		vp["cmeans"].set_linewidth( 4 )
+		ax[r].tick_params( axis = "both" , labelsize = 25, length = 10, width = 4 )
+		ax[r].set_ylabel( ylabel, fontsize = 25 )
+		ax[r].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+
+
 	def create_analysis_plot( self ):
 		"""
 		Create plots for all sampled vs good-scoring models
@@ -323,23 +390,34 @@ class Assay():
 		plt.rcParams["font.family"] = "sans"
 		_, ax = plt.subplots( 1, 2, figsize = ( 30, 20 ) )
 
-		as_viol = self.stats_dict["loss"]["violation"]
-		as_avg_viol = np.mean( as_viol )
-		gs_viol = self.analysis_dict["per_model_viol"]
-		gs_avg_viol = np.mean( gs_viol )
-		ax[0].violinplot( [as_viol, gs_viol] )
-		ax[0].set_title( "Distribution of per model Violations", fontsize = 35 )
-		ax[0].tick_params( axis = "both" , labelsize = 18, length = 10, width = 4 )
-		ax[0].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
-
 		as_xl = self.stats_dict["metrics"]["xlr"]
-		as_avg_xl = np.mean( as_xl )
 		gs_xl = self.analysis_dict["per_model_xl_sat"]
-		gs_avg_xl = np.mean( gs_xl )
-		ax[1].violinplot( [as_xl, gs_xl] )
-		ax[1].set_title( "Distribution of per model XL satisfaction", fontsize = 35 )
-		ax[1].tick_params( axis = "both" , labelsize = 18, length = 10, width = 4 )
-		ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+		self.create_violin( data = [as_xl, gs_xl], ax = ax, r = 0,
+							color = "orange", ylabel = "per model XL satisfaction" )
+
+		as_viol = self.stats_dict["loss"]["violation"]
+		gs_viol = self.analysis_dict["per_model_viol"]
+		self.create_violin( data = [as_viol, gs_viol], ax = ax, r = 1,
+							color = "orange", ylabel = "per model Violations" )
+
+
+		# ax[0].violinplot( dataset = [as_viol, gs_viol], orientation = "vertical",
+		# 						showmeans = True, showextrema = True )
+		# ax[0].set_title( "Per model Violations", fontsize = 35 )
+		# ax[0].set_ylabel( "Per model Violations", fontsize = 35 )
+		# ax[0].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
+		# ax[0].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+
+		# as_xl = self.stats_dict["metrics"]["xlr"]
+		# as_avg_xl = np.mean( as_xl )
+		# gs_xl = self.analysis_dict["per_model_xl_sat"]
+		# gs_avg_xl = np.mean( gs_xl )
+		# ax[1].violinplot( dataset = [as_xl, gs_xl], orientation = "vertical",
+		# 						showmeans = True, showextrema = True )
+		# # ax[1].set_title( "Per model XL satisfaction", fontsize = 35 )
+		# ax[1].set_ylabel( "Per model XL satisfaction", fontsize = 35 )
+		# ax[1].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
+		# ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
 
 		plt.savefig( self.plot_file, dpi = 300 )
 		plt.close()
