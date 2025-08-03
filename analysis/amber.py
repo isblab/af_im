@@ -10,6 +10,7 @@ from multiprocessing import Pool
 import tqdm
 
 from utils.utils import read_json, write_json
+from utils.pdb_utils import SaveModels
 
 from openfold.np import protein
 from openfold.np.relax import amber_minimize, utils
@@ -46,6 +47,7 @@ class AmberRelaxation():
 		self.load_relax_dict()
 		self.relax()
 		self.save_relaxed_struct()
+		print( "\n" )
 
 
 	def check_input_type( self ):
@@ -53,7 +55,6 @@ class AmberRelaxation():
 		The input must be an instance of List.
 		Both must have the same no. of elements.
 		"""
-		print( "\n\n" + "-"*70 )
 		print( "Validating inputs for relaxation" )
 		if not isinstance( self.model_ids, np.ndarray ):
 			raise ValueError( f"model_ids must be a numpy.ndarray. " +
@@ -74,9 +75,8 @@ class AmberRelaxation():
 		"""
 		relaxed_model_dir = self.amber_config.relaxed_model_dir
 
-		if self.amber_config.save_single_model:
-			self.relaxed_model_dir = os.path.join( self.analysis_dir, relaxed_model_dir )
-			os.makedirs( self.relaxed_model_dir, exist_ok = True )
+		self.relaxed_model_dir = os.path.join( self.analysis_dir, relaxed_model_dir )
+		os.makedirs( self.relaxed_model_dir, exist_ok = True )
 
 
 	def load_relax_dict( self ):
@@ -248,12 +248,11 @@ class AmberRelaxation():
 		Save the relaxed structures as separate models in the PDB/CIF file.
 		"""
 		output_format = self.amber_config.output_format
-		relaxed_model_dir = self.amber_config.relaxed_model_dir
-		save_single_model = self.amber_config.save_all_models
+		save_single_model = self.amber_config.save_single_model
 
 		save_model_obj = SaveModels( title = self.sys_name,
 									output_format = output_format,
-									ensemble_dir = relaxed_model_dir,
+									ensemble_dir = self.relaxed_model_dir,
 									save_single_model = save_single_model )
 		# Initialize the System object.
 		save_model_obj.initialize_system()
@@ -262,7 +261,7 @@ class AmberRelaxation():
 			min_pdb = self.relax_dict[model_id]["prot"]
 			final_prot = protein.from_pdb_string( min_pdb )
 
-			save_model_obj.add_model( final_prot )
+			save_model_obj.add_model( prot = final_prot, model_id = model_id )
 
 		relaxed_ensemble_file = os.path.join(
 			self.analysis_dir, f"{self.sys_name}_relaxed_ensemble"

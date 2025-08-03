@@ -109,8 +109,10 @@ class Molprobity():
 		( relax_molprob_output_dir,
 			unrelax_molprob_output_dir ) = self.get_molprob_tmp_out_dir( model_id = model_id )
 
-		self.run_molprobity( model_file = model_file,
-							output_dir = molprob_output_dir )
+		self.run_molprobity( model_file = relax_model_file,
+							output_dir = relax_molprob_output_dir )
+		self.run_molprobity( model_file = unrelax_model_file,
+							output_dir = unrelax_molprob_output_dir )
 
 		summary_dict = {
 			model_id: {

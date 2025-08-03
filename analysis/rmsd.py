@@ -27,7 +27,6 @@ class StructuralSimilarity():
 		self.analysis_dir = analysis_dir
 		# Dir containing predicted structures.
 		self.ensemble_dir = ensemble_dir
-		self.clean_up = True
 
 		# Dict to store relaxed models and relaxation metadata.
 		self.rmsd_dict = {}
@@ -42,7 +41,7 @@ class StructuralSimilarity():
 		models = self.rmsd_pipeline()
 		self.selected_model_index = models
 
-		if self.clean_up:
+		if self.rmsd_config.clean_up:
 			self.remove_tmp_dir()
 
 
@@ -87,7 +86,7 @@ class StructuralSimilarity():
 	def rmsd_pipeline( self ):
 		"""
 		For all good-scoring models, compute all-vs-all RMSD.
-		Remove structurally similar models (RMSD <= 0.5).
+		Remove structurally similar models (RMSD <= similarity_cutoff).
 		"""
 		selected_model_index = []
 		ignore_models = []
@@ -104,11 +103,11 @@ class StructuralSimilarity():
 					self.rmsd_dict[f"model_{i}_{j}"] = {
 						"rmsd": rmsd, "tm": tm}
 
-					if rmsd <= 0.5:
+					if rmsd <= self.rmsd_config.similarity_cutoff:
 						ignore_models.append( j )
-					else:
-						if i not in selected_model_index:
-							selected_model_index.append( i )
+
+				if i not in selected_model_index:
+					selected_model_index.append( i )
 		return np.array( selected_model_index )
 
 
