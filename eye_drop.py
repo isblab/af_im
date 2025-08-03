@@ -5,7 +5,7 @@ Filters out complexes that:
 	Have >cutoff data satisfaction.
 """
 from typing import Dict
-import os, glob, time, subprocess, time, traceback
+import os, time, subprocess, traceback
 from datetime import datetime
 import ml_collections as mlc
 import numpy as np
@@ -247,6 +247,7 @@ class InitPrediction():
 		error_file = os.path.join( ver_path, f"error_init_pred_{timestamp}.txt" )
 		w = open_file_handler( error_file, "w" )
 		w.write( traceback.format_exc() )
+		w.close()
 
 		print( f"An error occured for system: {sys_name}. " +
 				f"Check error log in {error_file}...\n" )
