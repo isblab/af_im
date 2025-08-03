@@ -449,20 +449,20 @@ class SaveModels():
 			title: str,
 			output_format: str,
 			ensemble_dir: str,
-			save_single_models: bool = True ):
+			save_single_model: bool = True ):
 		self.title = title
 		self.entities_map = {}
 		self.asym_unit_map = {}
 		self.output_format = output_format
 		self.ensemble_dir = ensemble_dir
-		self.save_single_models = save_single_models
+		self.save_single_model = save_single_model
 		# self.output_path = output_path
 
 		if self.output_format not in ["pdb", "cif"]:
 			raise ValueError( "Invalid output format specified. Use 'pdb' or 'cif'... " )
 
 		# If save_single_models is True, ensemble_dir mjust exist.
-		if self.save_single_models:
+		if self.save_single_model:
 			if not os.path.exists( self.ensemble_dir ):
 				raise ValueError( f"Ensemble dir = {self.ensemble_dir} " +
 					"must exist if saving single models..." )
@@ -619,7 +619,7 @@ class SaveModels():
 		# Add to the global system storing all models.
 		self.system.extend( system )
 
-		if self.save_single_models:
+		if self.save_single_model:
 			self.save( system,
 						os.path.join( self.ensemble_dir, f"model_{model_id}" )
 						 )
