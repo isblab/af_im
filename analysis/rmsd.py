@@ -1,10 +1,12 @@
 """
 Contains wrapper for RMSD computation using USalign.
 """
-from typing import Dict
+from typing import List, Dict
+import os, copy
 from ml_collections import ConfigDict
 import numpy as np
 
+from utils.utils import run_subprocess
 
 class StructuralSimilarity():
 	"""
@@ -62,7 +64,7 @@ class StructuralSimilarity():
 			files for rmsd computation.
 		"""
 		self.tmp_dir = os.path.join( self.analysis_dir, "rmsd_tmp" )
-		os.makedirs( self.tmp_dir, exists_ok = True )
+		os.makedirs( self.tmp_dir, exist_ok = True )
 
 
 	def remove_tmp_dir( self ):
@@ -76,7 +78,7 @@ class StructuralSimilarity():
 			file for the given model_id.
 		"""
 		struct_file = os.path.join(
-			ensemble_dir,
+			self.ensemble_dir,
 			f"model_{model_id}.{self.struct_format}" )
 		return struct_file
 
@@ -90,23 +92,23 @@ class StructuralSimilarity():
 		selected_model_index = []
 		ignore_models = []
 		if len( self.model_ids ) == 1:
-			selected_model_index = copy( self.model_ids )
+			selected_model_index = copy.copy( self.model_ids )
 		else:
-			protein_obj = self.stats_dict["protein"]
 			for i in self.model_ids:
 				if i in ignore_models:
 					continue
 				for j in self.model_ids[1:]:
 					stdout_file = self.usalign( model_id1 = i, model_id2 = j )
-					rmsd, tm1, tm2 = self.get_alignment_score( stdout_file )
+					rmsd, tm = self.get_alignment_score( stdout_file )
 
 					self.rmsd_dict[f"model_{i}_{j}"] = {
-						"rmsd": rmsd, "tm1": tm1, "tm2": tm2}
+						"rmsd": rmsd, "tm": tm}
 
 					if rmsd <= 0.5:
 						ignore_models.append( j )
 					else:
-						selected_model_index.append( i )
+						if i not in selected_model_index:
+							selected_model_index.append( i )
 		return np.array( selected_model_index )
 
 
@@ -114,38 +116,40 @@ class StructuralSimilarity():
 		"""
 		Use USalign for computing the TM-score
 			and RMSD for the given models.
-	Assuming model_id1 to be the reference.
+		Assuming model_id1 to be the reference.
 
-	mol --> molecule type [auto, prot, RNA.
-	mm --> multimeric laignment option.
-		0: (default) alignment of two monomeric structures.
-		1: alignment of two multi-chain oligomeric structures.
-		2: alignment of individual chains to an oligomeric structure.
-		Look at USalign -h option for more details.
-	ter --> #chains to align.
-		0: align all chains from all models.
-		1: align all chains of the first model.
-		2: (default) only align the first chain.
+		mol --> molecule type [auto, prot, RNA.
+		mm --> multimeric laignment option.
+			0: (default) alignment of two monomeric structures.
+			1: alignment of two multi-chain oligomeric structures.
+			2: alignment of individual chains to an oligomeric structure.
+			Look at USalign -h option for more details.
+		ter --> #chains to align.
+			0: align all chains from all models.
+			1: align all chains of the first model.
+			2: (default) only align the first chain.
 
-	USalign model1.pdb model2.pdb -ter 0 -mm 1 -mol prot
-	"""
-	model1 = self.get_struct_file( model_id = i )
-	model2 = self.get_struct_file( model_id = j )
+		USalign model1.pdb model2.pdb -ter 0 -mm 1 -mol prot
+		"""
+		model1 = self.get_struct_file( model_id = model_id1 )
+		model2 = self.get_struct_file( model_id = model_id2 )
 
-	stdout_file = os.path.join( self.tmp_dir, f"model_{model_id1}_{model_id2}.txt" )
-	stderr_file = os.path.join( self.tmp_dir, f"error_{model_id1}_{model_id2}.txt" )
+		stdout_file = os.path.join( self.tmp_dir, f"model_{model_id1}_{model_id2}.txt" )
+		stderr_file = os.path.join( self.tmp_dir, f"error_{model_id1}_{model_id2}.txt" )
 
-	cmd = [f"{self.rmsd_config.script}", 
-			"-mol", "prot",
-			"-mm", f"{self.rmsd_config.mm}",
-			"-ter", f"{self.rmsd_config.ter}"]
+		cmd = [f"./{self.rmsd_config.usalign_script}", 
+				f"{model1}",
+				f"{model2}",
+				"-mol", "prot",
+				"-mm", f"{self.rmsd_config.mm}",
+				"-ter", f"{self.rmsd_config.ter}"]
 
-	run_subprocess(
-		command = cmd,
-		stdout = stdout_file,
-		stderr = stderr_file
-	)
-	return stdout_file
+		run_subprocess(
+			command = cmd,
+			stdout_file = stdout_file,
+			stderr_file = stderr_file
+		)
+		return stdout_file
 
 
 	def get_alignment_score( self, stdout_file: str ):
@@ -156,15 +160,13 @@ class StructuralSimilarity():
 			Line15: TM-score= 0.XXXXX (if normalized by length of Chain_1, i.e., LN=XX, d0=X.XX)
 			Line16: TM-score= 0.XXXXX (if normalized by length of Chain_2, i.e., LN=XXX, d0=X.XX)
 		"""
-		with open( redir_file, "r" ) as f:
+		with open( stdout_file, "r" ) as f:
 			output = f.readlines()
 
 		rmsd_line = output[14]
-		tm1_line = output[15]
-		tm2_line = output[15]
+		tm_line = output[15]
 
 		rmsd = float( rmsd_line.split( "," )[1].split( "RMSD=" )[1] )
-		tm1 = float( tm1_line.split( " " )[1] )
-		tm2 = float( tm2_line.split( " " )[1] )
-		return rmsd, tm1, tm2
+		tm = float( tm_line.split( " " )[1] )
+		return rmsd, tm
 

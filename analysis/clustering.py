@@ -1,11 +1,12 @@
 """
-Contains a wrapper class for various methods for selecting good-scoring models.
+Contains a wrapper class for various methods for
+	selecting good-scoring models.
 """
 from typing import List, Dict
 import copy
 from ml_collections import ConfigDict
 import numpy as np
-from sklearn.cluster import KMeans, HDBSCAN
+from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
@@ -34,6 +35,8 @@ class SelectGoodModels():
 		self.check_num_methods_enabled()
 		
 		self.good_models = self.run_clustering()
+		if len( self.good_models ) == 0:
+			raise Valueerror( f"No good-scoring models selected..." )
 
 
 	def check_num_methods_enabled( self ):
@@ -42,7 +45,7 @@ class SelectGoodModels():
 		"""
 		enabled = 0
 		for clust_method in self.config.method:
-			if clust_method.enabled:
+			if self.config.method[clust_method].enabled:
 				enabled += 1
 
 		if enabled == 0:
@@ -59,12 +62,12 @@ class SelectGoodModels():
 		Prepare data for downstream model selection.
 		Scale all the metrics if specified.
 		"""
-		if self.config.scale_data.enabled:
+		if self.config.scale_data:
 			scaled_data = self.scale_data( data_dict = self.input_dict )
 		else:
 			scaled_data = copy.deepcopy( self.input_dict )
 
-		if self.config.clust_method.quantile_filter.enabled:
+		if not self.config.method.quant_filter.enabled:
 			stacked_data = self.get_data_stack( data_dict = scaled_data )
 		else:
 			stacked_data = copy.deepcopy( scaled_data )
@@ -123,10 +126,10 @@ class SelectGoodModels():
 			good_models = self.kmeans( data = processed_data )
 		elif self.config.method.gmm.enabled:
 			good_models = self.gmms( processed_data )
-		elif self.config.method.quanti_filter.enabled:
-			good_models = self.gmms( processed_data )
+		elif self.config.method.quant_filter.enabled:
+			good_models = self.quantile_filtering( processed_data )
 		elif self.config.method.nds.enabled:
-			good_models = self.gmms( processed_data )
+			good_models = self.non_dominated_sorting( processed_data )
 
 		return good_models
 
@@ -136,7 +139,7 @@ class SelectGoodModels():
 		Use KMeans for clustering the models into good and bad clusters.
 		The clustering is based on the metrics provided in the input dict.
 		"""
-		config = self.config.kmeans
+		config = self.config.method.kmeans
 
 		kmeans = KMeans( n_clusters = config.n_clusters,
 							random_state = config.random_state,
@@ -153,11 +156,11 @@ class SelectGoodModels():
 		Use GMM for clustering the models into good and bad clusters.
 		The clustering is based on the metrics provided in the input dict.
 		"""
-		config = self.config.gmm
+		config = self.config.method.gmm
 
 		gm = GaussianMixture( n_components = config.n_components,
 								random_state = config.random_state )
-		gm.fit( scaled_data )
+		gm.fit( data )
 		labels = gm.predict( data )
 
 		good_models = self.get_good_model_cluster( labels = labels )
@@ -182,7 +185,7 @@ class SelectGoodModels():
 
 
 	def get_good_model_cluster( self, labels: List
-								) -> Dict[str, np.array]:
+								) -> np.array:
 		"""
 		Given a list of cluster labels, segregate into
 			clusters and return as a dict.
@@ -193,14 +196,14 @@ class SelectGoodModels():
 		violations = self.input_dict["violations"]
 
 		if np.mean( violations[c1] ) < np.mean( violations[c2] ):
-			good_models = c1
+			good_models = c1[0]
 		else:
-			good_models = c2
+			good_models = c2[0]
 
 		return good_models
 
 
-	def quantile_filtering( self, data_dict: Dict[str, np.array] ):
+	def quantile_filtering( self, data_dict: np.array ):
 		"""
 		Selct good-scoring models uisng a
 			quantile-based filtering approach.
@@ -208,23 +211,29 @@ class SelectGoodModels():
 		From the subset of models that satisfy data,
 			select those that have fewer violations.
 		"""
-		data_sat = []
-		quantiles = self.config.method.quantile.quantiles
-		assessment_metrics = self.config.assessment_metrics
+		quantiles = self.config.method.quant_filter.quantiles
+		assessment_metrics = self.assessment_metrics
 
+		data_sat = []
 		for i, metric in enumerate( assessment_metrics ):
-			data = data_dict["metric"][metric]
-			q = np.quantile( data, quantiles[metric] )
+			category, name = metric.split( "-" )
+			if category != "metrics":
+				continue
+			data = data_dict[name]
+			q = np.quantile( data, quantiles[name] )
 			data_sat.append( data >= q )
+
 		data_sat = np.column_stack( data_sat )
 		# Selecting models that satisfy all data types.
 		data_sat_mask = np.prod( data_sat, axis = 1 )
+		data_sat_idx = np.where( data_sat_mask == 1 )
 
+		violations = data_dict["violation"]
 		# Select those that have fewer violations.
-		q = np.quantile( data[data_sat_mask], quantiles["violation"] )
-		viol_mask = data_dict["violation"] <= q
+		q = np.quantile( violations[data_sat_idx], quantiles["violation"] )
+		viol_mask = violations <= q
 
-		mask = data_sat_mask * viol_mask
+		mask = data_sat_mask.reshape( -1, 1 ) & viol_mask.reshape( -1, 1 )
 
 		# Return indices for good-scoring models.
 		good_models = np.where( mask == 1 )[0]

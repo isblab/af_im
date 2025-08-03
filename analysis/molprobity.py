@@ -5,7 +5,9 @@ Run MolProbity and provide the validation output.
 from typing import List, Tuple, Dict
 import os
 from ml_collections import ConfigDict
+from multiprocessing import Pool
 
+from utils.utils import run_subprocess
 
 class Molprobity():
 	"""
@@ -14,15 +16,23 @@ class Molprobity():
 	def __init__( self,
 				sys_name: str,
 				model_ids: int,
+				cores: int,
+				struct_format: str,
 				molprob_config: ConfigDict,
 				analysis_dir: str,
-				ensemble_dir: str ):
+				relax_ensemble_dir: str,
+				unrelax_ensemble_dir: str ):
 		self.sys_name = sys_name
 		# Identifier for a model.
 		self.model_ids = model_ids
+		self.cores = cores
+		self.struct_format = struct_format
 		self.molprob_config = molprob_config
-		# Dit containing PDB files for models.
-		self.model_dir = model_dir
+		self.analysis_dir = analysis_dir
+		# Dit containing PDB files for the relaxed models.
+		self.relax_ensemble_dir = relax_ensemble_dir
+		# Dit containing PDB files for the unrelaxed models.
+		self.unrelax_ensemble_dir = unrelax_ensemble_dir
 		# Dict to store Molprobity validation metrics.
 		self.molprob_dict = {}
 
@@ -55,10 +65,13 @@ class Molprobity():
 		"""
 		Return path to the model file.
 		"""
-		model_file = os.path.join(
-			self.ensemble_dir,
-			f"model_{model_id}.{self.output_format}" )
-		return model_file
+		relax_model_file = os.path.join(
+			self.relax_ensemble_dir,
+			f"model_{model_id}.{self.struct_format}" )
+		unrelax_model_file = os.path.join(
+			self.unrelax_ensemble_dir,
+			f"model_{model_id}.{self.struct_format}" )
+		return relax_model_file, unrelax_model_file
 
 
 	def get_molprob_tmp_out_dir( self, model_id: int ):
@@ -66,10 +79,13 @@ class Molprobity():
 		Return the path for a tmp dir to store
 			Molprobity output for a given model.
 		"""
-		molprob_output_dir = os.path.join(
+		relax_molprob_output_dir = os.path.join(
 			self.tmp_dir,
-			f"molprob_{self.sys_name}_{model_id}" )
-		return molprob_output_dir
+			f"relax_molprob_{self.sys_name}_{model_id}" )
+		unrelax_molprob_output_dir = os.path.join(
+			self.tmp_dir,
+			f"unrelax_molprob_{self.sys_name}_{model_id}" )
+		return relax_molprob_output_dir, unrelax_molprob_output_dir
 
 	################################################################################
 	################################################################################
@@ -89,19 +105,23 @@ class Molprobity():
 		Perform Molprobity validation.
 		Get the Molprobity metrics.
 		"""
-		model_file = self.get_model_file( model_id = model_id )
-		molprob_output_dir = self.get_molprob_tmp_out_dir( model_id = model_id )
+		relax_model_file, unrelax_model_file = self.get_model_file( model_id = model_id )
+		( relax_molprob_output_dir,
+			unrelax_molprob_output_dir ) = self.get_molprob_tmp_out_dir( model_id = model_id )
 
 		self.run_molprobity( model_file = model_file,
 							output_dir = molprob_output_dir )
 
 		summary_dict = {
-			model_id: self.get_molprobity_validation_summary( molprob_output_dir )
+			model_id: {
+				"relaxed": self.get_molprobity_validation_summary( relax_molprob_output_dir ),
+				"unrelaxed": self.get_molprobity_validation_summary( unrelax_molprob_output_dir )
+			}
 		}
 
 		# files_to_remove = glob.glob( f"{molprob_output_dir}*" )
 		# cmd = ["rm", "-r"] + files_to_remove
-		run_subprocess( command = cmd )
+		# run_subprocess( command = cmd )
 
 		return summary_dict
 

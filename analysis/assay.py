@@ -7,11 +7,18 @@ Perform AMBER relaxation.
 Perform Molprobity validation.
 """
 from typing import List, Dict
-import os, glob, copy
+import os, glob, copy, time
 import numpy as np
-import pandas as pd
+import matplotlib.pyplot as plt
+from ml_collections import ConfigDict
 
 from utils.utils import open_file_handler, run_subprocess
+from analysis.clustering import SelectGoodModels
+from analysis.rmsd import StructuralSimilarity
+from analysis.amber import AmberRelaxation
+from analysis.molprobity import Molprobity
+
+from openfold.np import protein
 
 class Assay():
 	"""
@@ -23,8 +30,10 @@ class Assay():
 		5. Perform Molprobity validation.
 	"""
 	def __init__( self, sys_name: str,
-						analysis_config = analysis_config,
+						analysis_config: ConfigDict,
 						modeling_output_dir: str,
+						analysis_dir: str,
+						struct_format: str,
 						seed_worker,
 						cores: int, prec: int ):
 		seed_worker()
@@ -34,12 +43,14 @@ class Assay():
 		self.analysis_config = analysis_config
 		# Output modeling dir for the system.
 		self.modeling_output_dir = modeling_output_dir
+		self.analysis_dir = analysis_dir
+		self.struct_format = struct_format
 		# No. of CPU cores to use.
 		self.cores = 5
 		# precision for floats.
 		self.prec = 4
 
-		self.analysis_stats = {}
+		self.analysis_dict = {}
 
 
 	def forward( self ):
@@ -51,9 +62,12 @@ class Assay():
 		self.load_analysis_dict()
 		self.load_stats_file()
 		self.run_analysis_pipeline()
-		self.save_results()
+		self.create_analysis_plot()
 
-		self.analysis_dict["time_taken"] = ts - time.perf_counter()
+		time_taken = ts - time.perf_counter()
+		self.analysis_dict["time_taken"] = time_taken
+		print( f"Time taken for analysis = {time_taken/60} minutes " +
+				f"OR {time_taken/3600} hours")
 		self.save_analysis_dict()
 
 
@@ -61,10 +75,15 @@ class Assay():
 		"""
 		Create the required file paths.
 		"""
-		# JSON file to save model_num for good and bad models.
-		self.clustering_output = os.path.join( self.analysis_dir,
-										f"{self.sys_name}_clustered_models.json" )
+		# Stat file from modeling output.
 		self.stats_file = os.path.join( self.modeling_output_dir, "Stats.npy" )
+		self.analysis_dict_file = os.path.join( self.analysis_dir,
+											"analysis_dict.npy" )
+
+		self.ensemble_dir = os.path.join( self.modeling_output_dir,
+										f"{self.sys_name}_ensemble" )
+		self.plot_file = os.path.join( self.analysis_dir,
+										"analysis_plot1.png" )
 
 
 	def create_required_dir( self ):
@@ -91,7 +110,7 @@ class Assay():
 		"""
 		Load the stats file.
 		"""
-		if od.path.exists( analysis_dict_file ):
+		if os.path.exists( self.analysis_dict_file ):
 			self.analysis_dict = np.load(
 				self.analysis_dict_file,
 				allow_pickle = True ).item()
@@ -109,11 +128,12 @@ class Assay():
 		"""
 		Run the different analysis steps.
 		"""
-		model_ids = self.stats_dict["model_id"]
-		protein_obj self.stats_dict["protein"]
+		model_ids = np.array( self.stats_dict["model_id"] )
+		protein_obj = self.stats_dict["protein"]
 
 		input_dict = self.get_assessment_metrics()
 
+		print( "\n--> Selecting good-scoring models <--" )
 		if not "good_models" in self.analysis_dict:
 			good_models_index = self.select_good_scoring_models( input_dict )
 			good_models = model_ids[good_models_index]
@@ -124,11 +144,12 @@ class Assay():
 			good_models = self.analysis_dict["good_models"]
 			good_models_index = self.analysis_dict["good_models_index"]
 
-
+		print( "\n--> Removing structurally similar models <--" )
 		if not "selected_good_models" in self.analysis_dict:
-			selected_model_index, rmsd_dict = self.assess_structural_similarity(
+			selected_model_index, rmsd_dict = self.filter_similar_models(
 				good_models = good_models
 			)
+			print( selected_model_index )
 			selected_good_models = model_ids[selected_model_index]
 			self.analysis_dict["selected_model_index"] = selected_model_index
 			self.analysis_dict["selected_good_models"] = selected_good_models
@@ -138,21 +159,24 @@ class Assay():
 			selected_good_models = self.analysis_dict["good_models"]
 			selected_model_index = self.analysis_dict["good_models_index"]
 
-		data_satisfaction = self.assess_data_satisfaction(
-			good_models_index = selected_model_index
-		)
+		print( "\n--> Assessing data satisfaction for good-scoring models <--" )
+		self.assess_data_satisfaction( good_models_index = selected_model_index )
 
+		print( "\n--> Running AMBER relaxation <--" )
 		if not "relax" in self.analysis_dict:
-			relax_dict = self.run_amber_relaxation(
-				good_models = good_models,
-				protein_obj = protein_obj[]
+			subset_protein_obj = {k: protein_obj[k] for k in protein_obj if k in selected_model_index}
+			relax_dict, relaxed_model_dir = self.run_amber_relaxation(
+				good_models = selected_good_models,
+				protein_obj = subset_protein_obj
 			)
 			self.analysis_dict["relax"]  = relax_dict
 			self.save_analysis_dict()
 
+		print( "\n--> Running MolProbity validation <--" )
 		if not "molprob" in self.analysis_dict:
 			molprob_dict = self.run_molprobity_validation(
-				good_models = selected_good_models
+				good_models = selected_good_models,
+				relaxed_model_dir = relaxed_model_dir
 			)
 			self.analysis_dict["molprob"] = molprob_dict
 			self.save_analysis_dict()
@@ -168,7 +192,7 @@ class Assay():
 			"model_id": np.array( self.stats_dict["model_id"] ).reshape( -1, 1 )
 		}
 
-		assessment_metrics = self.clustering_config.assessment_metrics
+		assessment_metrics = self.analysis_config.assessment_metrics
 
 		for metric in assessment_metrics:
 			category, name = metric.split( "-" )
@@ -186,9 +210,9 @@ class Assay():
 			data satisfaction metrics: xl satisfaction.
 		Good models: high data satisfaction and low physical violations.
 		"""
-		clust = Clustering(
-				"config": self.analysis_config.model_selection,
-				"assessment_metrics": self.analysis_config.assessment_metrics
+		clust = SelectGoodModels(
+				config = self.analysis_config.model_selection,
+				assessment_metrics = self.analysis_config.assessment_metrics
 			)
 		clust.forward( input_dict = input_dict )
 		good_models_index = clust.good_models
@@ -202,15 +226,15 @@ class Assay():
 		Remove models with high structural similarity (RMSD <= 0.5).
 		"""
 		struct_sim = StructuralSimilarity(
-			sys_name: self.sys_name,
-			rmsd_config: self.analysis_config.structural_similarity,
-			model_ids: good_models,
-			struct_format: self.struct_format,
-			analysis_dir: self.analysis_dir,
-			ensemble_dir: self.ensemble_dir
+			sys_name = self.sys_name,
+			rmsd_config = self.analysis_config.structural_similarity,
+			model_ids = good_models,
+			struct_format = self.struct_format,
+			analysis_dir = self.analysis_dir,
+			ensemble_dir = self.ensemble_dir
 			)
 		struct_sim.forward()
-		selected_model_index = copy( struct_sim.selected_model_index )
+		selected_model_index = copy.copy( struct_sim.selected_model_index )
 		rmsd_dict = copy.deepcopy( struct_sim.rmsd_dict )
 		del struct_sim
 		return selected_model_index, rmsd_dict
@@ -222,59 +246,103 @@ class Assay():
 		Assess data satisfaction for the good-scoring models.
 		Currently implemented only for XL data.
 		"""
+		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
+		violation = np.array( self.stats_dict["loss"]["violation"] )
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models_index]
 
 		num_xls = global_satisfaction_array.shape[1]
-		total_satisfied = np.count_nonzero( global_satisfaction_array )
-		data_satisfaction = total_satisfied/num_xls
+		total_satisfied = np.count_nonzero(
+			np.sum( global_satisfaction_array, axis = 0 )
+			)
+		global_data_sat = total_satisfied/num_xls
+		per_model_xl_sat = xlr[good_models_index]
+		per_model_viol = violation[good_models_index]
 
-		return data_satisfaction
+		self.analysis_dict["per_model_xl_sat"] = per_model_xl_sat
+		self.analysis_dict["per_model_viol"] = per_model_viol
+		self.analysis_dict["global_data_satisfaction"] = global_data_sat
 
 	################################################################################
 	################################################################################
-	def run_amber_relaxation( self, good_models_index: np.array ):
+	def run_amber_relaxation( self, good_models: np.array, protein_obj: Dict[int, protein.Protein] ):
 		"""
 		Run AMBER relaxation for the good-scoring models.
 		"""
 		relax = AmberRelaxation(
 			sys_name = self.sys_name,
 			amber_config = self.analysis_config.relax,
-			model_ids = model_ids,
+			model_ids = good_models,
 			protein_obj_dict = protein_obj,
 			analysis_dir = self.analysis_dir
 		)
 		relax.forward()
 
 		relax_dict = copy.deepcopy( relax.relax_dict )
+		relaxed_model_dir = self.relaxed_model_dir
 		del relax
-		return relax_dict
+		return relax_dict, relaxed_model_dir
 
 	################################################################################
 	################################################################################
-	def run_molprobity_validation( self, good_models: np.array ):
+	def run_molprobity_validation( self, good_models: np.array,
+									relaxed_model_dir: str ):
 		"""
 		Run MolProbity validation for the good-scoring models.
 		"""
 		molprob = Molprobity(
 			sys_name = self.sys_name,
-			molprob_config = self.analysis_config.relax,
+			molprob_config = self.analysis_config.molprobity,
 			model_ids = good_models,
+			cores = self.cores,
+			struct_format = self.struct_format,
 			analysis_dir = self.analysis_dir,
-			ensemble_dir: self.ensemble_dir
+			relax_ensemble_dir = relaxed_model_dir,
+			unrelax_ensemble_dir = self.ensemble_dir
 		)
 		molprob.forward()
 
-		molprob_dict = copy.deepcopy( relax.molprob_dict )
+		molprob_dict = copy.deepcopy( molprob.molprob_dict )
 		del molprob
 		return molprob_dict
 
+
+	def write_molprobity_output_to_csv( self ):
+		"""
+		Write the MolProbity validation metrics
+		"""
+
 	################################################################################
 	################################################################################
-	def save_results( self ):
+	def create_analysis_plot( self ):
 		"""
-		Save analysis results on disk.
+		Create plots for all sampled vs good-scoring models
+			1. Distribution of violations
+			2. Distribution of xl satisfaction
 		"""
+		plt.rcParams["font.family"] = "sans"
+		_, ax = plt.subplots( 1, 2, figsize = ( 30, 20 ) )
+
+		as_viol = self.stats_dict["loss"]["violation"]
+		as_avg_viol = np.mean( as_viol )
+		gs_viol = self.analysis_dict["per_model_viol"]
+		gs_avg_viol = np.mean( gs_viol )
+		ax[0].violinplot( [as_viol, gs_viol] )
+		ax[0].set_title( "Distribution of per model Violations", fontsize = 35 )
+		ax[0].tick_params( axis = "both" , labelsize = 18, length = 10, width = 4 )
+		ax[0].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+
+		as_xl = self.stats_dict["metrics"]["xlr"]
+		as_avg_xl = np.mean( as_xl )
+		gs_xl = self.analysis_dict["per_model_xl_sat"]
+		gs_avg_xl = np.mean( gs_xl )
+		ax[1].violinplot( [as_xl, gs_xl] )
+		ax[1].set_title( "Distribution of per model XL satisfaction", fontsize = 35 )
+		ax[1].tick_params( axis = "both" , labelsize = 18, length = 10, width = 4 )
+		ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+
+		plt.savefig( self.plot_file, dpi = 300 )
+		plt.close()
 
 
 
