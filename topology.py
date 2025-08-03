@@ -15,8 +15,8 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "2ayo with mse_xlr. " +
-		"Phishing out PDB IDs..",
+	"objective": "Testing. " +
+		"8wtd",
 	"system": {},
 	"system_representation": {
 		"init_model_prefix": "_unrelaxed",
@@ -167,7 +167,8 @@ config = mlc.ConfigDict(
 		}
 	},
 	"analysis": {
-		"assessment_metrics": ["loss-violation", "metric-xlr"],
+		"enable_relax_validate": True,
+		"assessment_metrics": ["loss-violation", "metrics-xlr"],
 		"model_selection": {
 			"method": {
 				"kmeans": {
@@ -194,27 +195,40 @@ config = mlc.ConfigDict(
 				# 	"min_sample": None,
 				# 	"store_centers": False
 				# }
-			}
+			},
+			"scale_data": False
 		},
-		"amber":{
-			"max_iterations": ,
-			"tolerance": ,
-			"stiffness": ,
-			"exclude_residues": ,
-			"max_outer_iterations": ,
-			"use_gpu": False,
-			"parallelize": True,
+		"structural_similarity": {
+			"usalign_script": "USalign",
+			"prot": "prot",
+			"mm": 1,
+			"ter": 1,
+			"similarity_cutoff": 1.0,
+			"clean_up": False
+		},
+		"relax":{
+			"max_iterations": 0,  # no max
+			"tolerance": 2.39,
+			"stiffness": 10.0,
+			"exclude_residues": [],
+			"max_outer_iterations": 20,
+			"use_gpu": True,
+			"parallelize": False,
 			"cpu_cores": 16,
 			"output_format": "pdb",
 			"relaxed_model_dir": "relaxed_models",
-			"save_single_model": True
+			"save_single_model": True,
 			"amber_logs_file": "Logs_amber"
+			},
+		"molprobity":{
+			"clean_up": False
 			}
-	}
+	},
 	"train": {
-		"version": 0,
+		"version": 1,
 		"mode": "test",
-		"max_epochs": 50,
+		"max_epochs": 100,
+		"struct_format": "pdb",
 		"allow_mcpa": True,
 		"allow_grad_update": True,
 		"device": "cuda:0"
