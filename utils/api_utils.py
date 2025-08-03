@@ -17,7 +17,7 @@ from utils.utils import ( read_json,
 						run_subprocess )
 from utils.pdb_utils import aa_3_to_1
 
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
 
 ####################################################################################

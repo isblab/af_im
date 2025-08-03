@@ -175,19 +175,20 @@ def run_subprocess( command: List,
 	"""
 	if len( command ) != 0:
 		try:
-			if stdout_file is None:
-				retcode = subprocess.run( command,
-										capture_output = True,
-										text = True,
-										check = True )
-			else:
+			result = subprocess.run( command,
+									capture_output = True,
+									text = True,
+									check = True )
+			if stdout_file is not None:
 				w = open_file_handler( stdout_file, "w" )
-				retcode = subprocess.run( command,
-										stdout_obj = w,
-										capture_output = True,
-										text = True,
-										check = True )
+				w.write( result.stdout )
 				w.close()
+				
+				# retcode = subprocess.run( command,
+				# 						stdout_obj = w,
+				# 						capture_output = True,
+				# 						text = True,
+				# 						check = True )
 
 		except subprocess.CalledProcessError as e:
 			print( "Writing error to log file..." )

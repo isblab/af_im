@@ -28,7 +28,7 @@ from openfold.data import feature_pipeline
 
 from utils.utils import open_file_handler
 
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
 # Taken from openfold.np.protein.py
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
