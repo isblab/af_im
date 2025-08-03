@@ -20,7 +20,7 @@ from topology import topology_dict
 from data_gathering import DataGathering
 from system_representation import SystemRepresentation
 from fit_to_data import FitToData
-# from assay import Assay
+from analysis.assay import Assay
 from utils.create_plots import ( create_plot_from_dict,
 								plot_scalar_metrics,
 								plot_xl_map )
@@ -47,7 +47,7 @@ class IntegrativeLearning():
 		# Name for the dir to store modeling output.
 		self.modeling_dir_name = modeling_dir_name
 		# If True, will overwrite an existing dir without warning.
-		self.disable_overwrite_warning = False
+		self.disable_overwrite_prompt = False
 		# mono/multi
 		self.pred_mode = "multi"
 
@@ -112,19 +112,27 @@ class IntegrativeLearning():
 		# Save topology file on disk.
 		self.save_topology_file()
 
-		print( "\n" + "-"*70 + "\n" +"-"*27 + " Data gathering " + "-"*27 + "\n" + "-"*70 + "\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*27 +
+			" \033[1mData gathering\033[0m " +
+			"-"*27 + "\n" + "-"*70 + "\n" )
 		restraint_features = self.run_data_gathering()
 
-		print( "\n" + "-"*70 + "\n" +"-"*24 + " System representation " + "-"*24 + "\n" + "-"*70 + "\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*24 +
+			" \033[1mSystem representation\033[0m " +
+			"-"*23 + "\n" + "-"*70 + "\n" )
 		system_features = self.run_system_representation()
 		# Add restraint features to system features dict.
 		system_features["restraint_features"] = restraint_features
 
-		print( "\n" + "-"*70 + "\n" +"-"*29 + " Fit to Data " + "-"*29 + "\n" + "-"*70 + "\n" )
+		print( "\n" + "-"*70 + "\n" +"-"*29 +
+			" \033[1mFit to Data\033[0m "
+			+ "-"*28 + "\n" + "-"*70 + "\n" )
 		fit = self.run_fit_to_data( restraint_features, system_features )
 
-		print( "\n" + "-"*70 + "\n" +"-"*26 + " \033[9m Analysis \033[0m Assay " + "-"*26 + "\n" + "-"*70 + "\n" )
-		# self.run_analysis( fit )
+		print( "\n" + "-"*70 + "\n" +"-"*26 +
+			" \033[1m\033[9m Analysis \033[0m Assay\033[0m " +
+			"-"*26 + "\n" + "-"*70 + "\n" )
+		self.run_analysis( fit )
 
 		toc = time.time()
 		time_file = os.path.join( self.modeling_output_dir, "Time_taken.txt" )
@@ -228,15 +236,12 @@ class IntegrativeLearning():
 		"""
 		Instantiate and run the Analysis module.
 		"""
-		# Model IDs are just the epoch numbers.
-		models_ids = np.arange( 0, self.topology.train.max_epochs, 1 )
 		Assay(
 			sys_name = self.sys_name,
-			# base_dir = self.base_dir,
-			model_ids = models_ids,
-			model_dir = fit.ensemble_dir,
-			# ensmeble_file = f"{fit.ensemble_file}.pdb",
-			output_dir = self.modeling_output_dir,
+			analysis_config = self.topology.analysis,
+			modeling_output_dir = self.modeling_output_dir,
+			analysis_dir = self.analysis_dir,
+			struct_format = self.topology.train.struct_format,
 			seed_worker = self.seed_worker,
 			cores = self.cpu_cores,
 			prec = self.prec
@@ -273,6 +278,7 @@ class IntegrativeLearning():
 		os.makedirs( self.sys_modeling_dir, exist_ok = True )
 		# os.makedirs( self.modeling_mode, exist_ok = True )
 		os.makedirs( self.modeling_output_dir, exist_ok = True )
+		os.makedirs( self.analysis_dir, exist_ok = True )
 
 
 
@@ -282,13 +288,6 @@ class IntegrativeLearning():
 		"""
 		# Dir to store modeling outputs.
 		self.base_modeling_dir = os.path.join( self.base_dir, self.modeling_dir_name )
-
-		# # Path to the OpenFold dir.
-		# self.openfold_dir = os.path.join( os.path.abspath( "./openfold/" ) )
-		# # Path to the OpenFold params to be used.
-		# self.openfold_params = os.path.join(
-		# 						os.path.abspath( f"openfold/resources/params/params_{self.config_preset}.npz" )
-		# 						)
 
 		# Directory containing the fasta file for the system to be modeled.
 		self.fasta_dir = os.path.abspath( 
@@ -300,9 +299,6 @@ class IntegrativeLearning():
 								)
 		# Directory storing the precomputed alignments.
 		self.alignment_dir = os.path.join( self.ofold_output_dir, "alignments" )
-
-		# Path for the OpenFold inference script.
-		# self.script = os.path.abspath( "./openfold/run_pretrained_openfold.py" )
 
 		# Create directory to store output.
 		# 	separate directory is created for mode = test/prod.
@@ -316,6 +312,9 @@ class IntegrativeLearning():
 		# Dir to store all modeling results for a version.
 		self.modeling_output_dir = os.path.join( self.sys_modeling_dir,
 												f"version_{version}/" )
+		# Dir to store analysis results.
+		self.analysis_dir = os.path.join( self.modeling_output_dir,
+												f"analysis/" )
 
 		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
@@ -329,12 +328,6 @@ class IntegrativeLearning():
 
 		# File path for the stats file.
 		self.stats_file = os.path.join( self.modeling_output_dir, "Stats.npy" )
-		# # File path for the loss dict.
-		# self.loss_dict_file = os.path.join( self.modeling_output_dir, "Loss.npy" )
-		# # File path for the metrics dict.
-		# self.scalar_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_scalar.npy" )
-		# # File path for the metrics dict.
-		# self.other_metric_dict_file = os.path.join( self.modeling_output_dir, "Metrics_other.npy" )
 
 		# Output summary file.
 		self.summary_file = os.path.join( self.modeling_output_dir, "Summary.csv" )
@@ -361,7 +354,7 @@ class IntegrativeLearning():
 		Just to avoid accidently overwriting.
 		"""
 		
-		if not self.disable_overwrite_warning:
+		if not self.disable_overwrite_prompt:
 			if os.path.exists( self.modeling_output_dir ):
 				overwrite = input( f"Output directory: '{self.modeling_output_dir}' exists. Wanna continue (Y or n)? " )
 				if overwrite:
@@ -388,10 +381,6 @@ class IntegrativeLearning():
 		Save the stats dict on disk.
 		"""
 		np.save( self.stats_file, stats_dict, allow_pickle = True )
-		# np.save( self.loss_dict_file, loss_dict, allow_pickle = True )
-		# np.save( self.scalar_metric_dict_file, scalar_metric_dict, allow_pickle = True )
-		# np.save( self.other_metric_dict_file, other_metric_dict, allow_pickle = True )
-
 
 
 	def plot_metrics( self,
@@ -402,7 +391,6 @@ class IntegrativeLearning():
 		"""
 		create_plot_from_dict( loss_dict, self.loss_plot_file )
 		plot_scalar_metrics( metrics_dict, self.metrics_plot_file )
-
 
 
 	def write_summary( self,
@@ -441,10 +429,9 @@ class IntegrativeLearning():
 							)
 			df_dict[k].extend( "" for i in range( num_global_labels ) )
 
-		print( metadata.keys() )
-		print( metadata["xlr"].keys() )
 		df_dict.update( {f"{k}_metric":[] for k in metrics_dict.keys()} )
 		for k, v in metrics_dict.items():
+			print( f"Global {k} satisfaction = ", metadata[k]["global_satisfaction"] )
 			df_dict[f"{k}_metric"].extend(
 							[v[0],
 							v[-1],
@@ -455,32 +442,24 @@ class IntegrativeLearning():
 							]
 							)
 
-
-			# if k == "xlr":
-			# 	global_xl_satisfied = int( torch.count_nonzero( other_metric_dict[k] ) )
-			# 	total_xls = restraint_features["xl_restraint"]["total_xls"]
-			# 	print( global_xl_satisfied, "  ", total_xls )
-			# 	global_xl_satisfied = round( global_xl_satisfied/total_xls, self.prec )
-
-
 		df = pd.DataFrame( df_dict )
 		df.to_csv( self.summary_file, index = False )
 
 
 if __name__ == "__main__":
-	sys_name = "8gtj"
+	sys_name = "8wtd"
 	topology_dict = topology_dict()
-	base_dir = os.path.join( "./benchmark/" )
+	base_dir = os.path.join( os.path.abspath( "./benchmark/" ) )
 	# Directory containing input data for the modeled system.
 	data_dir = os.path.join( base_dir,
-							f"afu_benchmark/{sys_name}/" )
+							f"xlsim_benchmark/{sys_name}/" )
 	modeling_dir_name = "modeling"
 
-	IntegrativeLearning( sys_name,
-						base_dir,
-						data_dir,
-						f"sys_config_{sys_name}.json",
-						# base_path,
-						modeling_dir_name,
-						topology_dict ).forward()
+	IntegrativeLearning( sys_name = sys_name,
+						base_dir = base_dir,
+						data_dir = data_dir,
+						sys_config_file = f"sys_config_{sys_name}.json",
+						modeling_dir_name = modeling_dir_name,
+						topology_dict = topology_dict
+						).forward()
 
