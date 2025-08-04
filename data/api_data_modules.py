@@ -779,6 +779,7 @@ class SeqResDict():
 		self.frac_coverage = frac_coverage
 
 		self.seqres_dict = {}
+		self.resolution_dict = {}
 		self.cif_logs = {}
 
 
@@ -955,6 +956,7 @@ class SeqResDict():
 
 		obj = MmcifDictParser( file )
 		prot_entity_ids, _ = obj.get_protein_entity_ids()
+		resolution = obj.get_resolution()
 		seqres_dict = copy.deepcopy(
 			obj.get_protein_entity_details()
 			)
@@ -996,7 +998,7 @@ class SeqResDict():
 			# 	logs["non_standard_aa"] = entry_id
 			# 	cif_dict = None
 			# 	coverage = []
-		return entry_id, cif_dict, logs
+		return entry_id, cif_dict, resolution, logs
 
 
 	def get_cif_dict_in_parallel( self ):
@@ -1008,7 +1010,7 @@ class SeqResDict():
 				p.imap_unordered( self.get_cif_dict_for_entry,
 									self.pdb_ids_list ),
 				total = len( self.pdb_ids_list ) ):
-				entry_id, cif_dict, logs = result
+				entry_id, cif_dict, resolution, logs = result
 
 				if cif_dict is None:
 					for k in logs:
@@ -1020,3 +1022,4 @@ class SeqResDict():
 					# 	self.cif_logs["low_coverage"][1] += 1
 					# else:
 					self.seqres_dict[entry_id] = cif_dict
+					self.resolution_dict[entry_id] = resolution

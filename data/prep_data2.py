@@ -125,6 +125,7 @@ class Metadata():
 		# For SeqResDict module
 		## --------------------------
 		self.seqres_dict_file = os.path.join( self.meta_dir, "seqres_dict.npy" )
+		self.resolution_dict_file = os.path.join( self.meta_dir, "resolution_dict.json" )
 		self.pdb_num_seq_id_map_file = os.path.join( self.meta_dir, "pdb_num_seq_id_map.npy" )
 
 		## --------------------------
@@ -351,6 +352,7 @@ class Metadata():
 			obj.forward()
 
 			self.seqres_dict = copy.deepcopy( obj.seqres_dict )
+			self.resolution_dict = copy.deepcopy( obj.resolution_dict )
 			self.logs["SeqResDict"] = copy.deepcopy( obj.cif_logs )
 
 			del obj
@@ -363,6 +365,7 @@ class Metadata():
 			np.save( self.pdb_num_seq_id_map_file,
 					self.pdb_num_seq_id_map,
 					allow_pickle = True )
+			write_json( self.resolution_dict, self.resolution_dict_file )
 
 			write_json( self.logs, self.logs_file )
 
