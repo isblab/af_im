@@ -301,9 +301,9 @@ class CreateBenchmark():
 		# Save TP XLs to sys dir.
 		if self.dataset_configs["jwalk"]["add_fp"]:
 			xl_file = f"interprotein_xls_tpfp.csv"
-			sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
+			sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}_tpfp.json" )
 		else:
-			xl_file = f"interprotein_xls_tpfp.csv"
+			xl_file = f"interprotein_xls.csv"
 			sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
 		sys_dict = self.create_sys_dict( 
 										sys_name = sys_name,
