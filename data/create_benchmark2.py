@@ -2,7 +2,7 @@
 Create input for the benchmark dataset for modeling.
 """
 from typing import List, Dict
-import os
+import os, math
 import numpy as np
 import pandas as pd
 from utils.utils import ( open_file_handler,
@@ -268,7 +268,8 @@ class CreateBenchmark():
 		if self.dataset_configs["jwalk"]["add_fp"]:
 			frac_fp = self.dataset_configs["jwalk"]["frac_fp"]
 
-			num_fp_xls = self.frac_fp*xls_df.shape[0]
+			num_fp_xls = math.ceil( frac_fp*xls_df.shape[0] )
+			indexes = list( fp_xls.index )
 			sampled_idx = np.random.choice( a = indexes,
 											size = num_fp_xls,
 											replace = False )
@@ -298,8 +299,12 @@ class CreateBenchmark():
 		Save both in sys_dir.
 		"""
 		# Save TP XLs to sys dir.
-		xl_file = f"interprotein_xls.csv"
-		sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
+		if self.dataset_configs["jwalk"]["add_fp"]:
+			xl_file = f"interprotein_xls_tpfp.csv"
+			sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
+		else:
+			xl_file = f"interprotein_xls_tpfp.csv"
+			sys_dict_file = os.path.join( sys_dir, f"sys_config_{sys_name}.json" )
 		sys_dict = self.create_sys_dict( 
 										sys_name = sys_name,
 										entities = entities,
