@@ -15,25 +15,28 @@ from openfold_wrapper import IntegrativeLearning
 from topology import topology_dict
 from utils.utils import ( open_file_handler, read_json, write_json, run_subprocess )
 
+# 14: 8i4g -> model 19: 100 max_epochs
 
 class ModelingBenchmark():
 	def __init__( self ):
 		self.benchmark_name = "xlsim"  # xlsim/abag/oreilly
 		# Define the modeling objective.
-		self.modeling_objective = "test."
+		self.modeling_objective = "No FAPE and supervised_chi loss."
 		self.modeling_version = 1
 		# Maximum no. of epochs for fine-tuning.
-		self.max_epochs = 10
+		self.max_epochs = 100
 		# Set GPU to use.
 		self.device = "cuda:0"
 		# Use full or reduced dataset for prediction - full_dbs/reduced_dbs.
 		self.db_preset = "full_dbs"
+		# If True, skip re-running modeling if output files already exist.
+		self.skip_rerun = False
 		# If True run AMBER relaxation and MolProbity validation.
 		self.enable_relax_validate = True
 		# If True, will not show prompt for existing modeling dir.
 		self.disable_overwrite_prompt = True
 		# if True, deletes the existing system modeling dir.
-		self.remove_sys_modeling_dir = True
+		self.remove_sys_modeling_dir = False
 		# if True, deletes the existing system analysis dir.
 		self.remove_sys_analysis_dir = False
 
@@ -61,6 +64,8 @@ class ModelingBenchmark():
 
 		# self.write_misc_details( toc-tic )
 		self.record_configs( total_time = toc-tic )
+
+		print( "\nMay the Force be with you..." )
 
 	################################################################################
 	################################################################################
@@ -112,7 +117,7 @@ class ModelingBenchmark():
 			modeling_dir_path = self.get_sys_modeling_version_path( sys_name = sys_name )
 			if os.path.exists( modeling_dir_path ):
 				warnings.warn( f"Deleting modeling dir for system {sys_name} -> {modeling_dir_path}..." )
-				print( "Changed your mind? Acts now..." )
+				print( "Changed your mind? Act now..." )
 				time.sleep( 5 )
 				cmd = ["rm", "-r", f"{modeling_dir_path}"]
 				run_subprocess( command = cmd )
@@ -188,22 +193,21 @@ class ModelingBenchmark():
 			print( "\n" + "-"*70 + "\n" + "-"*70 )
 			print( f"{idx}/{self.num_systems} --> {sys_name}" )
 			print( "-"*70 + "\n" + "-"*70 + "\n" )
-			sys_path = self.get_sys_path( sys_name )
-			stat_file_path = self.get_stat_file_path( sys_path )
+			stat_file_path = self.get_stat_file_path( sys_name = sys_name )
 
 			# remove system modleing and/or analysis dir if specified.
 			self.remove_existing_dir( sys_name = sys_name )
 
-			if not os.path.exists( stat_file_path ):
+			if os.path.exists( stat_file_path ) and self.skip_rerun:
+				print( f"Summary file already present for {sys_name}..." )
+			else:
 				tic = time.perf_counter()
-				self.run_modeling_for_system( sys_name )
+				self.run_modeling_for_system( sys_name = sys_name )
 				toc = time.perf_counter()
 
 				self.logs["time"][sys_name] = toc-tic
 
 				write_json( self.logs, self.logs_file )
-			else:
-				print( f"Summary file already present for {sys_name}..." )
 
 			# Log memory used.
 			self.log_memory_usage( sys_name = sys_name )
@@ -250,9 +254,9 @@ class ModelingBenchmark():
 			Plot distribution of per epoch values for each system.
 			Plot distribution of avg values across systems.
 		"""
-		print( "Creating plots..." )
+		print( "\n" + "-"*70 + "\n\t\t\t\033[1m--> Creating plots <--\033[0m\n" + "-"*70 )
 		self.plot_per_epoch_distribution()
-		self.plot_avg_distribution()
+		# self.plot_avg_distribution()
 
 
 	def get_dict_for_source( self, sys_name: str, source: str ):
@@ -267,6 +271,7 @@ class ModelingBenchmark():
 		else:
 			raise ValueError( f"Incorrect source name: {source}. " +
 							"Supported 'all_sampled' or 'good-scoring'..." )
+		return data_dict
 
 
 	def get_input_for_per_epoch_plots( self, source: str ):
@@ -277,6 +282,7 @@ class ModelingBenchmark():
 		"""
 		xl_satisfaction_list = []
 		global_satisfaction_list = []
+		epoch0_xl_satisfaction_list = []
 		violations_list = []
 		ccom_list = []
 		complexes_list = []
@@ -284,50 +290,60 @@ class ModelingBenchmark():
 			data_dict = self.get_dict_for_source(
 				sys_name = sys_name,
 				source = source )
-			complexes.append( sys_name )
+			complexes_list.append( sys_name )
 			if source == "all_sampled":
-				xl_satisfaction.append(
+				xl_satisfaction_list.append(
 					data_dict["metrics"]["xlr"]
 				)
-				violations.append(
+				epoch0_xl_satisfaction_list.append(
+					data_dict["metrics"]["xlr"][0]
+				)
+				violations_list.append(
 					data_dict["loss"]["violation"]
 				)
-				ccom.append(
+				ccom_list.append(
 					data_dict["loss"]["chain_center_of_mass"]
 				)
 			else:
-				xl_satisfaction.append( data_dict["per_model_xl_sat"] )
-				violations.append( data_dict["per_model_viol"] )
-				ccom.append( data_dict["per_model_ccom"] )
-				global_satisfaction.append( data_dict["global_data_satisfaction"] )
+				x = self.get_dict_for_source(
+					sys_name = sys_name,
+					source = "all_sampled" )
+				epoch0_xl_satisfaction_list.append(
+					x["metrics"]["xlr"][0]
+				)
 
-		return ( complexes_list, xl_satisfaction_list,
+				xl_satisfaction_list.append( data_dict["per_model_xl_sat"] )
+				global_satisfaction_list.append( data_dict["global_data_satisfaction"] )
+				violations_list.append( data_dict["per_model_viol"] )
+				ccom_list.append( data_dict["per_model_ccom"] )
+
+		return ( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
 				global_satisfaction_list, violations_list, ccom_list )
 
 
-	def create_violin( self, data: List, ax, r: int, c: int, color: str, ylabel: str ):
+	def create_violin( self, data: List, ax, r: int, color: str, ylabel: str ):
 		"""
 		Create a violinplot with the required formatting.
 		"""
-		vp = ax[r, c].violinplot( dataset = xl_satisfaction, orientation = "vertical",
+		vp = ax[r].violinplot( dataset = data, orientation = "vertical",
 									showmeans = True, showextrema = True )
 		for body in vp["bodies"]:
-			body.set_alpha( 0.7 )
+			# body.set_alpha( 0.4 )
 			body.set_facecolor( color )
 		# Change color and width of the central line.
 		vp["cbars"].set_color( "black" )
-		vp["cbars"].set_linewidth( 2 )
+		vp["cbars"].set_linewidth( 1 )
 		# Change color and width of the minimum line.
 		vp["cmins"].set_color( "black" )
-		vp["cmins"].set_linewidth( 2 )
+		vp["cmins"].set_linewidth( 1 )
 		# Change color and width of the maximum line.
 		vp["cmaxes"].set_color( "black" )
-		vp["cmaxes"].set_linewidth( 2 )
+		vp["cmaxes"].set_linewidth( 1 )
 		# Change color and width of the mean line.
 		vp["cmeans"].set_color( "blue" )
-		vp["cmeans"].set_linewidth( 4 )
-		ax[r, c].tick_params( axis = "both" , labelsize = 25, length = 10, width = 4 )
-		ax[r, c].set_ylabel( ylabel, fontsize = 25 )
+		vp["cmeans"].set_linewidth( 2 )
+		ax[r].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
+		ax[r].set_ylabel( ylabel, fontsize = 20 )
 
 
 	def plot_per_epoch_distribution( self ):
@@ -336,36 +352,43 @@ class ModelingBenchmark():
 			 loss, ccom loss, and xl satisfaction for each systems.
 		 Create separate plots for each term.
 		"""
-		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 3, 1, figsize = ( 30, 20 ) )
 		all_sampled = self.get_input_for_per_epoch_plots( source = "all_sampled" )
 		good_scoring = self.get_input_for_per_epoch_plots( source = "good_scoring" )
 		color = ["lightblue", "orange"]
 
-		complex_idx = np.arange( 1, len( complexes_list ) + 1 )
-		plt.xticks( complex_idx, complexes_list )
+		# i = 0
+		for name, out in zip( ["all_sampled", "good_scoring"], [all_sampled, good_scoring] ):
+			plt.rcParams["font.family"] = "sans"
+			_, ax = plt.subplots( 3, 1, figsize = ( 30, 20 ) )
 
-		i = 0
-		for out in [all_sampled, good_scoring]:
-			( complexes_list, xl_satisfaction_list,
+			( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
 					global_satisfaction_list, violations_list, ccom_list ) = out
 
-			self.create_violin( data = xl_satisfaction_list, ax = ax, r = 0, c = 0,
-								color = color[i], ylabel = "Per model XL satisfaction" )
-			self.create_violin( data = violations_list, ax = ax, r = 1, c = 0,
-								color = color[i], ylabel = "Per model Violations" )
-			self.create_violin( data = ccom_list, ax = ax, r = 2, c = 0,
-								color = color[i], ylabel = "Per model Chain center of mass" )
+			self.create_violin( data = xl_satisfaction_list, ax = ax, r = 0,
+								color = "tab:blue", ylabel = "Per model XL satisfaction" )
+			self.create_violin( data = violations_list, ax = ax, r = 1,
+								color = "tab:blue", ylabel = "Per model Violations" )
+			self.create_violin( data = ccom_list, ax = ax, r = 2,
+								color = "tab:blue", ylabel = "Per model Chain center of mass" )
 
+			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
+			ax[0].set_xticks( complex_idx, complexes_list )
+			ax[1].set_xticks( complex_idx, complexes_list )
+			ax[2].set_xticks( complex_idx, complexes_list )
 			# Plot global XL satisfaction as a triangle.
 			if len( global_satisfaction_list ) != 0:
-				ax[0, 0].scatter( global_satisfaction_list, complex_idx,
-								c = "green", marker = "^", s = 70,
+				ax[0].plot( complex_idx, global_satisfaction_list,
+								c = "green",
 								alpha = 1, linewidth = 2 )
-			i += 1
+			ax[0].plot( complex_idx, epoch0_xl_satisfaction_list,
+							c = "red",
+							alpha = 1, linewidth = 2 )
 
-		path = os.path.join( self.benchmark_modeling_dir, f"per_model_metrics.png" )
-		plt.savefig( path, dpi = 300 )
+			# i += 1
+
+			path = os.path.join( self.benchmark_modeling_dir, f"{name}_per_model_metrics.png" )
+			plt.savefig( path, dpi = 300 )
+			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
 		plt.close()
 
 	################################################################################
@@ -460,7 +483,7 @@ class ModelingBenchmark():
 		"""
 		Load the stat file on memory.
 		"""
-		stat_file_path = self.get_stat_file_path( sys_name )
+		stat_file_path = self.get_stat_file_path( sys_name = sys_name )
 		stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
 		return stats_dict
 
@@ -490,19 +513,19 @@ class ModelingBenchmark():
 		Save on disk as a JSON file.
 		"""
 		if os.path.exists( self.config_file ):
-			self.configs = read_json( self.config_file )
+			configs = read_json( self.config_file )
 		else:
-			self.configs = {}
+			configs = {}
 
 		summed_time = 0
 
-		if "time_taken" in self.configs:
-			for sys_name in self.logs:
-				t = self.logs[sys_name]["time"]
+		if "time_taken" not in configs:
+			for sys_name in self.logs["time"]:
+				t = self.logs["time"][sys_name]
 				summed_time += t
 
 			time_taken = total_time if total_time > summed_time else summed_time
-			self.modeling_configs = {
+			configs = {
 				"time_taken": f"{time_taken} seconds OR {time_taken/3600} hours",
 			}
 
@@ -511,20 +534,20 @@ class ModelingBenchmark():
 		with subprocess.Popen( "hostname", shell = True, stdout = subprocess.PIPE ) as proc:
 			system = proc.communicate()[0]
 
-		self.configs.update( {
+		configs.update( {
 				"timestamp": timestamp,
-				"system": system
+				"system": str( system )
 			} )
 
-		self.configs.update( {
+		configs.update( {
 				"benchmark": self.benchmark_name,
 				"objective": self.modeling_objective,
 				"version": str( self.modeling_version ),
-				"max_epochs": self.max_epochs,
+				"max_epochs": str( self.max_epochs ),
 				"device": self.device,
 				"db_preset": self.db_preset,
 				"enable_relax_validate": self.enable_relax_validate,
-				"disable_overwrite_warning": self.disable_overwrite_warning,
+				"disable_overwrite_prompt": self.disable_overwrite_prompt,
 				"remove_sys_modeling_dir": self.remove_sys_modeling_dir,
 				"remove_sys_analysis_dir": self.remove_sys_analysis_dir,
 				"fape": self.fape,
@@ -543,6 +566,7 @@ class ModelingBenchmark():
 				# "misc_file": self.misc_file,
 				"config_file": self.config_file
 			} )
+		write_json( configs, self.config_file )
 
 
 	# def plot_avg_distribution( self ):
