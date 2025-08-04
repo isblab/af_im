@@ -3,7 +3,7 @@ Contains functions to perform AMBER relaxation.
 Taken from OpenFold.
 """
 from typing import List, Tuple, Dict, Any
-import os, time
+import os, time, warnings
 from ml_collections import ConfigDict
 import numpy as np
 from multiprocessing import Pool
@@ -182,8 +182,11 @@ class AmberRelaxation():
 		"""
 		# model_id, prot = prot.items()
 		model_id, prot = relax_input
-		out = self.amber_relax( prot = prot )
-		min_pdb, debug_dict = self.post_process_relax_output( prot = prot, out = out )
+		out, pdb_str_prior_min = self.amber_relax( prot = prot )
+		min_pdb, debug_dict = self.post_process_relax_output(
+				prot = prot,
+				out = out,
+				pdb_str_prior_min = pdb_str_prior_min )
 
 		return model_id, min_pdb, debug_dict
 
@@ -194,6 +197,8 @@ class AmberRelaxation():
 		Modified implementation of AmberRelaxation.process().
 		Runs Amber relax on a prediction, adds hydrogens, returns PDB string.
 		"""
+		# get pdb_str before minimization.
+		pdb_str_prior_min = amber_minimize.clean_protein( prot )
 		out = amber_minimize.run_pipeline(
 			prot = prot,
 			max_iterations = self.amber_config.max_iterations,
@@ -203,11 +208,11 @@ class AmberRelaxation():
 			max_outer_iterations = self.amber_config.max_outer_iterations,
 			use_gpu = self.amber_config.use_gpu,
 		)
-		return out
+		return out, pdb_str_prior_min
 
 
 	def post_process_relax_output( self, prot: protein.Protein,
-									out: Dict[str, Any]
+									out: Dict[str, Any], pdb_str_prior_min: str
 									) -> Tuple[protein.Protein, Dict[str, float]]:
 		"""
 		Post processing of the AMBER relaxation output.
@@ -228,8 +233,14 @@ class AmberRelaxation():
 			"violations": out["structural_violations"][
 			"total_per_residue_violations_mask"]
 		}
-		# Adds missing atoms to Protein instance.
 		pdb_str = amber_minimize.clean_protein( prot )
+		if min_pos.shape[0] != pdb_str.count("\nATOM"):
+			warnings.warn( "The number of positions must match the number of atoms. " +
+							f"min_pdb = {min_pdb.shape[0]} \t pdb_str = pdb_str.count('\nATOM')\n" +
+							"Using pdb_str before minimization." )
+			pdb_str = pdb_str_prior_min
+
+		# Adds missing atoms to Protein instance.
 		min_pdb = utils.overwrite_pdb_coordinates( pdb_str, min_pos )
 		min_pdb = utils.overwrite_b_factors( min_pdb, prot.b_factors )
 		utils.assert_equal_nonterminal_atom_types(
