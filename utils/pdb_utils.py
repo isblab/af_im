@@ -219,6 +219,35 @@ class MmcifDictParser():
 		return mmcif_dict
 
 
+	def get_resolution( self ):
+		"""
+		Extract the resolution of the structure.
+			"_reflns.d_resolution_high" field.
+		Some PDB entries can have >1 resolution values (8w6x).
+			Just taking the first in such cases.
+		"""
+		# For X-ray structures.
+		if "_reflns.d_resolution_high" in self.mmcif_dict:
+			if "?" in self.mmcif_dict["_reflns.d_resolution_high"]:
+				# e.g. 1osp
+				resolution = self.mmcif_dict["_refine.ls_d_res_high"]
+			else:
+				resolution = self.mmcif_dict["_reflns.d_resolution_high"]
+		# For EM sreuctures.
+		elif "_em_3d_reconstruction.resolution" in self.mmcif_dict:
+			resolution = self.mmcif_dict["_em_3d_reconstruction.resolution"]
+			if "?" in resolution:
+				print( self.cif_file, " <--" )
+		elif "NMR" in self.mmcif_dict["_exptl.method"]:
+			resolution = [0]
+		else:
+			resolution = [0]
+		# Temporary
+		# if len( resolution ) > 1:
+		# 	raise Exception( f"Multiple values for resolution found in {self.cif_file}..." )
+		return round( float( resolution[0] ), 2 )
+
+
 	def get_polymer_entity_ids( self ):
 		"""
 		Return all the polymer entity_id's.
