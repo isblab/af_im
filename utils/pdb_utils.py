@@ -39,6 +39,21 @@ assert PDB_MAX_CHAINS == 62
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
+def get_chain_id( idx: int ) -> str:
+	"""
+	Get a chain ID based on an index.
+	"""
+	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	if idx < len( alphabet ):
+		chain_id = alphabet[idx]
+
+	else:
+		raise ValueError( "Too many chains..." )
+	return chain_id
+
+####################################################################################
+####----------------------------------------------------------------------------####
 def aa_3_to_1( aa ):
 	"""
 	Converts 3-letter amino acid names to symbols
