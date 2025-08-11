@@ -1,6 +1,7 @@
 """
 Contains tools to aid in analysis.
 """
+import warnings
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.analysis import rms, align
@@ -33,7 +34,7 @@ def get_residue_ids( ensemble_file ) -> np.array:
 	Given the selected CA-atoms, return the residue IDs.
 	"""
 	u = load_ensemble( ensemble_file = ensemble_file )
-	ca_atoms = get_selection( u = aligned_u )
+	ca_atoms = get_selection( u = u )
 	return ca_atoms.resids
 
 
@@ -41,11 +42,11 @@ def align_models( u: Universe, ref: Universe, ref_frame = 0 ) -> Universe:
 	"""
 	Align all models to a given model.
 	"""
-	align.AlignTraj( u, ref,
+	aligner = align.AlignTraj( u, ref,
 			select = "protein and name CA",
 			ref_frame = ref_frame,
 			in_memory = True ).run()
-	return u
+	# return u
 
 
 def create_average_model( u: Universe ) -> Universe:
@@ -59,32 +60,33 @@ def create_average_model( u: Universe ) -> Universe:
 	return avg_model
 
 
-def compute_rmsf( u: Universe ) -> np.array:
+def compute_rmsf( ca_atoms: AtomGroup ) -> np.array:
 	"""
 	Compute the RMSF using the MDAnalysis package.
 	rmsf -> [R]; where R is the no. of residues in a model.
 	"""
-	R = rms.RMSF( u, select = "protein and name CA", verbose = True )
+	R = rms.RMSF( ca_atoms )
 	R.run()
-	rmsf = R.rmsf()
+	rmsf = R.rmsf
 	return rmsf
 
 
-def compute_rmsd( u: Universe ) -> np.array:
+def compute_rmsd( to_align: Universe, ref: Universe ) -> np.array:
 	"""
 	Compute the RMSd for all models wrt the first model
 		using the MDAnalysis package.
+	Returns a row for each timestep.
 	rmsd -> [N,3]; where N is the total no. of models.
-	For each model it gives - [frame no., time, rmsd].
-	Just return the RMSD (index 2).
+	For each model it gives - [frame no., timestep, rmsd for selection].
+	Input can be a universe or AtomGroup.
 	"""
-	R = rms.RMSD( u, u, select = "protein and name CA", ref_frame = 0 )
+	R = rms.RMSD( to_align, ref, select = "protein and name CA", ref_frame = 0 )
 	R.run()
-	rmsd = R.rmsd()
-	return rmsd[:, 2]
+	rmsd = R.rmsd
+	return rmsd
 
 
-def compute_rmsf_wrt_avg_model( ensemble_file: str ):
+def compute_rmsf_wrt_avg_model( ensemble_file: str ) -> np.array:
 	"""
 	Source: https://userguide.mdanalysis.org/stable/examples/analysis/alignment_and_rms/rmsf.html
 	Given the ensemble_file,
@@ -94,25 +96,28 @@ def compute_rmsf_wrt_avg_model( ensemble_file: str ):
 		Select CA-atoms from the universe.
 		Compute RMSF.
 	"""
+	warnings.filterwarnings( "ignore" ) 
 	u = load_ensemble( ensemble_file = ensemble_file )
 	avg_model = create_average_model( u = u )
-	aligned_u = align_models( u = u, ref = avg_model, ref_frame = 0 )
-	rmsf = compute_rmsf( u = aligned_u )
+	align_models( u = u, ref = avg_model, ref_frame = 0 )
+	ca_atoms = get_selection( u = u )
+	rmsf = compute_rmsf( ca_atoms = ca_atoms )
 
 	return rmsf
 
 
-def compute_rmsd_post_align( ensemble_file: str ):
+def compute_rmsd_post_align( ensemble_file: str ) -> np.array:
 	"""
-	Source: https://userguide.mdanalysis.org/stable/examples/analysis/alignment_and_rms/rmsf.html
+	Source: https://userguide.mdanalysis.org/stable/examples/analysis/alignment_and_rms/rmsd.html
 	Given the ensemble_file,
 		Load the models (Universe).
 		Align all models to the first model.
 		Select CA-atoms from the universe.
 		Compute RMSD wrt first model.
+	RMSD returned is in Angstorm.
 	"""
+	warnings.filterwarnings( "ignore" ) 
 	u = load_ensemble( ensemble_file = ensemble_file )
-	aligned_u = align_models( u = u, ref = u, ref_frame = 0 )
-	rmsd = compute_rmsf( u = aligned_u )
+	rmsd = compute_rmsd( to_align = u, ref = u )
 
 	return rmsd
