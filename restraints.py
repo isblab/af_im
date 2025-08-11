@@ -362,7 +362,8 @@ class XlRestraint():
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
-		agg_loss = torch.tensor( 0.0 ).to( D.device )
+		# agg_loss = torch.tensor( 0.0 ).to( D.device )
+		agg_loss = torch.zeros( 1 ).to( D.device )
 		for xl_pair in xl_res_dict:
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
@@ -378,7 +379,8 @@ class XlRestraint():
 				squared_diff = diff**2
 			# If any ambiguous pair is satisfied, the restraint is satisfied.
 			else:
-				squared_diff = torch.tensor( 0.0, device = D.device )
+				squared_diff = ( D[xl_indices]*0 ).sum()
+				# squared_diff = torch.tensor( 0.0, device = D.device )
 
 			agg_loss += squared_diff
 		
