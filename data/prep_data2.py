@@ -29,7 +29,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "xlsim"  # "xlsim", "abag"
+		self.benchmark_name = "rigid"  # "xlsim", "abag", "rigid"
 
 		self.dataset_configs = {
 			"global": {
@@ -164,6 +164,8 @@ class Metadata():
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
 		elif self.benchmark_name == "abag":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
+		elif self.benchmark_name == "rigid":
+			self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
 		else:
 			raise ValueError( "Unsupported benchmark specified..." )
 
