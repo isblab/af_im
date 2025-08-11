@@ -9,7 +9,7 @@ from utils.utils import ( open_file_handler,
 							read_json,
 							write_json,
 							run_subprocess )
-
+np.random.seed( 1 )
 
 class CreateBenchmark():
 	"""
@@ -59,9 +59,9 @@ class CreateBenchmark():
 										f"{self.benchmark_name}_benchmark_pdb_ids.txt" )
 
 		self.seqres_dict_file = os.path.join( self.meta_dir, "seqres_dict.npy" )
-		# .csv file to store relevant details for the benchmark complexes.
-		self.output_benchmark_csv = os.path.join( self.meta_dir,
-												f"{self.benchmark_name}_benchmark.csv" )
+		# # .csv file to store relevant details for the benchmark complexes.
+		# self.output_benchmark_csv = os.path.join( self.meta_dir,
+		# 										f"{self.benchmark_name}_benchmark" )
 
 		self.dataset_configs_file = os.path.join( self.meta_dir,
 								f"Dataset_configs_{self.benchmark_name}.json" )
@@ -399,7 +399,14 @@ class CreateBenchmark():
 						self.selected_xls[sys_name]["fp_xls"].shape[0]
 						)
 		df = pd.DataFrame( flat_dict )
-		df.to_csv( self.output_benchmark_csv, index = False )
+		if self.dataset_configs["jwalk"]["add_fp"]:
+			print( "Saving benchmark with FP XLs..." )
+			file = os.path.join( self.meta_dir,
+								f"{self.benchmark_name}_benchmark_tpfp.csv" )
+		else:
+			file = os.path.join( self.meta_dir,
+								f"{self.benchmark_name}_benchmark.csv" )
+		df.to_csv( file, index = False )
 
 
 if __name__ == "__main__":
