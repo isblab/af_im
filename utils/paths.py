@@ -27,7 +27,7 @@ def get_sys_data_dir_path(
 	"""
 	data_dir = os.path.join(
 		base_dir,
-		f"{benchmark_name}_benchmark/{sys_name}" )
+		f"{benchmark_name}_benchmark/{sys_name}/" )
 	return data_dir
 
 
@@ -176,7 +176,7 @@ def get_unrelaxed_model_file(
 	ver_path = get_sys_modeling_version_path(
 		base_dir = "./benchmark",
 		modeling_dir_name = "rigid_modeling",
-		sys_name = "4rhz",
+		sys_name = sys_name,
 		modeling_version = modeling_version )
 	models_dir = os.path.join( 
 	ver_path, f"{sys_name}_ensemble")
@@ -197,7 +197,7 @@ def get_unrelaxed_ensemble_file(
 	ver_path = get_sys_modeling_version_path(
 		base_dir = "./benchmark",
 		modeling_dir_name = "rigid_modeling",
-		sys_name = "4rhz",
+		sys_name = sys_name,
 		modeling_version = modeling_version )
 	ensemble_file = os.path.join(
 		ver_path,
