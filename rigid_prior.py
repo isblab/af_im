@@ -3,7 +3,7 @@ Test whether AF2 learns a rigid prior or not.
 Wrapper over the BenchmarkModeling module.
 """
 from typing import List, Tuple, Dict
-import os
+import os, glob, pickle as pkl
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from benchmark_runs import BenchmarkModeling
 from utils.paths import (
 	get_stat_file_path,
+	get_sys_data_dir_path,
 	get_benchmark_results_dir_path,
 	get_unrelaxed_model_file,
 	get_unrelaxed_ensemble_file )
@@ -29,7 +30,7 @@ class RigigPrior():
 		self.benchmark_name = "rigid"
 		self.xl_restraint_weights = [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
 		self.struct_format = "pdb"
-		self.remove_sys_modeling_dir = False
+		self.remove_sys_modeling_dir = True
 
 
 	def forward( self ):
@@ -129,7 +130,7 @@ class RigigPrior():
 			RMSD wrt 1st model.
 			RMSF wrt the average model.
 		"""
-		print( "-"*70 + "\n" + "-"*70 + "\n\033[1mRigid prior plots\033[0m\n" )
+		print( "\n" + "-"*70 + "\n" + "-"*70 + "\n\033[1mRigid prior plots\033[0m\n" )
 		for viol_label in modeling_versions:
 			for sys_name in self.benchmark["PDB ID"]:
 				print( f"Creating per-epoch loss plots for {sys_name}..." )
@@ -139,8 +140,15 @@ class RigigPrior():
 					modeling_versions = modeling_versions
 					)
 
-				print( f"Creating RMS plots for {sys_name}..." )
-				self.plot_rms(
+				print( f"Creating RMSD plots for {sys_name}..." )
+				self.plot_rmsd_across_runs(
+					sys_name = sys_name,
+					viol_label = viol_label,
+					modeling_versions = modeling_versions
+					)
+
+				print( f"Creating RMSF plots for {sys_name}..." )
+				self.plot_rmsf(
 					sys_name = sys_name,
 					viol_label = viol_label,
 					modeling_versions = modeling_versions
@@ -173,7 +181,7 @@ class RigigPrior():
 		Plot the per-epoch xl restraint and violation loss across all runs.
 		"""
 		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 2, 1, figsize = ( 20, 20 ) )
+		_, ax = plt.subplots( 2, 1, figsize = ( 30, 20 ) )
 
 		for i, xl_weight in enumerate( self.xl_restraint_weights ):
 			modeling_version = modeling_versions[viol_label][i]
@@ -202,28 +210,82 @@ class RigigPrior():
 		plt.close()
 
 	################################################################################
-	def get_input_for_rms_plots( self, ensemble_file: str ):
+	def plot_rmsd_across_runs( self,  sys_name: str, viol_label: str, modeling_versions: np.array ):
 		"""
-		Given an ensemble file, compute,
-			RMSD for all models wrt the 1st model
-			RMSF wrt average model
-		"""
-		rmsf = compute_rmsf_wrt_avg_model( ensemble_file = ensemble_file )
-		rmsd = compute_rmsd_post_align( ensemble_file = ensemble_file )
-		rmsd = rmsd[:,2]
-		resids = get_residue_ids( ensemble_file )
-
-		return rmsf, rmsd, resids
-
-
-	def plot_rms( self, sys_name: str, viol_label: str, modeling_versions: np.array ):
-		"""
-		Across all runs,
-			Plot the RMSD for all models wrt the 1st model
-			RMSF wrt average model (this is essentially per-residue model precision)
+		Across all runs, plot the RMSD for all models wrt the 1st model.
 		"""
 		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 2, 1, figsize = ( 30, 20 ) )
+		_, ax = plt.subplots( 1, 1, figsize = ( 30, 20 ) )
+		for i, xl_weight in enumerate( self.xl_restraint_weights ):
+			modeling_version = modeling_versions[viol_label][i]
+			ensemble_file = get_unrelaxed_ensemble_file(
+				base_dir = self.base_dir,
+				modeling_dir_name = self.benchmark_name,
+				sys_name = sys_name,
+				modeling_version = modeling_version,
+				struct_format = self.struct_format
+				)
+
+			stat_file_path = get_stat_file_path(
+				base_dir = "./benchmark",
+				modeling_dir_name = self.modeling_dir_name,
+				sys_name = sys_name,
+				modeling_version = modeling_version )
+			stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
+			epochs = stats_dict["model_id"]
+
+			rmsd = compute_rmsd_post_align( ensemble_file = ensemble_file )
+			rmsd = rmsd[:,2]
+
+			ax.plot( epochs, rmsd, label = xl_weight )
+			ax.set_xlabel( "No. of epochs", fontsize = 25 )
+			ax.set_ylabel( "RMSD wrt first model", fontsize = 25 )
+			ax.tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
+			ax.legend()
+
+		benchmark_results_dir = get_benchmark_results_dir_path(
+			base_dir = "./benchmark",
+			benchmark_name = self.benchmark_name,
+			modeling_version = modeling_version )
+		loss_plot_file = os.path.join(
+			benchmark_results_dir, f"rmsd_plots_{sys_name}_{viol_label}.png" )
+		plt.savefig( loss_plot_file, dpi = 300 )
+		plt.close()
+
+	################################################################################
+	def get_input_for_rmsf_plots( self, sys_name: str, ensemble_file: str ):
+		"""
+		Given an ensemble file, compute,
+			RMSF wrt average model
+			Get pLDDT of initial predicted structure
+		"""
+		rmsf = compute_rmsf_wrt_avg_model( ensemble_file = ensemble_file )
+		resids = get_residue_ids( ensemble_file )
+
+		data_dir = get_sys_data_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
+		out_dict_path = f"{data_dir}{sys_name}_output/predictions/*_output_dict.pkl"
+		init_model_out_file = glob.glob( out_dict_path )
+		if len( init_model_out_file ) == 0:
+			raise FileNotFoundError( f"output_dict file not found for {sys_name} --> {out_dict_path}..." )
+		init_model_out_file = init_model_out_file[0]
+		with open( init_model_out_file, "rb" ) as f:
+			out_dict = pkl.load( f )
+		plddt = out_dict["plddt"]
+
+		return rmsf, plddt, resids
+
+
+	def plot_rmsf( self, sys_name: str, viol_label: str, modeling_versions: np.array ):
+		"""
+		Across all runs,
+			Plot RMSF wrt average model (this is essentially per-residue model precision)
+			RMSF vs pLDDT of initial predicted structure
+		"""
+		plt.rcParams["font.family"] = "sans"
+		_, ax = plt.subplots( len( self.xl_restraint_weights ), 2, figsize = ( 30, 50 ) )
 		for i, xl_weight in enumerate( self.xl_restraint_weights ):
 			modeling_version = modeling_versions[viol_label][i]
 
@@ -234,40 +296,41 @@ class RigigPrior():
 				modeling_version = modeling_version,
 				struct_format = self.struct_format
 				)
-			stat_file_path = get_stat_file_path(
-				base_dir = "./benchmark",
-				modeling_dir_name = self.modeling_dir_name,
-				sys_name = sys_name,
-				modeling_version = modeling_version )
-			stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
-			epochs = stats_dict["model_id"]
 
-			rmsf, rmsd, resids = self.get_input_for_rms_plots(
+			rmsf, plddt, resids = self.get_input_for_rmsf_plots(
+				sys_name = sys_name,
 				ensemble_file = ensemble_file )
 			# resids start from 1 for all chains. So, using system indices.
 			sys_idx = np.arange( 0, resids.shape[0], 1 )
 
-			ax[0].plot( epochs, rmsd, label = xl_weight )
-			ax[0].set_xlabel( "No. of epochs", fontsize = 25 )
-			ax[0].set_ylabel( "RMSD wrt first model", fontsize = 25 )
-			ax[0].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
-			ax[0].legend()
-			ax[1].plot( sys_idx, rmsf, label = xl_weight )
-			ax[1].set_xlabel( "Residue numbers", fontsize = 20 )
-			ax[1].set_ylabel( "RMSF wrt average model", fontsize = 20 )
-			ax[1].set_xticks( sys_idx, resids )
-			ax[1].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
-			ax[1].legend()
+			# RMSF per run.
+			ax[i, 0].plot( sys_idx, rmsf, label = "RMSF" )
+			ax[i, 0].plot( sys_idx, plddt, label = "pLDDT" )
+			ax[i, 0].set_title( f"XL weight = {xl_weight}", fontsize = 20 )
+			ax[i, 0].set_xlabel( "Residue numbers", fontsize = 20 )
+			ax[i, 0].set_ylabel( "RMSF wrt average model", fontsize = 20 )
+			# ax[i, 0].set_xticks( sys_idx, resids )
+			ax[i, 0].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
+			ax[i, 0].legend()
+
+			# RMSF vs pLDDT.
+			ax[i, 1].scatter( rmsf, plddt, label = xl_weight )
+			ax[i, 1].set_xlabel( "RMSF wrt average model", fontsize = 20 )
+			ax[i, 1].set_ylabel( "pLDDT", fontsize = 20 )
+			# ax[i, 0].set_xticks( sys_idx, resids )
+			ax[i, 1].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
+			ax[i, 1].legend()
 
 		benchmark_results_dir = get_benchmark_results_dir_path(
 			base_dir = "./benchmark",
 			benchmark_name = self.benchmark_name,
 			modeling_version = modeling_version )
 		loss_plot_file = os.path.join(
-			benchmark_results_dir, f"rms_plots_{sys_name}_{viol_label}.png" )
+			benchmark_results_dir, f"rmsf_plots_{sys_name}_{viol_label}.png" )
 		plt.savefig( loss_plot_file, dpi = 300 )
 		plt.close()
 
 
 if __name__ == "__main__":
 	RigigPrior().forward()
+
