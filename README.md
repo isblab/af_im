@@ -57,7 +57,7 @@ This script runs the modeling to obtain the initial predicted structures and dat
 
 
 ### Real data benchmark
-Experimental cross-links along with the AF2-multimer predicted structures taken from the [Integrative_docking_benchmark] (https://github.com/isblab/Integrative_docking_benchmark.git) repo.  
+Experimental cross-links along with the AF2-multimer predicted structures taken from the [Integrative_docking_benchmark](https://github.com/isblab/Integrative_docking_benchmark.git) repo.  
 To create input file for modeling, run the following script:
 ```
 cd ./data/
