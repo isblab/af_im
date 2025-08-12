@@ -236,9 +236,10 @@ class AmberRelaxation():
 		pdb_str = amber_minimize.clean_protein( prot )
 		if min_pos.shape[0] != pdb_str.count("\nATOM"):
 			warnings.warn( "The number of positions must match the number of atoms. " +
-							f"min_pdb = {min_pdb.shape[0]} \t pdb_str = pdb_str.count('\nATOM')\n" +
-							"Using pdb_str before minimization." )
-			pdb_str = pdb_str_prior_min
+							f"min_pos = {min_pos.shape[0]} \t pdb_str = " + str( pdb_str.count('\nATOM') ) )
+			# pdb_str = pdb_str_prior_min
+			pdb_str = out["min_pdb"]
+			print( pdb_str.count('\nATOM') )
 
 		# Adds missing atoms to Protein instance.
 		min_pdb = utils.overwrite_pdb_coordinates( pdb_str, min_pos )
