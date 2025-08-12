@@ -71,8 +71,41 @@ python eye_drop.py
 
 
 ## Modeling
-To run the modeling, make the required changes to the parameters specified in `topology.py` file.  
-For now, change the system name at the bottom of the `openfold_wrapper.py` script.  
+### Input for modeling
+Create a data directory for the complex to be modeled (directory name must be the complex name). This must contain,  
+1. A conifg file (JSON format) containing,
+```
+System: {
+	name: ,
+	entity: [
+		{
+			entity_name,
+			entity_id,
+			copy_num,
+			start residue,
+			end residue,
+			sequence
+		},
+		...
+	],
+	data_gathering: {
+		xl_restraint: {
+			xl_max_bound,
+			file_name
+		}
+	}
+}
+```
+2. The data file to be used for modeling. For crosslinking data, a .csv file must be provided in the following format,  
+```
+protein1,residue1,protein2,residue2
+```
+
+
+### Single complex modeling
+For a single complex, one can directly use the `openfold_wrapper.py` script. Make the required changes to the parameters specified in `topology.py` file.
+Ensure that the input files exist for the complex to be modeled.  
+Specify the complex name, base directory, data directory, and the modeling directory name at the bottom of the `openfold_wrapper.py` script.  
 Run the following script to start the modeling,
 ```
 python openfold_wrapper.py
