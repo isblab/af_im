@@ -3,7 +3,7 @@
 
 ## Installation
 ### OpenFold
-Unzip the openfold.zip file. This has been cloned from the pl_upgrades branch in openfold git repo (for Cuda12) (https://github.com/aqlaboratory/openfold.git).  
+Unzip the openfold.tar.gz file. This has been cloned from the pl_upgrades branch in openfold git repo (for Cuda12) (https://github.com/aqlaboratory/openfold.git).  
 Minor modifications have been in script_utils/prep_output().  
 We are using the pl_upgrades branch from the openfold git repo.  
 For installation, see instructions in OpenFold gdoc.  
@@ -57,6 +57,17 @@ This script runs the modeling to obtain the initial predicted structures and dat
 
 
 ### Real data benchmark
+Experimental cross-links along with the AF2-multimer predicted structures taken from the [Integrative_docking_benchmark] (https://github.com/isblab/Integrative_docking_benchmark.git) repo.  
+To create input file for modeling, run the following script:
+```
+cd ./data/
+python prep_oreilly_complexes.py
+```
+This script will create the input files and the directory structure as for the simulated benchmark. Once completed run the following script to get initial data satisfcation,  
+```
+cd ../
+python eye_drop.py
+```
 
 
 ## Modeling
