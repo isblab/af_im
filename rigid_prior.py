@@ -7,6 +7,7 @@ import os, glob, pickle as pkl
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
 
 from benchmark_runs import BenchmarkModeling
 from utils.paths import (
@@ -18,6 +19,7 @@ from utils.paths import (
 from utils.tools import (
 	get_residue_ids,
 	compute_rmsf_wrt_avg_model,
+	compute_rmsf_wrt_first_model,
 	compute_rmsd_post_align )
 
 
@@ -30,7 +32,12 @@ class RigigPrior():
 		self.benchmark_name = "rigid"
 		self.xl_restraint_weights = [1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
 		self.struct_format = "pdb"
-		self.remove_sys_modeling_dir = True
+		self.sys_conf_suff = "_1tp"
+		if self.sys_conf_suff == "_1fp":
+			self.modeling_version_range = {"no_viol": [1, 7], "viol": [8, 14]}
+		elif self.sys_conf_suff == "_1tp":
+			self.modeling_version_range = {"no_viol": [15, 21], "viol": [22, 28]}
+		self.remove_sys_modeling_dir = False
 
 
 	def forward( self ):
@@ -40,13 +47,17 @@ class RigigPrior():
 		self.load_benchmark()
 
 		num_xl_weights = len( self.xl_restraint_weights )
+		start1, end1 = self.modeling_version_range["no_viol"]
+		start2, end2 = self.modeling_version_range["viol"]
 		modeling_versions = {
-			"no_viol": list( np.arange( 1, num_xl_weights + 1, 1 ) ),
-			"viol": list( np.arange( num_xl_weights+1, 2*num_xl_weights + 1, 1 ) )
+			"no_viol": list( np.arange( start1, end1 + 1, 1 ) ),
+			"viol": list( np.arange( start2, end2 + 1, 1 ) )
 		}
 
 		self.run_modeling( modeling_versions = modeling_versions )
 		self.plot_modeling_results( modeling_versions = modeling_versions )
+
+		# self.convert_ensemble_to_gif()
 
 
 	################################################################################
@@ -65,6 +76,11 @@ class RigigPrior():
 		self.benchmark_csv_file = os.path.join(
 			self.meta_dir,
 			f"selected_{self.benchmark_name}_benchmark.csv" )
+
+		# Path to the VMD script.
+		self.vmd_script = os.path.join(
+			os.path.abspath( "./utils/vmd_visualize_traj.tcl" )
+			)
 
 
 	def load_benchmark( self ):
@@ -111,7 +127,7 @@ class RigigPrior():
 		sim.benchmark_name = self.benchmark_name
 		sim.modeling_version = modeling_version
 		sim.objective = objective
-		sim.sys_conf_suff = "_tpfp"
+		sim.sys_conf_suff = self.sys_conf_suff
 		sim.device = "cuda:0"
 		sim.enable_relax_validate = False
 		sim.skip_rerun = True
@@ -259,7 +275,8 @@ class RigigPrior():
 			RMSF wrt average model
 			Get pLDDT of initial predicted structure
 		"""
-		rmsf = compute_rmsf_wrt_avg_model( ensemble_file = ensemble_file )
+		rmsf_avg = compute_rmsf_wrt_avg_model( ensemble_file = ensemble_file )
+		rmsf_first = compute_rmsf_wrt_first_model( ensemble_file = ensemble_file )
 		resids = get_residue_ids( ensemble_file )
 
 		data_dir = get_sys_data_dir_path(
@@ -275,7 +292,7 @@ class RigigPrior():
 			out_dict = pkl.load( f )
 		plddt = out_dict["plddt"]
 
-		return rmsf, plddt, resids
+		return rmsf_avg, rmsf_first, plddt, resids
 
 
 	def plot_rmsf( self, sys_name: str, viol_label: str, modeling_versions: np.array ):
@@ -285,7 +302,7 @@ class RigigPrior():
 			RMSF vs pLDDT of initial predicted structure
 		"""
 		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( len( self.xl_restraint_weights ), 2, figsize = ( 30, 50 ) )
+		_, ax = plt.subplots( len( self.xl_restraint_weights ), 2, figsize = ( 20, 40 ) )
 		for i, xl_weight in enumerate( self.xl_restraint_weights ):
 			modeling_version = modeling_versions[viol_label][i]
 
@@ -297,29 +314,42 @@ class RigigPrior():
 				struct_format = self.struct_format
 				)
 
-			rmsf, plddt, resids = self.get_input_for_rmsf_plots(
+			rmsf_avg, rmsf_first, plddt, resids = self.get_input_for_rmsf_plots(
 				sys_name = sys_name,
 				ensemble_file = ensemble_file )
 			# resids start from 1 for all chains. So, using system indices.
 			sys_idx = np.arange( 0, resids.shape[0], 1 )
 
-			# RMSF per run.
-			ax[i, 0].plot( sys_idx, rmsf, label = "RMSF" )
+			corr, _ = pearsonr( rmsf_avg, plddt )
+			corr = np.round( corr, 3 )
+			# RMSF wrt avg model per run.
+			ax[i, 0].plot( sys_idx, rmsf_avg, label = "RMSF" )
 			ax[i, 0].plot( sys_idx, plddt, label = "pLDDT" )
-			ax[i, 0].set_title( f"XL weight = {xl_weight}", fontsize = 20 )
+			ax[i, 0].set_title( f"XL weight = {xl_weight}; Pearson corr = {corr}", fontsize = 20 )
 			ax[i, 0].set_xlabel( "Residue numbers", fontsize = 20 )
 			ax[i, 0].set_ylabel( "RMSF wrt average model", fontsize = 20 )
-			# ax[i, 0].set_xticks( sys_idx, resids )
 			ax[i, 0].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
 			ax[i, 0].legend()
 
-			# RMSF vs pLDDT.
-			ax[i, 1].scatter( rmsf, plddt, label = xl_weight )
-			ax[i, 1].set_xlabel( "RMSF wrt average model", fontsize = 20 )
-			ax[i, 1].set_ylabel( "pLDDT", fontsize = 20 )
-			# ax[i, 0].set_xticks( sys_idx, resids )
+			# corr, _ = scatter( rmsf_avg, plddt )
+			# corr = np.round( corr, 3 )
+			# RMSF wrt avg model per run.
+			ax[i, 1].scatter( plddt, rmsf_avg, label = "RMSF" )
+			# ax[i, 1].plot( sys_idx, plddt, label = "pLDDT" )
+			ax[i, 1].set_title( f"XL weight = {xl_weight}; Pearson corr = {corr}", fontsize = 20 )
+			ax[i, 1].set_xlabel( "pLDDT", fontsize = 20 )
+			ax[i, 1].set_ylabel( "RMSF wrt average model", fontsize = 20 )
 			ax[i, 1].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
 			ax[i, 1].legend()
+
+			# # RMSF vs pLDDT.
+			# ax[i, 1].scatter( rmsf, plddt, label = xl_weight )
+			# ax[i, 1].set_xlabel( "RMSF wrt average model", fontsize = 20 )
+			# ax[i, 1].set_ylabel( "pLDDT", fontsize = 20 )
+			# # ax[i, 0].set_xticks( sys_idx, resids )
+			# ax[i, 1].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
+			# ax[i, 1].legend()
+		plt.subplots_adjust( hspace = 0.5, wspace = 0.4 )
 
 		benchmark_results_dir = get_benchmark_results_dir_path(
 			base_dir = "./benchmark",
@@ -329,6 +359,58 @@ class RigigPrior():
 			benchmark_results_dir, f"rmsf_plots_{sys_name}_{viol_label}.png" )
 		plt.savefig( loss_plot_file, dpi = 300 )
 		plt.close()
+
+
+	################################################################################
+	################################################################################
+	# def convert_ensemble_to_gif( self,  modeling_versions: List ):
+	# 	"""
+	# 	Craete .gifs for the ensemble in VMD.
+	# 	"""
+	# 	print( "\n" + "-"*70 + "\n" + "-"*70 + "\n\033[1mEnsemble to GIFs\033[0m\n" )
+	# 	for viol_label in modeling_versions:
+	# 		for sys_name in self.benchmark["PDB ID"]:
+	# 			print( f"Creating GIFs for {sys_name}..." )
+
+	# 			for i, xl_weight in enumerate( self.xl_restraint_weights ):
+	# 				modeling_version = modeling_versions[viol_label][i]
+
+	# 				self.run_vmd(
+	# 					sys_name = sys_name,
+	# 					modeling_version = modeling_version
+	# 					)
+
+
+	# def run_vmd( self, sys_name: str, modeling_version: int ):
+	# 	"""
+	# 	Run VMD to 
+	# 	"""		
+	# 	ensemble_file = get_unrelaxed_ensemble_file(
+	# 		base_dir = self.base_dir,
+	# 		modeling_dir_name = self.benchmark_name,
+	# 		sys_name = sys_name,
+	# 		modeling_version = modeling_version,
+	# 		struct_format = self.struct_format
+	# 		)
+	# 	sys_modeling_version_dir = get_sys_modeling_version_path(
+	# 		base_dir: str,
+	# 		modeling_dir_name: str,
+	# 		sys_name: str, modeling_version )
+	# 	output_file = os.path.join(
+	# 		sys_modeling_version_dir,
+	# 		f"{sys_name}_v{modeling_version}.gif" )
+	# 	tmp_file = os.path.join( self.base_dir, f"tmp_{sys_name}" )
+	# 	speed = 0.9
+	# 	movie_duration = 10
+	# 	cmd = ["vmd", "-dispdev", "text",
+	# 	"-e", f"{self.vmd_script}",
+	# 	"-args", f"{ensemble_file}",
+	# 	f"{output_file}",
+	# 	f"{tmp_file}",
+	# 	f"{speed}",
+	# 	f"{movie_duration}"
+	# 	]
+	# 	run_subprocess( cmd )
 
 
 if __name__ == "__main__":
