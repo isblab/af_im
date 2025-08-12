@@ -29,7 +29,7 @@ def get_selection( u: Universe ) -> AtomGroup:
 	return ca_atoms
 
 
-def get_residue_ids( ensemble_file ) -> np.array:
+def get_residue_ids( ensemble_file ) -> np.ndarray:
 	"""
 	Given the selected CA-atoms, return the residue IDs.
 	"""
@@ -46,7 +46,7 @@ def align_models( u: Universe, ref: Universe, ref_frame = 0 ) -> Universe:
 			select = "protein and name CA",
 			ref_frame = ref_frame,
 			in_memory = True ).run()
-	# return u
+	return u
 
 
 def create_average_model( u: Universe ) -> Universe:
@@ -60,7 +60,7 @@ def create_average_model( u: Universe ) -> Universe:
 	return avg_model
 
 
-def compute_rmsf( ca_atoms: AtomGroup ) -> np.array:
+def compute_rmsf( ca_atoms: AtomGroup ) -> np.ndarray:
 	"""
 	Compute the RMSF using the MDAnalysis package.
 	rmsf -> [R]; where R is the no. of residues in a model.
@@ -71,7 +71,7 @@ def compute_rmsf( ca_atoms: AtomGroup ) -> np.array:
 	return rmsf
 
 
-def compute_rmsd( to_align: Universe, ref: Universe ) -> np.array:
+def compute_rmsd( to_align: Universe, ref: Universe ) -> np.ndarray:
 	"""
 	Compute the RMSd for all models wrt the first model
 		using the MDAnalysis package.
@@ -86,7 +86,7 @@ def compute_rmsd( to_align: Universe, ref: Universe ) -> np.array:
 	return rmsd
 
 
-def compute_rmsf_wrt_avg_model( ensemble_file: str ) -> np.array:
+def compute_rmsf_wrt_avg_model( ensemble_file: str ) -> np.ndarray:
 	"""
 	Source: https://userguide.mdanalysis.org/stable/examples/analysis/alignment_and_rms/rmsf.html
 	Given the ensemble_file,
@@ -99,14 +99,37 @@ def compute_rmsf_wrt_avg_model( ensemble_file: str ) -> np.array:
 	warnings.filterwarnings( "ignore" ) 
 	u = load_ensemble( ensemble_file = ensemble_file )
 	avg_model = create_average_model( u = u )
-	align_models( u = u, ref = avg_model, ref_frame = 0 )
-	ca_atoms = get_selection( u = u )
+	# This aligns the u inplace. So need to reload before computing RMSF.
+	aligned_u = align_models(
+		u = load_ensemble( ensemble_file = ensemble_file ),
+		ref = avg_model, ref_frame = 0 )
+	ca_atoms = get_selection( u = aligned_u )
 	rmsf = compute_rmsf( ca_atoms = ca_atoms )
 
 	return rmsf
 
 
-def compute_rmsd_post_align( ensemble_file: str ) -> np.array:
+def compute_rmsf_wrt_first_model( ensemble_file: str ) -> np.ndarray:
+	"""
+	Given the ensemble_file,
+		Load the models (Universe).
+		Align all models wrt the first model.
+		Select CA-atoms from the universe.
+		Compute RMSF.
+	"""
+	warnings.filterwarnings( "ignore" ) 
+	u = load_ensemble( ensemble_file = ensemble_file )
+	# This aligns the u inplace. So need to reload before computing RMSF.
+	aligned_u = align_models(
+		u = load_ensemble( ensemble_file = ensemble_file ),
+		ref = u, ref_frame = 0 )
+	ca_atoms = get_selection( u = aligned_u )
+	rmsf = compute_rmsf( ca_atoms = ca_atoms )
+
+	return rmsf
+
+
+def compute_rmsd_post_align( ensemble_file: str ) -> np.ndarray:
 	"""
 	Source: https://userguide.mdanalysis.org/stable/examples/analysis/alignment_and_rms/rmsd.html
 	Given the ensemble_file,
