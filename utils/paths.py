@@ -33,8 +33,7 @@ def get_sys_data_dir_path(
 
 def get_benchmark_results_dir_path(
 	base_dir: str,
-	benchmark_name: str,
-	modeling_version: int ) -> str:
+	benchmark_name: str ) -> str:
 	"""
 	Return the path to the benchmark results dir.
 	"""
