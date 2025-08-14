@@ -18,6 +18,7 @@ config = mlc.ConfigDict(
 	"objective": "Testing. " +
 		"8wtd",
 	"system": {},
+	# Change the paths according to the system.
 	"system_representation": {
 		"init_model_prefix": "_unrelaxed",
 		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
@@ -61,6 +62,7 @@ config = mlc.ConfigDict(
 	},
 	"model": {
 		"name": "structure_module_finetuning",
+		# train or eval.
 		"mode": {
 			"sm": "eval",
 			"plddt": "eval",
@@ -69,10 +71,12 @@ config = mlc.ConfigDict(
 		"update_params": {
 			"sm_no_blocks": 8,
 		},
+		# Not used as of now.
 		"biases": {
 			"pair_bias_type": "additive",
 			"pair_bias_scale_factor": 1.0,
 		},
+		# not used as of now.
 		"dropouts": {
 			"msa": {
 				"enabled": False,
@@ -87,6 +91,8 @@ config = mlc.ConfigDict(
 		}
 	},
 	"loss": {
+		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
+		# FAPE, aupervised_chi, violation, chain_center_of_mass, distogram taken directly from OpenFold configs.
 		"fape": {
 			"enabled": True,
 			"add_penalty": False,
@@ -155,7 +161,7 @@ config = mlc.ConfigDict(
 		"xlr": {
 				"enabled": True,
 				"add_penalty": True,
-				"type": "simple_xlr2", # fape_xlr, simple_xlr, mse_xlr, rmse_xlr, disto_xlr
+				"type": "ub_harmonic", # ub_harmonic
 				"func_form": "mse",   # mse, rmse
 				"weight": 0.05,
 				"eps": 1e-8
@@ -167,7 +173,11 @@ config = mlc.ConfigDict(
 		}
 	},
 	"analysis": {
+		# Run analysis pipeline.
+		"enabled": False,
+		# run relaxation and MolProbity validation.
 		"enable_relax_validate": True,
+		# metrics to include for model_selection.
 		"assessment_metrics": ["loss-violation", "metrics-xlr"],
 		"model_selection": {
 			"method": {
@@ -207,31 +217,36 @@ config = mlc.ConfigDict(
 			"clean_up": False
 		},
 		"relax":{
+			# Parameters taken from OpenFold configs.
 			"max_iterations": 0,  # no max
 			"tolerance": 2.39,
 			"stiffness": 10.0,
 			"exclude_residues": [],
 			"max_outer_iterations": 20,
+			# If True, use GPU else CPU.
 			"use_gpu": True,
-			"parallelize": False,
+			"parallelize": False, # Do not use with GPU.
+			# No. of CPu cores to be used for relaxation.
 			"cpu_cores": 16,
 			"output_format": "pdb",
 			"relaxed_model_dir": "relaxed_models",
+			# Save models as separate files.
 			"save_single_model": True,
 			"amber_logs_file": "Logs_amber"
 			},
 		"molprobity":{
-			"clean_up": False
+			"clean_up": False # remove all temporary file upon completion.
 			}
 	},
 	"train": {
-		"version": 1,
-		"mode": "test",
-		"max_epochs": 100,
-		"struct_format": "pdb",
-		"allow_mcpa": True,
-		"allow_grad_update": True,
-		"device": "cuda:0"
+		# Version for the modeling run.
+		"version": None,
+		"mode": "test", # deprecated
+		"max_epochs": 100, # max no. of epochs for training.
+		"struct_format": "pdb", # output file format (pdb/cif).
+		"allow_mcpa": True, # use multi-chain permutation align
+		"allow_grad_update": True, # allow gradient update - to be deprecated.
+		"device": "cuda:0" # CUDS device to be used.
 	}
 }
 )
