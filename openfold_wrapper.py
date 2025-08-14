@@ -132,7 +132,10 @@ class IntegrativeLearning():
 		print( "\n" + "-"*70 + "\n" +"-"*26 +
 			" \033[1m\033[9m Analysis \033[0m Assay\033[0m " +
 			"-"*26 + "\n" + "-"*70 + "\n" )
-		self.run_analysis( fit )
+		if self.topology.analysis.enabled:
+			self.run_analysis( fit )
+		else:
+			print( f"Not performing analysis for {self.sys_name}..." )
 
 		toc = time.time()
 		time_file = os.path.join( self.modeling_output_dir, "Time_taken.txt" )
@@ -155,8 +158,18 @@ class IntegrativeLearning():
 									 		fasta_dir = self.fasta_dir,
 									 		sys_config = self.topology.system )
 		data_gathering.forward()
+		self.save_residue_to_system_mapping( data_gathering.res_idx_map )
 		restraint_features = data_gathering.restraint_features
 		return restraint_features
+
+
+	def save_residue_to_system_mapping( self, res_idx_map: Dict[str, Dict[int, int]] ):
+		"""
+		DataGathering creates a mapping from the residue positions
+			in the input sequence to the system index.
+		Save in the modeling dir.
+		"""
+		np.save( self.res_idx_map_file, res_idx_map, allow_pickle = True )
 
 
 	def run_system_representation( self ):
@@ -316,6 +329,9 @@ class IntegrativeLearning():
 		self.analysis_dir = os.path.join( self.modeling_output_dir,
 												f"analysis/" )
 
+		# File containing residue position to system index mapping.
+		self.res_idx_map_file = os.path.join( self.modeling_output_dir, f"res_idx_map.npy" )
+		# Topology file for modeling.
 		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
 
