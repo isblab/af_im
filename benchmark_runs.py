@@ -30,7 +30,7 @@ class BenchmarkModeling():
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
-		self.sys_conf_suff = "_tpfp"
+		self.sys_conf_suff = ""
 		# Maximum no. of epochs for fine-tuning.
 		self.max_epochs = 100
 		# Precision of the float values in the results.
@@ -49,6 +49,8 @@ class BenchmarkModeling():
 		self.remove_sys_modeling_dir = False
 		# if True, deletes the existing system analysis dir.
 		self.remove_sys_analysis_dir = False
+		# If True, create the required plots.
+		self.create_summary_plots_and_files = True
 
 		# Modify settings for losses to be used.
 		self.fape = {"enabled": True, "add_penalty": False, "weight": 1.0,
@@ -65,6 +67,7 @@ class BenchmarkModeling():
 		"""
 		"""
 		tic = time.perf_counter()
+		print( f"\033[1mModeling version {self.modeling_version} --> {self.modeling_objective}\033[0m\n\n" )
 		self.create_required_paths()
 		self.create_required_dirs()
 		self.load_benchmark()
@@ -73,12 +76,16 @@ class BenchmarkModeling():
 		self.run_modeling_for_benchmark()
 
 		# self.compute_dockq()
-		self.plot_modeling_results()
-		self.write_results_to_csv()
+		if self.create_summary_plots_and_files:
+			self.plot_modeling_results()
+			self.write_results_to_csv()
 		toc = time.perf_counter()
 
 		# self.write_misc_details( toc-tic )
 		self.record_configs( total_time = toc-tic )
+
+		for sys_name in self.logs["errored"]:
+			print( f"\033[1mERROR:\033[0m {sys_name} -> {self.logs['errored'][sys_name]}" )
 
 		print( "\nMay the Force be with you..." )
 
@@ -112,8 +119,6 @@ class BenchmarkModeling():
 			Log the errorneous entry_id in the dataset sepcific metadata dir.
 			log the traceback in the system dir.
 		"""
-		self.logs["errored"][sys_name] = None
-
 		ver_path = self.get_sys_modeling_version_path( sys_name )
 		current_datetime = datetime.now()
 		timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
@@ -123,9 +128,11 @@ class BenchmarkModeling():
 		w = open_file_handler( error_file, "w" )
 		w.write( traceback.format_exc() )
 		w.close()
+		self.logs["errored"][sys_name] = error_file
 
 		print( f"\033[1mAn error occured for system: {sys_name}. " +
 				f"Check error log in {error_file}...\033[0m\n" )
+
 
 	def remove_existing_dir( self, sys_name: str ):
 		"""
@@ -261,7 +268,9 @@ class BenchmarkModeling():
 			Distnace between the FP XL residue pair is below the XL max bound.
 		For ambiguous cases, check if any copy satisfies the XL.
 		"""
-		print( "\n" + "-"*70 + "\n\033[0m\t\t--> Assessing FP XL satisfaction <--\033[0m" )
+		print( "\n" + "-"*70 +
+			"\n\t\t\033[1m--> Assessing FP XL satisfaction <--\033[0m\n" +
+			"-"*70 )
 		fp_sat_dict = {k:[] for k in ["complexes", "fp_satisfied", "total_fp"]}
 		for sys_name in self.benchmark["PDB ID"]:
 			analysis_dict = self.load_analysis_dict( sys_name = sys_name )
@@ -853,11 +862,14 @@ class BenchmarkModeling():
 				flat_dict[sys_name].append( unrelax_avg )
 				flat_dict[sys_name].append( relax_avg )
 			else:
-				flat_dict[sys_name].append( "" )
-				flat_dict[sys_name].append( "" )
+				flat_dict[sys_name].append( 0 )
+				flat_dict[sys_name].append( 0 )
 
 		df = pd.DataFrame( flat_dict )
+		median = df.iloc[:, 1:].median( axis = 1 )
+		df.insert( 1, "median", median )
 		df.to_csv( self.results_file, index = False )
+
 
 	################################################################################
 	################################################################################
