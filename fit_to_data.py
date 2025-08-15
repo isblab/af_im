@@ -245,13 +245,16 @@ class FitToData():
 			print( f"\nEpoch: {epoch} --------------------------" )
 
 			self.add_to_device()
-			
+
 			batch = copy.deepcopy( self.system_features )   # Just to keep in sync with OpenFold implementation.
 			# Separate out the ground truth features - as in OpenFold training_step.
 			gt_features = batch.pop( "gt_features", None )
 
 			# with torch.autocast( device_type = self.device, dtype = torch.float16 ):
-			outputs, batch = model.predict( self.evo_output, gt_features, batch )
+			outputs, batch = model.predict(
+				evo_output = copy.deepcopy( self.evo_output ),
+				gt_features = gt_features,
+				batch = batch )
 
 			# Separate out the restraint features.
 			restraint_features = batch.pop( "restraint_features", None )
