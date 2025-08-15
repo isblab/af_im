@@ -28,6 +28,75 @@ class XlRestraint():
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
 
 
+	def final_pred_to_dist_map( self, final_atom_pos: torch.Tensor
+								) -> torch.Tensor:
+		"""
+		Compute a distance map from the final_atom_positions.
+		Using only Ca-coordinates for distance map calculation.
+
+		Input:
+		----------
+		final_atom_pos --> coordinates in atom37 representtaion.
+						[B,N,37,3] --> For 2ayo: [1,480,37,3]
+
+		Returns:
+		----------
+		D --> Ca-distance map [B,N,N].
+		"""
+		# Extracting Ca-coordinates - index 1.
+		# [B,N,3] --> For 2ayo: [1,480,3]
+		ca_pos = final_atom_pos[..., 1, :]
+		diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
+		D = torch.sqrt( 
+						torch.sum( ( diff )**2, dim = -1 ) + self.eps
+						)
+
+		# Adjust the length scales.
+		scaled_D = D / self.length_scale
+		return scaled_D
+
+
+	def get_violations_mask( self, D: Dict[str, torch.Tensor],
+							xl_res_mask: torch.tensor,
+							scaled_xl_max_bound: float ) -> torch.Tensor:
+		"""
+		Adjust the length sacales for the distance map and xl_max_bound.
+		Identify XL violations.
+
+		Input:
+		----------
+		D --> Ca-distance map [B,N,N].
+		xl_res_mask --> binary mask indicating cross-linked residue pairs.
+		xl_max_bound --> max distance between the cross-licked residues 
+						scaled by self.length_scale.
+
+		Returns:
+		----------
+		viols_mask --> bool mask indicating violated XLs.
+		"""
+		# Consider only the cross-linked residues.
+		D = D*xl_res_mask
+
+		# Identify Xl violations.
+		viols_mask = D > scaled_xl_max_bound
+		return viols_mask
+
+
+	def compute_distance_violation( self, D: torch.Tensor,
+									viols_mask: torch.Tensor,
+									scaled_xl_max_bound: float
+									) -> torch.Tensor:
+		"""
+		Calculate the difference between the predicted distances and 
+			the XL max bound for XL'd residue airs.
+		"""
+		if viols_mask.any():
+			diff = ( D[viols_mask] - scaled_xl_max_bound )**2
+		else:
+			diff = D*0
+		return diff
+
+
 	def upper_bound_harmonic( self, out: Dict[str, torch.Tensor],
 							xl_res_dict: torch.tensor,
 							xl_max_bound: float,
