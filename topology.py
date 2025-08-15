@@ -15,8 +15,8 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "Testing. " +
-		"8wtd",
+	"objective": "8wtd: Testing PairPerturbation with linear_perturb. " +
+		"",
 	"system": {},
 	# Change the paths according to the system.
 	"system_representation": {
@@ -61,33 +61,29 @@ config = mlc.ConfigDict(
 		}
 	},
 	"model": {
-		"name": "structure_module_finetuning",
+		"name": "pair_perturbation",
 		# train or eval.
 		"mode": {
 			"sm": "eval",
 			"plddt": "eval",
 			"distogram": "eval"
-		},
+			},
 		"update_params": {
 			"sm_no_blocks": 8,
-		},
-		# Not used as of now.
-		"biases": {
-			"pair_bias_type": "additive",
-			"pair_bias_scale_factor": 1.0,
-		},
-		# not used as of now.
-		"dropouts": {
-			"msa": {
-				"enabled": False,
-				"loc": "post_evo",
-				"prob": 0.0,
 			},
-			"pair": {
-				"enabled": False,
-				"loc": "post_evo",
-				"prob": 0.0,
-			}
+		# If true, freeze weights for StructureModule.
+		"freeze_sm": True,
+		"adapter": {
+			# linear_perturb/sigmoid_gating/tanh_gating/lora/film
+			"name": "linear_perturb",
+			# use bias in Linear layer for adapter.
+			"bias": False,
+			# reduced feature dim size for lora adpater
+			"lora_k": 64,
+			# controls the magnitude of perturbation.
+			"alpha": 0.9,
+			# Only for pair_perturbation. Mask intra-chain contacts in pair_rep.
+			"inter_mask": True
 		}
 	},
 	"loss": {
@@ -144,7 +140,7 @@ config = mlc.ConfigDict(
 		},
 		"chain_center_of_mass": {
 			"enabled": True,
-			"add_penalty": True,
+			"add_penalty": False,
 			"clamp_distance": -4.0,
 			"weight": 0.05,
 			"eps": 1e-8
@@ -240,9 +236,9 @@ config = mlc.ConfigDict(
 	},
 	"train": {
 		# Version for the modeling run.
-		"version": None,
+		"version": 0,
 		"mode": "test", # deprecated
-		"max_epochs": 100, # max no. of epochs for training.
+		"max_epochs": 200, # max no. of epochs for training.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"allow_mcpa": True, # use multi-chain permutation align
 		"allow_grad_update": True, # allow gradient update - to be deprecated.
