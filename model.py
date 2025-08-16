@@ -403,7 +403,7 @@ class GatedLinearUnit( nn.Module ):
 		z_mod = self.linear1( z ) * self.gate( self.linear2( z ) )*self.alpha
 		if inter_chain_mask is not None:
 			z_mod = z_mod*inter_chain_mask
-		return z + z_mod
+		return z + self.alpha*z_mod
 
 
 class LoRA( nn.Module ):
@@ -431,6 +431,7 @@ class FiLM( nn.Module ):
 	Feature-wise Linear Modulation (FiLM).
 	z_mod = gamma*z + beta
 	Here, gamma and beta represent the scale and shift.
+	--> Still in progress <--
 	"""
 	def __init__( self, c_z: int, device: str ):
 		super().__init__()
