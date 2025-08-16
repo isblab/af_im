@@ -174,7 +174,7 @@ def get_unrelaxed_model_file(
 	"""
 	ver_path = get_sys_modeling_version_path(
 		base_dir = "./benchmark",
-		modeling_dir_name = "rigid_modeling",
+		modeling_dir_name = modeling_dir_name,
 		sys_name = sys_name,
 		modeling_version = modeling_version )
 	models_dir = os.path.join( 
@@ -195,7 +195,7 @@ def get_unrelaxed_ensemble_file(
 	"""
 	ver_path = get_sys_modeling_version_path(
 		base_dir = "./benchmark",
-		modeling_dir_name = "rigid_modeling",
+		modeling_dir_name = modeling_dir_name,
 		sys_name = sys_name,
 		modeling_version = modeling_version )
 	ensemble_file = os.path.join(
