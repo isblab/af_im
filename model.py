@@ -255,98 +255,6 @@ class StructureModuleFineTuning( LoadState, Model ):
 		"""
 		return [self.structure_module]
 
-
-################################################################################
-################################################################################
-class PairRepRefinement( LoadState, Model ):
-	"""
-	Compose the AF2 structure module and pLDDT head.
-	Modifying the pair representation.
-	"""
-	def __init__( self, system_features: mlc.ConfigDict,
-						ofold_config: mlc.ConfigDict,
-						model_config: mlc.ConfigDict,
-						mode: str, is_multimer: bool, device: str ):
-		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
-		Model.__init__( self )
-
-		self.ofold_config = ofold_config
-		self.model_config = model_config
-		self.system_features = system_features
-
-		self.pair_bias = nn.Sequential(
-			nn.Linear( in_features = 128, out_features = 128, bias = True, device = device )
-			)
-		# Initialize weights and biases to 0 to not break the structure initially.
-		nn.init.zeros_(self.pair_bias[0].weight)
-		nn.init.zeros_(self.pair_bias[0].bias)
-
-		layers = ["structure_module", "lddt"]
-		self.load_pretrained_models( layers )
-
-		if self.model_config.mode.sm == "train":
-			print( "Using structure module in train mode" )
-			self.structure_module.train()
-		elif self.model_config.mode.sm == "eval":
-			print( "Using structure module in eval mode" )
-			self.structure_module.eval()
-		else:
-			raise ValueError( "Incorrect mode: " +
-							f"{self.model_config.mode.sm} for structure module..." )
-
-		if self.model_config.mode.plddt == "train":
-			print( "Using plddt head in train mode" )
-			self.plddt.train()
-		elif self.model_config.mode.plddt == "eval":
-			print( "Using plddt head in eval mode" )
-			self.plddt.eval()
-		else:
-			raise ValueError( "Incorrect mode: " +
-							f"{self.model_config.mode.lddt} for lddt head..." )
-
-
-	def predict( self, evo_output, gt_features, batch ):
-		"""
-		Run the structure module and auxillary heads (lddt, distogram) module.
-		"""
-		outputs = {}
-		pair_rep = evo_output["pair"].clone()
-		evo_output["pair"] = self.pair_bias( pair_rep )
-
-		# Don't need the full Evoformer dict, just the Pair and Single representation.
-		outputs["sm"] = self.structure_module.forward( evoformer_output_dict = evo_output,
-														aatype = gt_features["aatype"],
-														mask = self.system_features["seq_mask"].to(
-															dtype = evo_output["single"].dtype ) )
-
-		# The  dim=0 in all structure module outputs represents the no. of
-		# 	structure module blocks (default = 8).
-		outputs["final_atom_positions"] = atom14_to_atom37(
-													outputs["sm"]["positions"][-1],
-													gt_features
-													)
-		outputs["final_atom_mask"] = gt_features["atom37_atom_exists"]
-		outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
-
-		with torch.no_grad():
-			# The AuxillaryHeads module requires pair, Single representations in the output dict.
-			# 	Even though not using the full AuxillaryHeads module, but still having this step.
-			outputs.update( evo_output )
-			# outputs.update( self.aux_heads( outputs ) )
-			lddt_logits = self.plddt( outputs["sm"]["single"] )
-			# Required for saving the structure later on.
-			outputs["plddt"] = compute_plddt( lddt_logits )
-
-		return outputs, batch
-
-
-	def params( self ):
-		"""
-		Return a list of models for the optimizer.
-		"""
-		return [self.pair_bias]
-
-
 ################################################################################
 ################################################################################
 class LinearPerturbation( nn.Module ):
@@ -428,24 +336,32 @@ class LoRA( nn.Module ):
 
 class FiLM( nn.Module ):
 	"""
-	Feature-wise Linear Modulation (FiLM).
+	Feature-wise Linear Modulation (FiLM)
 	z_mod = gamma*z + beta
 	Here, gamma and beta represent the scale and shift.
-	--> Still in progress <--
+
+	A custom implementation inspired from the original
+		FiLM paper (https://doi.org/10.48550/arXiv.1709.07871).
+	The current implementation is differnt from the above:
+		I am using FiLM(z) as a residual connection.
+		I am using LNorm which as per the paper is not needed.
+		I am learning a constant gamma and beta for each feaure.
 	"""
 	def __init__( self, c_z: int, device: str ):
 		super().__init__()
-		self.gamma = nn.Parameter( torch.zeros( c_z ), device = device )
-		self.beta = nn.Parameter( torch.zeros( c_z ), device = device )
+		self.gamma = nn.Parameter( torch.ones( c_z, device = device ), requires_grad = True )
+		self.beta = nn.Parameter( torch.ones( c_z, device = device ), requires_grad = True )
 		self.lnorm = nn.LayerNorm( c_z, device = device )
 
 
 	def forward( self, z: torch.Tensor, inter_chain_mask: torch.Tensor = None ):
+		gamma = self.gamma.view( 1, 1, 1, -1 )
+		beta = self.beta.view( 1, 1, 1, -1 )
+
 		y = self.lnorm( z )
-		z_mod = y*self.gamma + self.beta
+		z_mod = y*gamma + beta
 		if inter_chain_mask is not None:
 			z_mod = z_mod*inter_chain_mask
-		
 		return z + z_mod
 
 
