@@ -19,6 +19,12 @@ class XlRestraint():
 
 	def get( self, out, restraint_feature ):
 		if self.config.type == "ub_harmonic":
+			print( "Using an upper bound harmonic as XL restraint." )
+			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
+													restraint_feature["xl_max_bound"],
+													restraint_feature["total_xls"] )
+		elif self.config.type == "pseudo_huber":
+			print( "Using pseudo huber as XL restraint." )
 			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
 													restraint_feature["xl_max_bound"],
 													restraint_feature["total_xls"] )
@@ -158,6 +164,70 @@ class XlRestraint():
 		elif self.config.func_form == "rmse":
 			rmse = torch.sqrt( mse + self.eps )
 			loss = rmse
+		return loss
+
+
+	def pseudo_huber( self, out: Dict[str, torch.Tensor],
+							xl_res_dict: torch.tensor,
+							xl_max_bound: float,
+							total_xls: int ) -> torch.Tensor:
+		"""
+		Quick and dirty implementation for now. Just wanna see if it works.
+		Using pseudo huber loss for the XL restraint.
+			L2-penalty for small violations and L1-penalty for large violations.
+		Psudo huber = delta**2( sqrt( 1 + ( ( y_hat - y )/delta )**2 ) ) - 1
+		predicted Ca distances between the ceoss-linked residues from the max cross-link bound.
+		Here, I am using the "final_atom_positions" for the restraint.
+		Here we compute the loss per XL pair rather than all together in a single tensor.
+		The loss for each XL residue pair is the minimum over all ambiguous XL pairs.
+		Final loss is the mean over all XL pairs.
+
+		Input:
+		----------
+		out --> output dict from the model.
+		xl_res_dict --> dict with an index as key and the value corresponding to 
+						all ambiguous XL pairs for a residue pair.
+		xl_max_bound --> max distance between the cross-licked residues.
+
+		Returns:
+		----------
+		loss --> xl restraint loss.
+		"""
+		delta = self.config.huber_delta/ self/length_scale
+		D = self.final_pred_to_dist_map( out["final_atom_positions"] )
+
+		# Adjust the length scales.
+		scaled_xl_max_bound = xl_max_bound / self.length_scale
+
+		# agg_loss = torch.tensor( 0.0 ).to( D.device )
+		agg_loss = torch.zeros( 1 ).to( D.device )
+		for xl_pair in xl_res_dict:
+			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
+			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
+			# Indices for all ambiguous XLs for a cross-linked residue pair.
+			xl_indices = ( 0, res_idx1, res_idx2 )
+
+			viols_mask = D[xl_indices] > scaled_xl_max_bound
+			# If all ambiguous pairs are violated.
+			if viols_mask.all():
+				# Get the minimum distance over all ambiguous pairs.
+				min_D = torch.min( D[xl_indices] )
+				diff = min_D - scaled_xl_max_bound
+				a = torch.sqrt( 1 + ( diff/delta )**2 )
+				huber = delta**2*a - 1
+			# If any ambiguous pair is satisfied, the restraint is satisfied.
+			else:
+				huber = ( D[xl_indices]*0 ).sum()
+				# squared_diff = torch.tensor( 0.0, device = D.device )
+
+			agg_loss += huber
+		
+		# Normalizing by the total no. of cross-linked residue pairs.
+		total_xls = torch.tensor( total_xls ).to( D.device )
+		denom = self.eps + total_xls
+
+		loss = agg_loss/ denom
+
 		return loss
 
 
