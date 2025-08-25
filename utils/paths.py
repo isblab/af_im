@@ -173,12 +173,32 @@ def get_unrelaxed_model_file(
 	Get the file to the unrelaxed model (saved during fine-tuning).
 	"""
 	ver_path = get_sys_modeling_version_path(
-		base_dir = "./benchmark",
+		base_dir = base_dir,
 		modeling_dir_name = modeling_dir_name,
 		sys_name = sys_name,
 		modeling_version = modeling_version )
 	models_dir = os.path.join( 
 	ver_path, f"{sys_name}_ensemble")
+	model_file = os.path.join(
+		models_dir, f"model_{model_id}.pdb" )
+	return model_file
+
+
+def get_relaxed_model_file(
+	base_dir: str,
+	modeling_dir_name: str,
+	sys_name: str,
+	modeling_version: int, model_id: int ):
+	"""
+	Get the file to the unrelaxed model (saved during fine-tuning).
+	"""
+	analysis_dir_path = get_analysis_dir_path(
+		base_dir = base_dir,
+		modeling_dir_name = modeling_dir_name,
+		sys_name = sys_name,
+		modeling_version = modeling_version )
+	models_dir = os.path.join( 
+	analysis_dir_path, f"relaxed_models" )
 	model_file = os.path.join(
 		models_dir, f"model_{model_id}.pdb" )
 	return model_file
@@ -194,12 +214,32 @@ def get_unrelaxed_ensemble_file(
 	Get the file to the unrelaxed model (saved during fine-tuning).
 	"""
 	ver_path = get_sys_modeling_version_path(
-		base_dir = "./benchmark",
+		base_dir = base_dir,
 		modeling_dir_name = modeling_dir_name,
 		sys_name = sys_name,
 		modeling_version = modeling_version )
 	ensemble_file = os.path.join(
 		ver_path,
 		f"{sys_name}_output_models.{struct_format}" )
+	return ensemble_file
+
+
+def get_relaxed_ensemble_file(
+	base_dir: str,
+	modeling_dir_name: str,
+	sys_name: str,
+	modeling_version: int,
+	struct_format: str ):
+	"""
+	Get the file to the unrelaxed model (saved during fine-tuning).
+	"""
+	analysis_dir_path = get_analysis_dir_path(
+		base_dir = base_dir,
+		modeling_dir_name = modeling_dir_name,
+		sys_name = sys_name,
+		modeling_version = modeling_version )
+	ensemble_file = os.path.join(
+		analysis_dir_path,
+		f"{sys_name}_relaxed_ensemble.{struct_format}" )
 	return ensemble_file
 
