@@ -11,7 +11,7 @@ from scipy.spatial import distance_matrix
 
 import gemmi
 import Bio
-from Bio.PDB import PDBParser, Structure, Model, Residue, MMCIFIO
+from Bio.PDB import PDBParser, MMCIFParser, Structure, Model, Residue, MMCIFIO
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 import modelcif
 import modelcif.model
@@ -21,7 +21,7 @@ import modelcif.protocol
 import modelcif.alignment
 import modelcif.qa_metric
 
-from openfold.utils.script_utils import prep_output
+# from openfold.utils.script_utils import prep_output
 from openfold.np.protein import Protein, get_pdb_headers, _chain_end
 from openfold.np import residue_constants
 from openfold.data import feature_pipeline
@@ -164,6 +164,56 @@ def get_distance_map( coords1: np.array, coords2: np.array ):
 	distance_map = distance_matrix( coords1, coords2 )
 	return distance_map
 
+################################################################################
+################################################################################
+def prep_output(out, batch, feature_dict, feature_processor, config_preset, multimer_ri_gap, subtract_plddt):
+    plddt = out["plddt"]
+
+    plddt_b_factors = numpy.repeat(
+        plddt[..., None], residue_constants.atom_type_num, axis=-1
+    )
+
+    if subtract_plddt:
+        plddt_b_factors = 100 - plddt_b_factors
+
+    # Prep protein metadata
+    template_domain_names = []
+    template_chain_index = None
+    if feature_processor.config.common.use_templates and "template_domain_names" in feature_dict:
+        template_domain_names = [
+            t.decode("utf-8") for t in feature_dict["template_domain_names"]
+        ]
+
+        # This works because templates are not shuffled during inference
+        template_domain_names = template_domain_names[
+                                :feature_processor.config.predict.max_templates
+                                ]
+
+        if "template_chain_index" in feature_dict:
+            template_chain_index = feature_dict["template_chain_index"]
+            template_chain_index = template_chain_index[
+                                   :feature_processor.config.predict.max_templates
+                                   ]
+
+    no_recycling = feature_processor.config.common.max_recycling_iters
+    remark = ', '.join([
+        f"no_recycling={no_recycling}",
+        f"max_templates={feature_processor.config.predict.max_templates}",
+        f"config_preset={config_preset}",
+    ])
+
+    unrelaxed_protein = protein.from_prediction(
+        features=batch,
+        result=out,
+        b_factors=plddt_b_factors,
+        remove_leading_feature_dimension=False,
+        remark=remark,
+        parents=template_domain_names,
+        parents_chain_index=template_chain_index,
+    )
+
+    return unrelaxed_protein
+
 
 def prep_protein( outputs: Dict, feature_dict: Dict,
 					feature_processor:feature_pipeline.FeaturePipeline ):
@@ -192,8 +242,6 @@ def prep_protein( outputs: Dict, feature_dict: Dict,
 	)
 
 	return unrelaxed_protein
-
-
 
 
 ################### Biopython MMCIFDict Parser ###################
@@ -383,8 +431,10 @@ class Parser():
 
 		if "pdb" in ext:
 			parser = PDBParser()
+		elif "cif" in ext:
+			parser = MMCIFParser()
 		else:
-			raise ValueError( "Incorrect file format.. Only .pdb format supported for now..." )
+			raise ValueError( "Incorrect file format.. Only .pdb/.cif format supported for now..." )
 
 		return parser
 
@@ -453,6 +503,10 @@ class Parser():
 
 		elif quantity == "coords":
 			coords = residue[rep_atom].coord
+			quantity = coords
+
+		elif quantity == "plddt":
+			coords = residue[rep_atom].bfactor
 			quantity = coords
 
 		else:
