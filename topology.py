@@ -15,7 +15,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "8wtd: Testing PairPerturbation with linear_perturb. " +
+	"objective": "8wtd: Test run with Pseudo Huber loss. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -61,7 +61,8 @@ config = mlc.ConfigDict(
 		}
 	},
 	"model": {
-		"name": "pair_perturbation",
+		# structure_module_finetuning, pair_perturbation, single_perturbation
+		"name": "structure_module_finetuning",
 		# train or eval.
 		"mode": {
 			"sm": "eval",
@@ -69,13 +70,14 @@ config = mlc.ConfigDict(
 			"distogram": "eval"
 			},
 		"update_params": {
+			# No. of structure module blocks.
 			"sm_no_blocks": 8,
 			},
 		# If true, freeze weights for StructureModule.
-		"freeze_sm": True,
+		"freeze_sm": False,
 		"adapter": {
 			# linear_perturb/sigmoid_gating/tanh_gating/lora/film
-			"name": "linear_perturb",
+			"name": "",
 			# use bias in Linear layer for adapter.
 			"bias": False,
 			# reduced feature dim size for lora adpater
@@ -155,12 +157,13 @@ config = mlc.ConfigDict(
 			"weight": 0.3,
 		},
 		"xlr": {
-				"enabled": True,
-				"add_penalty": True,
-				"type": "ub_harmonic", # ub_harmonic
-				"func_form": "mse",   # mse, rmse
-				"weight": 0.05,
-				"eps": 1e-8
+			"enabled": True,
+			"add_penalty": True,
+			"type": "pseudo_huber", # ub_harmonic/pseudo_huber
+			"func_form": "mse",   # mse, rmse
+			"huber_delta": 5,
+			"weight": 0.05,
+			"eps": 1e-8
 		},
 	},
 	"metrics": {
@@ -194,13 +197,7 @@ config = mlc.ConfigDict(
 				},
 				"nds": {
 					"enabled": False,
-				},
-				# "hdbscan": {
-				# 	"enabled": False,
-				# 	"min_cluster_size": 5,
-				# 	"min_sample": None,
-				# 	"store_centers": False
-				# }
+				}
 			},
 			"scale_data": False
 		},
@@ -236,9 +233,9 @@ config = mlc.ConfigDict(
 	},
 	"train": {
 		# Version for the modeling run.
-		"version": 0,
+		"version": None,
 		"mode": "test", # deprecated
-		"max_epochs": 200, # max no. of epochs for training.
+		"max_epochs": 100, # max no. of epochs for training.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"allow_mcpa": True, # use multi-chain permutation align
 		"allow_grad_update": True, # allow gradient update - to be deprecated.
