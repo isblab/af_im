@@ -1,3 +1,4 @@
+from typing import Dict, Optional
 import numpy as np
 import torch
 from torch import nn
@@ -5,8 +6,38 @@ from torch import nn
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.loss import softmax_cross_entropy
 
-from typing import Dict, Optional
+# from loss import final_pred_to_dist_map
 
+
+def final_pred_to_dist_map(
+	final_atom_pos: torch.Tensor,
+	length_scale: int,
+	eps = float
+	) -> torch.Tensor:
+	"""
+	Compute a distance map from the final_atom_positions.
+	Using only Ca-coordinates for distance map calculation.
+
+	Input:
+	----------
+	final_atom_pos --> coordinates in atom37 representtaion.
+					[B,N,37,3] --> For 2ayo: [1,480,37,3]
+
+	Returns:
+	----------
+	D --> Ca-distance map [B,N,N].
+	"""
+	# Extracting Ca-coordinates - index 1.
+	# [B,N,3] --> For 2ayo: [1,480,3]
+	ca_pos = final_atom_pos[..., 1, :]
+	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
+	D = torch.sqrt( 
+					torch.sum( ( diff )**2, dim = -1 ) + eps
+					)
+
+	# Adjust the length scales.
+	scaled_D = D / length_scale
+	return scaled_D
 
 
 class XlRestraint():
@@ -32,34 +63,6 @@ class XlRestraint():
 			return lambda: self.disto_xl_restraint( out, **restraint_feature )
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
-
-
-	def final_pred_to_dist_map( self, final_atom_pos: torch.Tensor
-								) -> torch.Tensor:
-		"""
-		Compute a distance map from the final_atom_positions.
-		Using only Ca-coordinates for distance map calculation.
-
-		Input:
-		----------
-		final_atom_pos --> coordinates in atom37 representtaion.
-						[B,N,37,3] --> For 2ayo: [1,480,37,3]
-
-		Returns:
-		----------
-		D --> Ca-distance map [B,N,N].
-		"""
-		# Extracting Ca-coordinates - index 1.
-		# [B,N,3] --> For 2ayo: [1,480,3]
-		ca_pos = final_atom_pos[..., 1, :]
-		diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
-		D = torch.sqrt( 
-						torch.sum( ( diff )**2, dim = -1 ) + self.eps
-						)
-
-		# Adjust the length scales.
-		scaled_D = D / self.length_scale
-		return scaled_D
 
 
 	def get_violations_mask( self, D: Dict[str, torch.Tensor],
@@ -126,7 +129,10 @@ class XlRestraint():
 		----------
 		loss --> xl restraint loss.
 		"""
-		D = self.final_pred_to_dist_map( out["final_atom_positions"] )
+		D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			length_scale = self.length_scale,
+			eps = self.eps )
 
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
@@ -194,7 +200,10 @@ class XlRestraint():
 		loss --> xl restraint loss.
 		"""
 		delta = self.config.huber_delta/ self/length_scale
-		D = self.final_pred_to_dist_map( out["final_atom_positions"] )
+		D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			length_scale = self.length_scale,
+			eps = self.eps )
 
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
