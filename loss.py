@@ -1,3 +1,4 @@
+from typing import Tuple, Dict, Optional
 import numpy as np
 import torch
 from torch import nn
@@ -12,9 +13,8 @@ from openfold.utils.loss import ( find_structural_violations,
 								)
 
 from mod_openfold import fape_loss
-from restraints import XlRestraint
+from restraints import XlRestraint, final_pred_to_dist_map
 
-from typing import Dict, Optional
 
 
 
@@ -26,10 +26,10 @@ def compute_complex_com( pos: torch.Tensor,
 	Compute COM of the entire complex.
 	"""
 	# [B,C,N_pts,1] * [B,1,N_pts,3] -> [B,C,N_pts,3] -> [B,3]
-    center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=[-3,-2])
-    # [B,3]/[B] -> [B,3]
-    complex_center = center_sum / (torch.sum(chain_pos_mask, dim=[-2,-1], keepdim=True) + eps)
-    return Vec3Array.from_array( complex_center )
+	center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=[-3,-2])
+	# [B,3]/[B] -> [B,3]
+	complex_center = center_sum / (torch.sum(chain_pos_mask, dim=[-2,-1], keepdim=True) + eps)
+	return Vec3Array.from_array( complex_center )
 
 
 def compute_per_chain_com( pos: torch.Tensor,
@@ -40,10 +40,10 @@ def compute_per_chain_com( pos: torch.Tensor,
 	Compute the COM for each chain.
 	"""
 	# [B,C,N_pts,1] * [B,1,N_pts,3] -> [B,C,N_pts,3] -> [B,C,3]
-    center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=-2)
-    # [B,C,3]/[B,c] -> [B,C,3]
-    chain_centers = center_sum / (torch.sum(chain_pos_mask, dim=-1, keepdim=True) + eps)
-    return Vec3Array.from_array( chain_centers )
+	center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=-2)
+	# [B,C,3]/[B,c] -> [B,C,3]
+	chain_centers = center_sum / (torch.sum(chain_pos_mask, dim=-1, keepdim=True) + eps)
+	return Vec3Array.from_array( chain_centers )
 
 
 def get_center_of_mass(
@@ -58,26 +58,26 @@ def get_center_of_mass(
 
 	Taken from openfold/utils/loss.py -> chain_center_of_mass_loss.
 	"""
-    ca_pos = residue_constants.atom_order["CA"]
-    # [B,N_pts,37,3] -> [B,N_pts,3]
-    all_atom_positions = all_atom_positions[..., ca_pos, :]
-    # [B,N_pts,37] -> [B,N_pts,1]
-    all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep dim
+	ca_pos = residue_constants.atom_order["CA"]
+	# [B,N_pts,37,3] -> [B,N_pts,3]
+	all_atom_positions = all_atom_positions[..., ca_pos, :]
+	# [B,N_pts,37] -> [B,N_pts,1]
+	all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep dim
 
-    # [B,N_pts] -> [B,N_pts,C]; C --> no. of chains
-    one_hot = torch.nn.functional.one_hot(asym_id.long()).to(dtype=all_atom_mask.dtype)
-    # Mask out non-existant atoms
-    one_hot = one_hot * all_atom_mask
-    # [B,N_pts,C] -> [B,C,N_pts]
-    chain_pos_mask = one_hot.transpose(-2, -1)
+	# [B,N_pts] -> [B,N_pts,C]; C --> no. of chains
+	one_hot = torch.nn.functional.one_hot(asym_id.long()).to(dtype=all_atom_mask.dtype)
+	# Mask out non-existant atoms
+	one_hot = one_hot * all_atom_mask
+	# [B,N_pts,C] -> [B,C,N_pts]
+	chain_pos_mask = one_hot.transpose(-2, -1)
 
-    complex_center = compute_complex_com( pos = all_atom_positions,
+	complex_center = compute_complex_com( pos = all_atom_positions,
 										chain_pos_mask = chain_pos_mask,
 										eps = eps )
-    chain_centers = compute_per_chain_com( pos = pos,
+	chain_centers = compute_per_chain_com( pos = pos,
 										chain_pos_mask = chain_pos_mask,
 										eps = eps )
-    return complex_center, chain_centers
+	return complex_center, chain_centers
 
 
 def get_chain_distances( 
@@ -85,7 +85,7 @@ def get_chain_distances(
     all_atom_mask: torch.Tensor,
     asym_id: torch.Tensor,
     eps: float = 1e-10, **kwargs
-    ) -> torch.Tensor::
+    ) -> torch.Tensor:
 	"""
 	Compute the distance of the COM of each chain
 		from the COM of the complex.
@@ -138,6 +138,31 @@ def com_loss(
 	com_loss = torch.mean( squared_diff )
 	return com_loss
 
+###############################################################################
+###############################################################################
+def rigid_chain_loss(
+	final_atom_position: torch.Tensor,
+	gt_distance_map: torch.Tensor,
+	asym_id: torch.Tensor,
+	length_scale: float,
+	eps: float ):
+	"""
+	Penalize intrachain distance deviations from the ground truth structure.
+	Thi smay help keep each chain as a rigid unit and prevent squishing.
+	"""
+	pred_dist_map = final_pred_to_dist_map(
+		final_atom_pos = final_atom_position,
+		length_scale = length_scale,
+		eps = eps
+		)
+	gt_distance_map = gt_distance_map/length_scale
+
+	intrachain_mask = asym_id == asym_id
+
+	squared_diff = ( pred_dist_map*intrachain_mask - gt_distance_map*intrachain_mask )**2
+	loss = torch.mean( squared_diff )
+
+	return loss
 
 ###############################################################################
 ###############################################################################
@@ -203,6 +228,22 @@ class CenterOfMassLoss():
 					all_atom_pred_pos = out["all_atom_positions"],
 					**{**batch, **self.config},
 					)
+
+
+class RigidChainLoss():
+	# Custom loss to preserve intrachain distances.
+	def __init__(  self, config ):
+		self.name = "rigid_chain"
+		self.config = config
+
+	def get( self, out, batch ):
+		return lambda: rigid_chain_loss(
+						final_atom_position = out["final_atom_positions"],
+						gt_distance_map = batch["distance_map"],
+						asym_id = batch["asym_id"],
+						length_scale = self.config.length_scale,
+						eps = self.config.eps
+						)
 
 class DistogramLoss():
 	# Just a wrapper for the OpenFold Chain center of mass loss.
@@ -329,6 +370,9 @@ class LossFunction( nn.Module ):
 
 		if self.config.distogram.enabled:
 			loss_fns.append( DistogramLoss( self.config.distogram ) )
+
+		if self.config.rigid_chain.enabled:
+			loss_fns.append( RigidChainLoss( self.config.rigid_chain ) )
 
 		if self.config.xlr.enabled:
 			loss_fns.append( XlRestraint( self.config.xlr ) )
