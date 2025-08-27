@@ -156,6 +156,13 @@ config = mlc.ConfigDict(
 			"eps": 1e-8,  # 1e-6,
 			"weight": 0.3,
 		},
+		"rigid_chain": {
+			"enabled": True,
+			"add_penalty": True,
+			"length_scale": 10.0,
+			"eps": 1e-8,
+			"weight": 0.03
+		},
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
