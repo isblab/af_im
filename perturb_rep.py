@@ -33,7 +33,7 @@ class PerturbRepresentation():
 	Use the BenchmarkModeling module for running simulations.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "altloss"
+		self.benchmark_name = "rigidchain"
 		# File format to save the structure.
 		self.struct_format = "pdb"
 		# Suffix for the sys_config and xls file.
@@ -77,7 +77,8 @@ class PerturbRepresentation():
 		# elif self.benchmark_name == "singlerep":
 		# 	self.output_dir = os.path.join( self.base_dir, "single_perturbation" )
 
-		self.output_dir = os.path.join( self.base_dir, "alternate_loss" )
+		# self.output_dir = os.path.join( self.base_dir, "alternate_loss" )
+		self.output_dir = os.path.join( self.base_dir, "rigidchain_loss" )
 		os.makedirs( self.output_dir, exist_ok = True )
 
 
@@ -97,7 +98,8 @@ class PerturbRepresentation():
 		# Run the experiment and create the plots.
 		# self.experiment1()
 		# self.experiment2()
-		self.experiment3()
+		# self.experiment3()
+		self.experiment4()
 
 
 	def init_modeling_obj( self, topo_dict: ConfigDict ):
@@ -235,7 +237,7 @@ class PerturbRepresentation():
 		self.expt_name = "experiment3"
 		self.benchmark_name = "altloss"
 
-		# FiLM does not have an alpha parameter.
+		# Violation loss weights.
 		self.expt_params = [0.03, 0.1, 0.5]
 		total_expt = len( self.expt_params )
 		start = 0
@@ -280,6 +282,69 @@ class PerturbRepresentation():
 			sim.forward()
 
 		self.plot_modeling_results( plot_suffix = plot_suffix )
+
+	################################################################################
+	def experiment4( self ):
+		"""
+		Using a rigid chain loss to preserve intrachain distances.
+		Try different weights for the rigid loss.
+		Also using differenet violation loss weights.
+		"""
+		# Name of the experiment.
+		self.expt_name = "experiment4"
+		self.benchmark_name = "rigidchain"
+
+		for i, viol_weight in enumerate( [0.03, 0.1, 0.3] ):
+			# RigidChain loss weights.
+			self.expt_params = [0.0, 0.03, 0.05, 0.1, 0.3, 1.0]
+			total_expt = len( self.expt_params )
+			total_expt = len( self.expt_params )
+			start = i
+			step = 0.1
+
+			self.modeling_versions = [
+			round(start+step*j, 1 ) for j in range( 0, total_expt )
+			]
+			self.modeling_versions[0] = i
+			print( self.modeling_versions )
+
+			if len( self.expt_params ) != len( self.modeling_versions ):
+				raise ValueError( "No. of experimental params and modeling versions do not match. " +
+					f"{self.expt_params} \t {self.modeling_versions}" )
+
+			for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
+				# Suffix for the plots file.
+				plot_suffix = f"viol_{viol_weight}"
+
+				self.expt_dir = os.path.join( self.output_dir, self.expt_name )
+				os.makedirs( self.expt_dir, exist_ok = True )
+
+				print( f"\n\033[1mModeling version = {ver} " +
+						f"Experiment: {self.expt_name} RigidChain loss weight {expt_param}\033[0m" )
+				objective = f"Experiment: {self.expt_name} - testing RigidChain loss"
+
+				topo_dict = topology_dict()
+				topo_dict.loss.fape.add_penalty = False
+				topo_dict.loss.supervised_chi.add_penalty = False
+				topo_dict.loss.chain_center_of_mass.add_penalty = False
+				topo_dict.loss.violation.add_penalty = True
+				topo_dict.loss.violation.weight = viol_weight
+				topo_dict.loss.rigid_chain.add_penalty = True
+				topo_dict.loss.rigid_chain.weight = expt_param
+				topo_dict.loss.xlr.add_penalty = True
+				topo_dict.loss.xlr.type = "ub_harmonic"
+				topo_dict.loss.xlr.weight = 0.05
+
+				topo_dict.model.name = "structure_module_finetuning"
+				topo_dict.train.version = ver
+				topo_dict.train.max_epochs = 100
+
+				sim = self.init_modeling_obj( topo_dict = topo_dict )
+				sim.modeling_objective = objective
+				sim.modeling_version = ver
+				sim.forward()
+
+			self.plot_modeling_results( plot_suffix = plot_suffix )
 
 	################################################################################
 	################################################################################
