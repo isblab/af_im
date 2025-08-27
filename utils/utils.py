@@ -1,15 +1,38 @@
 """
 This script contains general purpose accessory functions.
 """
-
+from typing import List, Tuple, Dict, TextIO, Optional
 import json, subprocess, traceback, time
 from datetime import datetime
 from io import StringIO
-from typing import List, Tuple, Dict, TextIO
+import numpy as np
 from Bio import SeqIO
 import requests
 import ml_collections as mlc
 
+import torch
+
+
+
+def parse_nested_dict( dict_: Dict, action: str, 
+						device: Optional[str] = "cuda" ):
+	for k in dict_:
+		if isinstance( dict_[k], Dict ):
+			dict_[k] = parse_nested_dict( dict_[k], action, device )
+		else:
+			if isinstance( dict_[k], np.ndarray ):
+				if action == "to_tensor":
+					dict_[k] = torch.from_numpy( dict_[k] )
+
+			if isinstance( dict_[k], torch.Tensor ):
+				if action == "add_dim":
+					dict_[k] = dict_[k].unsqueeze( 0 )
+				elif action == "add_to_device":
+					dict_[k] = dict_[k].to( device )
+				elif action == "detach":
+					dict_[k] = dict_[k].detach().cpu()
+
+	return dict_
 
 
 def ranges( positions: List ) -> List[Tuple[int, int]]:
