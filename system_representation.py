@@ -43,17 +43,18 @@ gt_features
 	chi_angles_sin_cos: --> [480, 4, 2]
 	chi_mask: --> [480, 4]
 """
-import os
-import glob
-from typing import Optional
+from typing import Dict, Any, Optional
+import os, glob, pickle as pkl
 import numpy as np
 import ml_collections as mlc
+
+import torch
 
 from openfold.config import model_config
 from mod_openfold import parse, process_mmcif, np_example_to_features
 
 from utils.commands import OpenfoldCommand
-from utils.utils import run_subprocess
+from utils.utils import run_subprocess, parse_nested_dict
 
 
 class SystemRepresentation():
@@ -117,9 +118,16 @@ class SystemRepresentation():
 		print( "\nCreating ground truth features from the initial structure..." )
 		data = self.get_feature_from_init_struct()
 
+		data["feature_dict"] = self.load_feature_dict()
+		data["output_dict"] = self.load_outputs_dict()
+		data["gt_features"]["distance_map"] = self.get_distance_map(
+			final_atom_position = data["output_dict"]["final_atom_positions"]
+			)
+
 		print( data.keys() )
 		for k in data["gt_features"].keys():
 			print( k, ": --> ", data["gt_features"][k].shape )
+
 		return data
 
 
@@ -171,7 +179,7 @@ class SystemRepresentation():
 		run_subprocess( command, stderr_file = stderr_file )
 
 
-	def get_feature_from_init_struct( self ):
+	def get_feature_from_init_struct( self ) -> Dict[str, Any]:
 		# Parse the .cif file to get an mmcif_object.
 		# This mmcif_object is not the same as Biopython structure object.
 		with open( self.init_struct_cif, "r" ) as f:
@@ -196,6 +204,51 @@ class SystemRepresentation():
 				is_multimer = True )
 
 		return data
+
+
+	def load_feature_dict( self ) -> Dict[str, Any]:
+		"""
+		Load the feature_dict saved as a .pkl file in the system's director.
+		"""
+		feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
+		if len( feature_dict_path ) == 0:
+			raise FileNotFoundError( f"Incorrect path -- {feature_dict_path}..." )
+
+		with open( feature_dict_path[0], "rb" ) as f:
+			feature_dict = pkl.load( f )
+		# feature_dict = parse_nested_dict( feature_dict, "to_tensor" )
+
+		return feature_dict	
+
+
+	def load_outputs_dict( self ) -> Dict[str, Any]:
+		"""
+		Load the outputs dict obtained from the initial OpenFold run.
+		Contains all the structure module output.
+		"""
+		output_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*output_dict.pkl" )
+		if len( output_dict_path ) == 0:
+			raise FileNotFoundError( f"Incorrect path -- {output_dict_path}..." )
+
+		with open( output_dict_path[0], "rb" ) as f:
+			output_dict = pkl.load( f )
+		output_dict = parse_nested_dict( output_dict, "to_tensor" )
+		return output_dict
+
+
+	def get_distance_map( self, final_atom_position: torch.Tensor ) -> torch.Tensor:
+		"""
+		Given the final_atom_position, create a Ca-ca distance map,
+			to be used as pseudo ground truth.
+		final_atom_position -> [N, 37, 3]
+		"""
+		ca_coords = final_atom_position[:, 1, :]
+		# [N, N, 3]
+		diff = ca_coords[:, None, :] - ca_coords[None, :, :]
+		# [N, N, 3]
+		squared_diff = torch.sum( diff**2, dim = -1 )
+		gt_distance_map = torch.sqrt( squared_diff )
+		return gt_distance_map
 
 
 if __name__ == "__main__":

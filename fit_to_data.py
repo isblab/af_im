@@ -24,24 +24,30 @@ from model import get_model
 from loss import LossFunction
 from metrics import Metrics
 from optimizer import Optimizer
+from utils.utils import parse_nested_dict
 from utils.pdb_utils import ( prep_protein, SaveModels )
 
 
 
-def parse_nested_dict( dict_: Dict, action: str, 
-						device: Optional[str] = "cuda" ):
-	for k in dict_:
-		if isinstance( dict_[k], Dict ):
-			dict_[k] = parse_nested_dict( dict_[k], action, device )
-		else:
-			if isinstance( dict_[k], torch.Tensor ):
-				if action == "add_dim":
-					dict_[k] = dict_[k].unsqueeze( 0 )
-				elif action == "add_to_device":
-					dict_[k] = dict_[k].to( device )
-				elif action == "detach":
-					dict_[k] = dict_[k].detach().cpu()
-	return dict_
+# def parse_nested_dict( dict_: Dict, action: str, 
+# 						device: Optional[str] = "cuda" ):
+# 	for k in dict_:
+# 		if isinstance( dict_[k], Dict ):
+# 			dict_[k] = parse_nested_dict( dict_[k], action, device )
+# 		else:
+# 			if isinstance( dict_[k], np.ndarray ):
+# 				if action == "to_tensor":
+# 					dict_[k] = torch.from_numpy( dict_[k] )
+
+# 			if isinstance( dict_[k], torch.Tensor ):
+# 				if action == "add_dim":
+# 					dict_[k] = dict_[k].unsqueeze( 0 )
+# 				elif action == "add_to_device":
+# 					dict_[k] = dict_[k].to( device )
+# 				elif action == "detach":
+# 					dict_[k] = dict_[k].detach().cpu()
+
+# 	return dict_
 
 
 class FitToData():
@@ -83,7 +89,11 @@ class FitToData():
 		"""
 		self.create_required_paths()
 		self.create_required_dir()
-		self.load_feature_dict()
+
+		self.output_dict = self.system_features.pop( "output_dict" )
+		self.feature_dict = self.system_features.pop( "feature_dict" )
+		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
+
 		self.fit()
 
 
@@ -106,17 +116,31 @@ class FitToData():
 
 
 
-	def load_feature_dict( self ) -> None:
-		"""
-		Load the feature_dict saved as a .pkl file in the system's director.
-		"""
-		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
-		feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
-		if len( feature_dict_path ) == 0:
-			raise FileNotFoundError( f"Incorrect path -- {feature_dict_path}..." )
+	# def load_feature_dict( self ) -> None:
+	# 	"""
+	# 	Load the feature_dict saved as a .pkl file in the system's director.
+	# 	"""
+	# 	self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
+	# 	feature_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*feature_dict.pkl" )
+	# 	if len( feature_dict_path ) == 0:
+	# 		raise FileNotFoundError( f"Incorrect path -- {feature_dict_path}..." )
 
-		with open( feature_dict_path[0], "rb" ) as f:
-			self.feature_dict = pkl.load( f )
+	# 	with open( feature_dict_path[0], "rb" ) as f:
+	# 		self.feature_dict = pkl.load( f )
+
+
+	# def load_outputs_dict( self ):
+	# 	"""
+	# 	Load the outputs dict obtained from the initial OpenFold run.
+	# 	Contains all the structure module output.
+	# 	"""
+	# 	output_dict_path = glob.glob( f"{self.ofold_output_dir}/predictions/*output_dict.pkl" )
+	# 	if len( output_dict_path ) == 0:
+	# 		raise FileNotFoundError( f"Incorrect path -- {output_dict_path}..." )
+
+	# 	with open( output_dict_path[0], "rb" ) as f:
+	# 		self.output_dict = pkl.load( f )
+	# 	self.output_dict = parse_nested_dict( self.output_dict, "to_tensor" )
 
 
 
@@ -175,6 +199,12 @@ class FitToData():
 			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
 			self.system_features["residue_index"] = self.system_features["residue_index"].to( torch.int64 )
 
+			if self.topology.model.name == "rigid_transform":
+				self.output_dict = parse_nested_dict( self.output_dict, "add_dim" )
+				for k in self.output_dict["sm"]:
+					# For sm output, The 0th dim represents no. of SM blocks.
+					self.output_dict["sm"][k] = self.output_dict["sm"][k].transpose( 0, 1 )
+
 
 	def add_to_device( self ):
 		"""
@@ -182,6 +212,7 @@ class FitToData():
 		"""
 		self.evo_output = parse_nested_dict( self.evo_output, "add_to_device", self.device )
 		self.system_features = parse_nested_dict( self.system_features, "add_to_device", self.device )
+		self.output_dict = parse_nested_dict( self.output_dict, "add_to_device", self.device )
 
 
 	def remove_from_device( self, outputs: Dict[str, torch.Tensor] ):
@@ -251,10 +282,18 @@ class FitToData():
 			gt_features = batch.pop( "gt_features", None )
 
 			# with torch.autocast( device_type = self.device, dtype = torch.float16 ):
-			outputs, batch = model.predict(
-				evo_output = copy.deepcopy( self.evo_output ),
-				gt_features = gt_features,
-				batch = batch )
+
+			# If using rigid transformation model.
+			if self.topology.model.name == "rigid_transform":
+				outputs, batch = model.predict(
+					outputs = copy.deepcopy( self.output_dict ),
+					gt_features = gt_features,
+					batch = batch )
+			else:
+				outputs, batch = model.predict(
+					evo_output = copy.deepcopy( self.evo_output ),
+					gt_features = gt_features,
+					batch = batch )
 
 			# Separate out the restraint features.
 			restraint_features = batch.pop( "restraint_features", None )
@@ -323,7 +362,6 @@ class FitToData():
 			str_ += f"{k}: {v} \t"
 			self.stats_dict["loss"][k].append( v )
 		print( f"Losses: {str_}" )
-
 
 
 	def compute_metrics( self,
