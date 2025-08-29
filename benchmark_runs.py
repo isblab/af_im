@@ -10,6 +10,7 @@ import os, glob, time, subprocess, traceback, warnings
 from datetime import datetime
 import numpy as np
 import pandas as pd
+from ml_collections import ConfigDict
 import matplotlib.pyplot as plt
 import torch
 from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
@@ -22,7 +23,7 @@ from utils.pdb_utils import Parser, get_chain_id
 
 
 class BenchmarkModeling():
-	def __init__( self ):
+	def __init__( self, topo_dict: ConfigDict = None ):
 		self.benchmark_name = "xlsim"  # xlsim/abag/oreilly
 		# Define the modeling objective.
 		self.modeling_objective = "Using TP+FP XLs. No FAPE and supervised_chi loss."
@@ -57,8 +58,10 @@ class BenchmarkModeling():
 					"interfape": True, "interfape_weight": 0.5}
 		self.supervised_chi = {"enabled": True, "add_penalty": False, "weight": 1.0}
 		self.violation = {"enabled": True, "add_penalty": True, "weight": 0.03}
-		self.ccom = {"enabled": True, "add_penalty": True, "weight": 0.05}
+		self.ccom = {"enabled": True, "add_penalty": False, "weight": 0.05}
 		self.xlr = {"enabled": True, "add_penalty": True, "weight": 0.05}
+
+		self.topo_dict = topo_dict
 
 		self.dockq_dict = {}
 
@@ -162,40 +165,43 @@ class BenchmarkModeling():
 		"""
 		Add modeling objective and version to topology for each system.
 		"""
-		topo_dict = topology_dict()
-		topo_dict.objective = f"{sys_name} {self.modeling_objective}"
-		topo_dict.train.version = self.modeling_version
-		topo_dict.train.device = self.device
-		topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
-		topo_dict.db_preset = self.db_preset
-		topo_dict.train.max_epochs = self.max_epochs
+		if self.topo_dict == None:
+			topo_dict = topology_dict()
+			topo_dict.objective = f"{sys_name} {self.modeling_objective}"
+			topo_dict.train.version = self.modeling_version
+			topo_dict.train.device = self.device
+			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
+			topo_dict.db_preset = self.db_preset
+			topo_dict.train.max_epochs = self.max_epochs
 
-		# FAPE loss settings.
-		topo_dict.loss.fape.enabled = self.fape["enabled"]
-		topo_dict.loss.fape.add_penalty = self.fape["add_penalty"]
-		topo_dict.loss.fape.weight = self.fape["weight"]
-		topo_dict.loss.fape.interface_backbone.enabled = self.fape["interfape"]
-		topo_dict.loss.fape.interface_backbone.weight = self.fape["interfape_weight"]
+			# FAPE loss settings.
+			topo_dict.loss.fape.enabled = self.fape["enabled"]
+			topo_dict.loss.fape.add_penalty = self.fape["add_penalty"]
+			topo_dict.loss.fape.weight = self.fape["weight"]
+			topo_dict.loss.fape.interface_backbone.enabled = self.fape["interfape"]
+			topo_dict.loss.fape.interface_backbone.weight = self.fape["interfape_weight"]
 
-		# Supervised chi loss settings.
-		topo_dict.loss.supervised_chi.enabled = self.supervised_chi["enabled"]
-		topo_dict.loss.supervised_chi.add_penalty = self.supervised_chi["add_penalty"]
-		topo_dict.loss.supervised_chi.weight = self.supervised_chi["weight"]
+			# Supervised chi loss settings.
+			topo_dict.loss.supervised_chi.enabled = self.supervised_chi["enabled"]
+			topo_dict.loss.supervised_chi.add_penalty = self.supervised_chi["add_penalty"]
+			topo_dict.loss.supervised_chi.weight = self.supervised_chi["weight"]
 
-		# Violation loss settings.
-		topo_dict.loss.violation.enabled = self.violation["enabled"]
-		topo_dict.loss.violation.add_penalty = self.violation["add_penalty"]
-		topo_dict.loss.violation.weight = self.violation["weight"]
+			# Violation loss settings.
+			topo_dict.loss.violation.enabled = self.violation["enabled"]
+			topo_dict.loss.violation.add_penalty = self.violation["add_penalty"]
+			topo_dict.loss.violation.weight = self.violation["weight"]
 
-		# Chain center of mass loss settings.
-		topo_dict.loss.chain_center_of_mass.enabled = self.ccom["enabled"]
-		topo_dict.loss.chain_center_of_mass.add_penalty = self.ccom["add_penalty"]
-		topo_dict.loss.chain_center_of_mass.weight = self.ccom["weight"]
+			# Chain center of mass loss settings.
+			topo_dict.loss.chain_center_of_mass.enabled = self.ccom["enabled"]
+			topo_dict.loss.chain_center_of_mass.add_penalty = self.ccom["add_penalty"]
+			topo_dict.loss.chain_center_of_mass.weight = self.ccom["weight"]
 
-		# XL restraint loss settings.
-		topo_dict.loss.xlr.enabled = self.xlr["enabled"]
-		topo_dict.loss.xlr.add_penalty = self.xlr["add_penalty"]
-		topo_dict.loss.xlr.weight = self.xlr["weight"]
+			# XL restraint loss settings.
+			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
+			topo_dict.loss.xlr.add_penalty = self.xlr["add_penalty"]
+			topo_dict.loss.xlr.weight = self.xlr["weight"]
+		else:
+			topo_dict = self.topo_dict
 
 		return topo_dict
 
