@@ -75,6 +75,9 @@ class FitToData():
 		# Set the seeds.
 		seed_worker()
 
+		self.output_dict = self.system_features.pop( "output_dict" )
+		self.feature_dict = self.system_features.pop( "feature_dict" )
+
 		# Add a singleton batch dim.
 		self.add_batch_dim()
 
@@ -90,8 +93,6 @@ class FitToData():
 		self.create_required_paths()
 		self.create_required_dir()
 
-		self.output_dict = self.system_features.pop( "output_dict" )
-		self.feature_dict = self.system_features.pop( "feature_dict" )
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 
 		self.fit()
