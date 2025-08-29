@@ -25,6 +25,7 @@ import modelcif.qa_metric
 from openfold.np.protein import Protein, get_pdb_headers, _chain_end
 from openfold.np import residue_constants
 from openfold.data import feature_pipeline
+from openfold.np import protein
 
 from utils.utils import open_file_handler
 
@@ -169,7 +170,7 @@ def get_distance_map( coords1: np.array, coords2: np.array ):
 def prep_output(out, batch, feature_dict, feature_processor, config_preset, multimer_ri_gap, subtract_plddt):
     plddt = out["plddt"]
 
-    plddt_b_factors = numpy.repeat(
+    plddt_b_factors = np.repeat(
         plddt[..., None], residue_constants.atom_type_num, axis=-1
     )
 
