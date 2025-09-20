@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Optional
+from typing import Tuple, Dict, Optional, Any
 import numpy as np
 import torch
 from torch import nn
@@ -16,8 +16,36 @@ from mod_openfold import fape_loss
 from restraints import XlRestraint, final_pred_to_dist_map
 
 
+###############################################################################
+###############################################################################
+def gaussian_distance_restraint(
+	out: Dict[str, Any], batch: Dict[str, Any],
+	length_scale: float,
+	eps: float ) -> torch.Tensor:
+	"""
+	Soft gaussian restraint to penalize inter-residue distances.
+	Mean and variance for all residue pairs derived from the
+		initial predicted distogram.
+	"""
+	# [B, N, N]
+	D = final_pred_to_dist_map(
+		final_atom_pos = out["final_atom_positions"],
+		length_scale = length_scale,
+		eps = eps )
 
+	# [B, N, N]
+	mean = batch["distogram_mean"]
+	var = batch["distogram_var"]
 
+	assert D.shape == mean.shape, "Shape mismatch in GaussianDistanceRestraint"
+
+	squared_diff = ( D - mean )**2
+	loss = squared_diff/( var + eps )
+	loss = torch.mean( loss )
+	return loss
+
+###############################################################################
+###############################################################################
 def compute_complex_com( pos: torch.Tensor,
 						chain_pos_mask: torch.Tensor,
 						eps: float
@@ -245,6 +273,22 @@ class RigidChainLoss():
 						eps = self.config.eps
 						)
 
+
+class GaussianDistanceRestraint():
+	"""
+	Restraint inter-residue distances based on the initial predicted distogram.
+	"""
+	def __init__(  self, config ):
+		self.name = "gdr"
+		self.config = config
+
+	def get( self, out, batch ):
+		return lambda: gaussian_distance_restraint(
+						out = out, batch = batch,
+						length_scale = self.config.length_scale,
+						eps = self.config.eps )
+
+
 class DistogramLoss():
 	# Just a wrapper for the OpenFold Chain center of mass loss.
 	def __init__(  self, config ):
@@ -257,7 +301,8 @@ class DistogramLoss():
 								**{**batch, **self.config},
 								)
 
-
+###############################################################################
+###############################################################################
 class LossFunction( nn.Module ):
 	def __init__( self, config, device: str ):
 		self.config = config
@@ -295,35 +340,6 @@ class LossFunction( nn.Module ):
 		cum_loss = torch.tensor( [0] ).to( self.device )
 		losses = {}
 
-		# adaptive_weight = {}
-		# total_weight = torch.tensor( 0.0, device = self.device )
-		# # calculating adaptive weights.
-		# for loss_name, loss_fn in loss_fns.items():
-		# 	loss = loss_fn()
-		# 	if self.config[loss_name]["add_penalty"]:
-		# 		if loss.item() == 0:
-		# 			w = 0
-		# 		else:
-		# 			w = torch.tensor( 1/loss.item() + 1e-8, device = self.device )
-		# 		adaptive_weight[loss_name] = w
-		# 		total_weight = total_weight + w
-
-		# print( adaptive_weight )
-		# weights_tensor = torch.stack(
-		#     [adaptive_weight[name] for name in adaptive_weight.keys()]
-		# ).to( self.device )
-
-		# Normalize weights using Softmax.
-		# adaptive_weight_softmax = nn.functional.softmax( weights_tensor, dim = 0 )
-		# print( adaptive_weight_softmax )
-
-		# exit()
-
-		# Normalize all weights.
-		# for loss_name in adaptive_weight:
-		# 	adaptive_weight[loss_name] = adaptive_weight[loss_name]/ total_weight
-		# print( adaptive_weight )
-		# exit()
 		for loss_name, loss_fn in loss_fns.items():
 			weight = torch.tensor( self.config[loss_name].weight, device = self.device )
 			loss = loss_fn()
@@ -373,6 +389,9 @@ class LossFunction( nn.Module ):
 
 		if self.config.rigid_chain.enabled:
 			loss_fns.append( RigidChainLoss( self.config.rigid_chain ) )
+
+		if self.config.gdr.enabled:
+			loss_fns.append( GaussianDistanceRestraint( self.config.gdr ) )
 
 		if self.config.xlr.enabled:
 			loss_fns.append( XlRestraint( self.config.xlr ) )

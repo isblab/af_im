@@ -15,7 +15,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "8wtd: Test run with Pseudo Huber loss. " +
+	"objective": "4rhz: finetune SM with increase xlr weight (1e-4) for more epochs (4000). " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -153,23 +153,32 @@ config = mlc.ConfigDict(
 			"min_bin": 2.3125,   # From OpenFold
 			"max_bin": 21.6875,   # From OpenFold
 			"no_bins": 64,
-			"eps": 1e-8,  # 1e-6,
 			"weight": 0.3,
+			"eps": 1e-8,  # 1e-6,
 		},
 		"rigid_chain": {
+			"enabled": False,
+			"add_penalty": False,
+			"length_scale": 10.0,
+			"weight": 0.03,
+			"eps": 1e-8
+		},
+		# GaussianDistanceRestraint
+		"gdr": {
 			"enabled": True,
 			"add_penalty": True,
 			"length_scale": 10.0,
 			"eps": 1e-8,
-			"weight": 0.03
+			"weight": 1e-3
 		},
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
-			"type": "pseudo_huber", # ub_harmonic/pseudo_huber
+			"type": "ub_harmonic", # ub_harmonic/pseudo_huber
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
-			"weight": 0.05,
+			"length_scale": 10.0,
+			"weight": 1e-4,
 			"eps": 1e-8
 		},
 	},
@@ -214,7 +223,7 @@ config = mlc.ConfigDict(
 			"mm": 1,
 			"ter": 1,
 			"similarity_cutoff": 1.0,
-			"clean_up": False
+			"clean_up": True
 		},
 		"relax":{
 			# Parameters taken from OpenFold configs.
@@ -235,14 +244,14 @@ config = mlc.ConfigDict(
 			"amber_logs_file": "Logs_amber"
 			},
 		"molprobity":{
-			"clean_up": False # remove all temporary file upon completion.
+			"clean_up": True # remove all temporary file upon completion.
 			}
 	},
 	"train": {
 		# Version for the modeling run.
 		"version": None,
 		"mode": "test", # deprecated
-		"max_epochs": 100, # max no. of epochs for training.
+		"max_epochs": 4000, # max no. of epochs for training.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"allow_mcpa": True, # use multi-chain permutation align
 		"allow_grad_update": True, # allow gradient update - to be deprecated.
