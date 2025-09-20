@@ -43,7 +43,7 @@ gt_features
 	chi_angles_sin_cos: --> [480, 4, 2]
 	chi_mask: --> [480, 4]
 """
-from typing import Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional
 import os, glob, pickle as pkl
 import numpy as np
 import ml_collections as mlc
@@ -118,11 +118,16 @@ class SystemRepresentation():
 		print( "\nCreating ground truth features from the initial structure..." )
 		data = self.get_feature_from_init_struct()
 
-		data["feature_dict"] = self.load_feature_dict()
-		data["output_dict"] = self.load_outputs_dict()
+		feature_dict = self.load_feature_dict()
+		data["feature_dict"] = feature_dict
+		output_dict = self.load_outputs_dict()
+		data["output_dict"] = output_dict
 		data["gt_features"]["distance_map"] = self.get_distance_map(
 			final_atom_position = data["output_dict"]["final_atom_positions"]
 			)
+		mean, var = self.get_distance_distribution( distogram_logits = output_dict["distogram_logits"] )
+		data["gt_features"]["distogram_mean"] = mean
+		data["gt_features"]["distogram_var"] = var
 
 		print( data.keys() )
 		for k in data["gt_features"].keys():
@@ -251,6 +256,49 @@ class SystemRepresentation():
 		return gt_distance_map
 
 
+	def get_distogram_bins( self ):
+		# These are taken from openFold.utils.loss.distogram_loss().
+		min_bin = 2.3125
+		max_bin = 21.6875
+		no_bins = 64
+
+		# Last bin is a catch all bin.
+		boundaries = np.linspace(
+			min_bin,
+			max_bin,
+			no_bins - 1 )
+		# Add the last bin.
+		bin_width = boundaries[1] - boundaries[0]
+		last_bin = boundaries[-1] + bin_width
+		boundaries = np.append( boundaries, last_bin )
+
+		return torch.from_numpy( boundaries )
+
+
+	def get_distance_distribution( self, distogram_logits: np.ndarray ) -> Tuple[np.ndarray, np.ndarray]:
+		"""
+		Given the predicted distogram, obtain the per-residue pair
+			mean and variance.
+		"""
+		print( type( distogram_logits ) )
+		distogram = torch.softmax( distogram_logits, dim = -1 )
+			# torch.from_numpy( distogram_logits ), dim = -1
+			# ).numpy()
+
+		boundaries = self.get_distogram_bins()
+
+		# E(x) = x*p(x)
+		E_x = torch.sum( boundaries[None, None, :]*distogram, dim = -1 )
+
+		E_x2 = torch.sum( distogram*boundaries[None, None, :]**2, dim = -1 )
+		# var = E(x**2) - E_x**2
+		var = E_x2 - E_x**2
+
+		assert E_x.shape == var.shape, "Shape mismatch: mean and variance matrices..."
+
+		return E_x, var
+
 if __name__ == "__main__":
 	SystemRepresentation().forward()
+
 
