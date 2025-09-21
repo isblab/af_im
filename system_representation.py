@@ -280,7 +280,6 @@ class SystemRepresentation():
 		Given the predicted distogram, obtain the per-residue pair
 			mean and variance.
 		"""
-		print( type( distogram_logits ) )
 		distogram = torch.softmax( distogram_logits, dim = -1 )
 			# torch.from_numpy( distogram_logits ), dim = -1
 			# ).numpy()
