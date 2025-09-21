@@ -71,7 +71,7 @@ def compute_rmsf( ca_atoms: AtomGroup ) -> np.ndarray:
 	return rmsf
 
 
-def compute_rmsd( to_align: Universe, ref: Universe ) -> np.ndarray:
+def compute_rmsd( to_align: Universe, ref: Universe, ref_frame: int = 0 ) -> np.ndarray:
 	"""
 	Compute the RMSd for all models wrt the first model
 		using the MDAnalysis package.
@@ -80,9 +80,10 @@ def compute_rmsd( to_align: Universe, ref: Universe ) -> np.ndarray:
 	For each model it gives - [frame no., timestep, rmsd for selection].
 	Input can be a universe or AtomGroup.
 	"""
-	R = rms.RMSD( to_align, ref, select = "protein and name CA", ref_frame = 0 )
+	R = rms.RMSD( to_align, ref, select = "protein and name CA", ref_frame = ref_frame )
 	R.run()
-	rmsd = R.rmsd
+	# rmsd = R.rmsd
+	rmsd = R.results.rmsd
 	return rmsd
 
 
