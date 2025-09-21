@@ -2,11 +2,12 @@
 Contains wrapper for RMSD computation using USalign.
 """
 from typing import List, Dict
-import os, copy
+import os, copy, time, warnings
 from ml_collections import ConfigDict
 import numpy as np
 
 from utils.utils import run_subprocess
+from utils.tools import ( load_ensemble, compute_rmsd )
 
 class StructuralSimilarity():
 	"""
@@ -38,7 +39,7 @@ class StructuralSimilarity():
 		"""
 		self.struct_models_exist()
 		self.create_tmp_dir()
-		models = self.rmsd_pipeline()
+		models = self.rmsd_pipeline_mdanalysis()
 		self.selected_model_index = models
 
 		if self.rmsd_config.clean_up:
@@ -83,30 +84,79 @@ class StructuralSimilarity():
 
 	################################################################################
 	################################################################################
-	def rmsd_pipeline( self ):
+	def rmsd_pipeline_mdanalysis( self ):
+		"""
+		Using MDAnalysis for computing RMSD.
+		For each model compute RMSD against all other models and
+			remove structurally similar models (RMSD <= similarity_cutoff).
+		"""
+		warnings.filterwarnings( "ignore" )
+		selected_model_index = []
+		ignore_models = []
+
+		if len( self.model_ids ) == 1:
+			selected_model_index = np.array( [0] )
+		else:
+			for i in range( len( self.model_ids ) ):
+				model_id1 = self.model_ids[i]
+				if model_id1 in ignore_models:
+					continue
+				u1 = load_ensemble(
+					ensemble_file = os.path.join( self.ensemble_dir, f"model_{model_id1}.pdb" )
+					)
+				for j in range( i, len( self.model_ids ) ):
+					model_id2 = self.model_ids[j]
+					if model_id1 == model_id2 or model_id2 in ignore_models:
+						continue
+
+					u2 = load_ensemble(
+						ensemble_file = os.path.join( self.ensemble_dir, f"model_{model_id2}.pdb" )
+						)
+
+					rmsd = compute_rmsd( to_align = u2, ref = u1, ref_frame = 0 )
+					if rmsd[0, -1] <= 1.0:
+						ignore_models.append( model_id2 )
+					else:
+						if model_id1 not in selected_model_index:
+							selected_model_index.append( i )
+							self.rmsd_dict[f"model_{model_id1}_{model_id2}"] = {
+								"rmsd": rmsd[0, -1], "tm": None}
+
+		return np.array( selected_model_index )
+
+	################################################################################
+	################################################################################
+	def rmsd_pipeline_usalign( self ):
 		"""
 		For all good-scoring models, compute all-vs-all RMSD.
 		Remove structurally similar models (RMSD <= similarity_cutoff).
+		Using USalign for computing RMSD.
 		"""
 		selected_model_index = []
 		ignore_models = []
 		if len( self.model_ids ) == 1:
 			selected_model_index = copy.copy( self.model_ids )
 		else:
-			for i in self.model_ids:
-				if i in ignore_models:
+			total_models = len( self.model_ids )
+			for i in range( total_models ):
+				model_id1 = self.model_ids[i]
+				if model_id1 in ignore_models:
 					continue
-				for j in self.model_ids[1:]:
-					stdout_file = self.usalign( model_id1 = i, model_id2 = j )
+				for j in range( i, total_models ):
+					model_id2 = self.model_ids[j]
+					if model_id1 == model_id2 or model_id2 in ignore_models:
+						continue
+					
+					stdout_file = self.usalign( model_id1 = model_id1, model_id2 = model_id2 )
 					rmsd, tm = self.get_alignment_score( stdout_file )
 
-					self.rmsd_dict[f"model_{i}_{j}"] = {
+					self.rmsd_dict[f"model_{model_id1}_{model_id2}"] = {
 						"rmsd": rmsd, "tm": tm}
 
 					if rmsd <= self.rmsd_config.similarity_cutoff:
-						ignore_models.append( j )
+						ignore_models.append( model_id2 )
 
-				if i not in selected_model_index:
+				if model_id1 not in selected_model_index:
 					selected_model_index.append( i )
 		return np.array( selected_model_index )
 
