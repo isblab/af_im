@@ -140,7 +140,7 @@ def compute_rmsd_post_align( ensemble_file: str ) -> np.ndarray:
 		Compute RMSD wrt first model.
 	RMSD returned is in Angstorm.
 	"""
-	warnings.filterwarnings( "ignore" ) 
+	warnings.filterwarnings( "ignore" )
 	u = load_ensemble( ensemble_file = ensemble_file )
 	rmsd = compute_rmsd( to_align = u, ref = u )
 

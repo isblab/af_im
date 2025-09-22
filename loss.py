@@ -27,6 +27,10 @@ def gaussian_distance_restraint(
 	Mean and variance for all residue pairs derived from the
 		initial predicted distogram.
 	"""
+	# # Mask to ignore intrachain distances.
+	# asym_id = batch["asym_id"]
+	# interchain_mask = asym_id != asym_id
+
 	# [B, N, N]
 	D = final_pred_to_dist_map(
 		final_atom_pos = out["final_atom_positions"],

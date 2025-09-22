@@ -44,7 +44,7 @@ class XlRestraint():
 	def __init__( self, config ):
 		self.name = "xlr"
 		self.config = config
-		self.length_scale = 10.0
+		self.length_scale = config.length_scale
 		self.eps = config.eps
 
 
