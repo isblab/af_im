@@ -89,13 +89,14 @@ class StructuralSimilarity():
 		Using MDAnalysis for computing RMSD.
 		For each model compute RMSD against all other models and
 			remove structurally similar models (RMSD <= similarity_cutoff).
+		Returhn model IDs for all selected models.
 		"""
 		warnings.filterwarnings( "ignore" )
-		selected_model_index = []
+		selected_models = []
 		ignore_models = []
 
 		if len( self.model_ids ) == 1:
-			selected_model_index = np.array( [0] )
+			selected_models = self.model_ids
 		else:
 			for i in range( len( self.model_ids ) ):
 				model_id1 = self.model_ids[i]
@@ -117,12 +118,17 @@ class StructuralSimilarity():
 					if rmsd[0, -1] <= 1.0:
 						ignore_models.append( model_id2 )
 					else:
-						if model_id1 not in selected_model_index:
-							selected_model_index.append( i )
+						if model_id1 not in selected_models:
+							selected_models.append( model_id1 )
 							self.rmsd_dict[f"model_{model_id1}_{model_id2}"] = {
 								"rmsd": rmsd[0, -1], "tm": None}
+			# selected_model_index = np.where(
+			# 	np.isin(
+			# 		np.array( self.model_ids ), np.array( selected_models )
+			# 		)
+			# 	)
 
-		return np.array( selected_model_index )
+		return selected_models
 
 	################################################################################
 	################################################################################

@@ -151,13 +151,20 @@ class Assay():
 			good_models_index = self.analysis_dict["good_models_index"]
 		print( "Good-scoring models = ", len( good_models ) )
 
+		#------------------------------------------------------------#
 		print( "\n--> Removing structurally similar models <--" )
 		if not "selected_good_models" in self.analysis_dict:
 			ts = time.perf_counter()
-			selected_model_index, rmsd_dict = self.filter_similar_models(
+			selected_good_models, rmsd_dict = self.filter_similar_models(
 				good_models = good_models
 			)
-			selected_good_models = model_ids[selected_model_index]
+			# selected_good_models = model_ids[selected_model_index]
+			# Get the index for the, selected good models, in the full set of models.
+			selected_model_index = np.where(
+					np.isin(
+					np.array( model_ids ), np.array( selected_good_models )
+					)
+				)
 			self.analysis_dict["selected_model_index"] = selected_model_index
 			self.analysis_dict["selected_good_models"] = selected_good_models
 			self.analysis_dict["rmsd"] = rmsd_dict
@@ -169,10 +176,12 @@ class Assay():
 			selected_model_index = self.analysis_dict["selected_model_index"]
 		print( "Selected good models = ", selected_good_models )
 
+		#------------------------------------------------------------#
 		print( "\n--> Assessing data satisfaction for good-scoring models <--" )
 		self.assess_data_satisfaction( good_models_index = selected_model_index )
 
 		if self.analysis_config.enable_relax_validate:
+			#------------------------------------------------------------#
 			print( "\n--> Running AMBER relaxation <--" )
 			if not "relax" in self.analysis_dict:
 				ts = time.perf_counter()
@@ -190,6 +199,7 @@ class Assay():
 				self.analysis_dir,
 				self.analysis_config.relax.relaxed_model_dir )
 
+			#------------------------------------------------------------#
 			print( "\n--> Running MolProbity validation <--" )
 			if not "molprob" in self.analysis_dict:
 				ts = time.perf_counter()
@@ -241,7 +251,7 @@ class Assay():
 				assessment_metrics = self.analysis_config.assessment_metrics
 			)
 		clust.forward( input_dict = input_dict )
-		good_models_index = clust.good_models
+		good_models_index = clust.good_models_index
 		return good_models_index
 
 	################################################################################
