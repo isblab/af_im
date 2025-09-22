@@ -164,7 +164,7 @@ class Assay():
 					np.isin(
 					np.array( model_ids ), np.array( selected_good_models )
 					)
-				)
+				)[0]
 			self.analysis_dict["selected_model_index"] = selected_model_index
 			self.analysis_dict["selected_good_models"] = selected_good_models
 			self.analysis_dict["rmsd"] = rmsd_dict
