@@ -34,8 +34,8 @@ class SelectGoodModels():
 		self.input_dict = input_dict
 		self.check_num_methods_enabled()
 		
-		self.good_models = self.run_clustering()
-		if len( self.good_models ) == 0:
+		self.good_models_index = self.run_clustering()
+		if len( self.good_models_index ) == 0:
 			raise Valueerror( f"No good-scoring models selected..." )
 
 
@@ -123,15 +123,15 @@ class SelectGoodModels():
 		processed_data = self.prep_data()
 
 		if self.config.method.kmeans.enabled:
-			good_models = self.kmeans( data = processed_data )
+			good_models_index = self.kmeans( data = processed_data )
 		elif self.config.method.gmm.enabled:
-			good_models = self.gmms( processed_data )
+			good_models_index = self.gmms( processed_data )
 		elif self.config.method.quant_filter.enabled:
-			good_models = self.quantile_filtering( processed_data )
+			good_models_index = self.quantile_filtering( processed_data )
 		elif self.config.method.nds.enabled:
-			good_models = self.non_dominated_sorting( processed_data )
+			good_models_index = self.non_dominated_sorting( processed_data )
 
-		return good_models
+		return good_models_index
 
 
 	def kmeans( self, data: np.array ):
@@ -147,8 +147,8 @@ class SelectGoodModels():
 		kmeans.fit( data )
 		labels = kmeans.labels_
 
-		good_models = self.get_good_model_cluster( labels = labels )
-		return good_models
+		good_models_index = self.get_good_model_cluster( labels = labels )
+		return good_models_index
 
 
 	def gmms( self, data: np.array ):
@@ -163,8 +163,8 @@ class SelectGoodModels():
 		gm.fit( data )
 		labels = gm.predict( data )
 
-		good_models = self.get_good_model_cluster( labels = labels )
-		return good_models
+		good_models_index = self.get_good_model_cluster( labels = labels )
+		return good_models_index
 
 
 	# def hdbscan( self, input_dict: Dict[str, List] ):
@@ -190,17 +190,18 @@ class SelectGoodModels():
 		Given a list of cluster labels, segregate into
 			clusters and return as a dict.
 		We consider the cluster with lower avg. violations as good-scoring models.
+		Return the indices for the good scoring models.
 		"""
 		c1 = np.where( labels == 0 )
 		c2 = np.where( labels == 1 )
 		violations = self.input_dict["violations"]
 
 		if np.mean( violations[c1] ) < np.mean( violations[c2] ):
-			good_models = c1[0]
+			good_models_index = c1[0]
 		else:
-			good_models = c2[0]
+			good_models_index = c2[0]
 
-		return good_models
+		return good_models_index
 
 
 	def quantile_filtering( self, data_dict: np.array ):
@@ -210,6 +211,7 @@ class SelectGoodModels():
 		Filter models based on data satisfaction.
 		From the subset of models that satisfy data,
 			select those that have fewer violations.
+		Return the indices for the good scoring models.
 		"""
 		quantiles = self.config.method.quant_filter.quantiles
 		assessment_metrics = self.assessment_metrics
@@ -236,17 +238,18 @@ class SelectGoodModels():
 		mask = data_sat_mask.reshape( -1, 1 ) & viol_mask.reshape( -1, 1 )
 
 		# Return indices for good-scoring models.
-		good_models = np.where( mask == 1 )[0]
-		return good_models
+		good_models_index = np.where( mask == 1 )[0]
+		return good_models_index
 
 
 	def nondominant_sorting( self, objectives: np.array ):
 		"""
 		Use non-dominant sorting to obtain
 			the good-scoring models (Pareto set).
+		Return the indices for the good scoring models.
 		"""
 		nds = NonDominatedSorting()
 		# Obtain indices for non-dominant models (good-scoring models).
-		good_models = nds.do( objectives, only_non_dominated_front = True )
-		return good_models
+		good_models_index = nds.do( objectives, only_non_dominated_front = True )
+		return good_models_index
 
