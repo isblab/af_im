@@ -1,5 +1,8 @@
 """
-Modifying the single or pair representation to incorporate data.
+A wrapper script to test some plausible directions (experiments).
+	E.g. Modifying the single or pair representation to incorporate data.
+	     Assesing the effect of a RigidChain loss.
+	     Assessing effects of low XL restraint weights.
 Wrapper over the BenchmarkModeling module.
 	Here, I do not run the analyis module and also
 		switch off creating plots in BenchmarkModeling module.
@@ -27,13 +30,12 @@ from utils.tools import (
 	compute_rmsd_post_align )
 
 
-class PerturbRepresentation():
+class Experiments():
 	"""
 	Testing different way of modifying sigle or pair representation to incorporate data.
 	Use the BenchmarkModeling module for running simulations.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "rigidchain"
 		# File format to save the structure.
 		self.struct_format = "pdb"
 		# Suffix for the sys_config and xls file.
@@ -47,9 +49,8 @@ class PerturbRepresentation():
 	def forward( self ):
 		"""
 		"""
-		self.create_required_paths()
-		self.load_benchmark()
-		# self.get_modeling_versions()
+		# self.create_required_paths()
+		# self.load_benchmark()
 
 		self.run_modeling()
 
@@ -57,6 +58,18 @@ class PerturbRepresentation():
 
 	################################################################################
 	################################################################################
+	def initiate( self, benchmark_name: str ):
+		"""
+		Initialize the:
+			benchmark_name
+			required files and directories for a given experiment.
+		"""
+		self.benchmark_name = benchmark_name
+		self.create_required_paths()
+		self.load_benchmark()
+
+
+
 	def create_required_paths( self ):
 		"""
 		Create the required file paths.
@@ -78,7 +91,7 @@ class PerturbRepresentation():
 		# 	self.output_dir = os.path.join( self.base_dir, "single_perturbation" )
 
 		# self.output_dir = os.path.join( self.base_dir, "alternate_loss" )
-		self.output_dir = os.path.join( self.base_dir, "rigidchain_loss" )
+		self.output_dir = os.path.join( self.base_dir, f"{self.benchmark_name}" )
 		os.makedirs( self.output_dir, exist_ok = True )
 
 
@@ -99,7 +112,8 @@ class PerturbRepresentation():
 		# self.experiment1()
 		# self.experiment2()
 		# self.experiment3()
-		self.experiment4()
+		# self.experiment4()
+		self.experiment5()
 
 
 	def init_modeling_obj( self, topo_dict: ConfigDict ):
@@ -109,7 +123,6 @@ class PerturbRepresentation():
 		sim = BenchmarkModeling( topo_dict )
 		sim.benchmark_name = self.benchmark_name
 		sim.sys_conf_suff = self.sys_conf_suff
-		sim.device = self.device
 		sim.enable_relax_validate = self.enable_relax_validate
 		sim.skip_rerun = True
 		sim.remove_sys_modeling_dir = self.remove_sys_modeling_dir
@@ -122,85 +135,26 @@ class PerturbRepresentation():
 		"""
 		Try different ways for modifying the single or pair representation.
 		"""
-		# Name of the experiment.
-		self.expt_name = "experiment1"
-		plot_suffix = ""
-		# Parameters to be tested.
-		self.expt_params = ["linear_perturb", "sigmoid_gating", "tanh_gating", "lora", "film"]
-		total_expt = len( self.expt_params )
-		# versions.
-		start, end = 0, len( self.expt_params )
-		step = 1
-		self.modeling_versions = list( map( int, np.arange( start, end, step ) ) )
-
-		self.expt_dir = os.path.join( self.output_dir, self.expt_name )
-		os.makedirs( self.expt_dir, exist_ok = True )
-
-		for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
-			print( f"\n\033[1mModeling version = {ver}" +
-					f"Experiment: {expt_param}\033[0m" )
-			objective = f"Experiment: {self.expt_name} - testing = {expt_param}"
-
-			topo_dict = topology_dict()
-			topo_dict.loss.fape.add_penalty = False
-			topo_dict.loss.supervised_chi.add_penalty = False
-			topo_dict.loss.chain_center_of_mass.add_penalty = False
-			topo_dict.loss.violation.add_penalty = True
-			topo_dict.loss.violation.weight = 0.03
-			topo_dict.loss.xlr.add_penalty = True
-			topo_dict.loss.xlr.weight = 0.05
-
-			if self.benchmark_name == "pairrep":
-				topo_dict.model.name = "pair_perturbation"
-			elif self.benchmark_name == "singlerep":
-				topo_dict.model.name = "single_perturbation"
-			topo_dict.model.adapter.name = expt_param
-			topo_dict.model.adapter.alpha = 0.9
-			topo_dict.train.version = ver
-			topo_dict.train.max_epochs = 200
-
-			sim = self.init_modeling_obj( topo_dict = topo_dict )
-			sim.modeling_objective = objective
-			sim.modeling_version = ver
-			sim.forward()
-		self.plot_modeling_results( plot_suffix = plot_suffix )
-
-	################################################################################
-	def experiment2( self ):
-		"""
-		For each adapter, assessing the effect of the scaling parameter alpha.
-		"""
-		# Name of the experiment.
-		self.expt_name = "experiment2"
-
-		# FiLM does not have an alpha parameter.
-		adapters = ["linear_perturb", "sigmoid_gating", "tanh_gating", "lora"]
-		for i, adapter in enumerate( adapters ):
-			# Suffix for the plots file.
-			plot_suffix = f"{adapter}"
-
+		for benchmark_name in ["pairrep", "singlerep"]:
+			self.initiate( benchmark_name = benchmark_name )
+			# Name of the experiment.
+			self.expt_name = "experiment1"
+			plot_suffix = ""
 			# Parameters to be tested.
-			self.expt_params = [0.7, 0.5, 0.3, 0.1]
+			self.expt_params = ["linear_perturb", "sigmoid_gating", "tanh_gating", "lora", "film"]
 			total_expt = len( self.expt_params )
-			start = i
-			step = 0.1
-
-			self.modeling_versions = [
-			round(start+step*j, 1 ) for j in range( 1, total_expt + 1 )
-			]
-			print( self.modeling_versions )
-
-			if len( self.expt_params ) != len( self.modeling_versions ):
-				raise ValueError( "No. of experimental params and modeling versions do not match. " +
-					f"{self.expt_params} \t {self.modeling_versions}" )
+			# versions.
+			start, end = 0, len( self.expt_params )
+			step = 1
+			self.modeling_versions = list( map( int, np.arange( start, end, step ) ) )
 
 			self.expt_dir = os.path.join( self.output_dir, self.expt_name )
 			os.makedirs( self.expt_dir, exist_ok = True )
 
 			for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
-				print( f"\n\033[1mModeling version = {ver} " +
-						f"Experiment: {self.expt_name} {adapter}.alpha {expt_param}\033[0m" )
-				objective = f"Experiment: {self.expt_name} - testing {adapter}.alpha = {expt_param}"
+				print( f"\n\033[1mModeling version = {ver}" +
+						f"Experiment: {expt_param}\033[0m" )
+				objective = f"Experiment: {self.expt_name} - testing = {expt_param}"
 
 				topo_dict = topology_dict()
 				topo_dict.loss.fape.add_penalty = False
@@ -215,17 +169,82 @@ class PerturbRepresentation():
 					topo_dict.model.name = "pair_perturbation"
 				elif self.benchmark_name == "singlerep":
 					topo_dict.model.name = "single_perturbation"
-				topo_dict.model.adapter.name = adapter
-				topo_dict.model.adapter.alpha = expt_param
+				topo_dict.model.adapter.name = expt_param
+				topo_dict.model.adapter.alpha = 0.9
 				topo_dict.train.version = ver
 				topo_dict.train.max_epochs = 200
 
+				topo_dict.analysis.enabled = False
 				sim = self.init_modeling_obj( topo_dict = topo_dict )
 				sim.modeling_objective = objective
 				sim.modeling_version = ver
 				sim.forward()
-
 			self.plot_modeling_results( plot_suffix = plot_suffix )
+
+	################################################################################
+	def experiment2( self ):
+		"""
+		For each adapter, assessing the effect of the scaling parameter alpha.
+		"""
+		for benchmark_name in ["pairrep", "singlerep"]:
+			self.initiate( benchmark_name = benchmark_name )
+			# Name of the experiment.
+			self.expt_name = "experiment2"
+
+			# FiLM does not have an alpha parameter.
+			adapters = ["linear_perturb", "sigmoid_gating", "tanh_gating", "lora"]
+			for i, adapter in enumerate( adapters ):
+				# Suffix for the plots file.
+				plot_suffix = f"{adapter}"
+
+				# Parameters to be tested.
+				self.expt_params = [0.7, 0.5, 0.3, 0.1]
+				total_expt = len( self.expt_params )
+				start = i
+				step = 0.1
+
+				self.modeling_versions = [
+				round(start+step*j, 1 ) for j in range( 1, total_expt + 1 )
+				]
+				print( self.modeling_versions )
+
+				if len( self.expt_params ) != len( self.modeling_versions ):
+					raise ValueError( "No. of experimental params and modeling versions do not match. " +
+						f"{self.expt_params} \t {self.modeling_versions}" )
+
+				self.expt_dir = os.path.join( self.output_dir, self.expt_name )
+				os.makedirs( self.expt_dir, exist_ok = True )
+
+				for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
+					print( f"\n\033[1mModeling version = {ver} " +
+							f"Experiment: {self.expt_name} {adapter}.alpha {expt_param}\033[0m" )
+					objective = f"Experiment: {self.expt_name} - testing {adapter}.alpha = {expt_param}"
+
+					topo_dict = topology_dict()
+					topo_dict.loss.fape.add_penalty = False
+					topo_dict.loss.supervised_chi.add_penalty = False
+					topo_dict.loss.chain_center_of_mass.add_penalty = False
+					topo_dict.loss.violation.add_penalty = True
+					topo_dict.loss.violation.weight = 0.03
+					topo_dict.loss.xlr.add_penalty = True
+					topo_dict.loss.xlr.weight = 0.05
+
+					if self.benchmark_name == "pairrep":
+						topo_dict.model.name = "pair_perturbation"
+					elif self.benchmark_name == "singlerep":
+						topo_dict.model.name = "single_perturbation"
+					topo_dict.model.adapter.name = adapter
+					topo_dict.model.adapter.alpha = expt_param
+					topo_dict.train.version = ver
+					topo_dict.train.max_epochs = 200
+
+					topo_dict.analysis.enabled = False
+					sim = self.init_modeling_obj( topo_dict = topo_dict )
+					sim.modeling_objective = objective
+					sim.modeling_version = ver
+					sim.forward()
+
+				self.plot_modeling_results( plot_suffix = plot_suffix )
 
 	################################################################################
 	def experiment3( self ):
@@ -233,9 +252,9 @@ class PerturbRepresentation():
 		Using pseudo huber loss for fine-tuning StructureModule.
 		Try different violation loss weights.
 		"""
+		self.initiate( benchmark_name = "altloss" )
 		# Name of the experiment.
 		self.expt_name = "experiment3"
-		self.benchmark_name = "altloss"
 
 		# Violation loss weights.
 		self.expt_params = [0.03, 0.1, 0.5]
@@ -272,6 +291,7 @@ class PerturbRepresentation():
 			topo_dict.loss.xlr.type = "pseudo_huber"
 			topo_dict.loss.xlr.weight = 0.05
 
+			topo_dict.analysis.enabled = False
 			topo_dict.model.name = "structure_module_finetuning"
 			topo_dict.train.version = ver
 			topo_dict.train.max_epochs = 100
@@ -290,9 +310,9 @@ class PerturbRepresentation():
 		Try different weights for the rigid loss.
 		Also using differenet violation loss weights.
 		"""
+		self.initiate( benchmark_name = "rigidchain" )
 		# Name of the experiment.
 		self.expt_name = "experiment4"
-		self.benchmark_name = "rigidchain"
 
 		for i, viol_weight in enumerate( [0.03, 0.1, 0.3] ):
 			# RigidChain loss weights.
@@ -335,9 +355,76 @@ class PerturbRepresentation():
 				topo_dict.loss.xlr.type = "ub_harmonic"
 				topo_dict.loss.xlr.weight = 0.05
 
+				topo_dict.analysis.enabled = False
 				topo_dict.model.name = "structure_module_finetuning"
 				topo_dict.train.version = ver
 				topo_dict.train.max_epochs = 100
+
+				sim = self.init_modeling_obj( topo_dict = topo_dict )
+				sim.modeling_objective = objective
+				sim.modeling_version = ver
+				sim.forward()
+
+			self.plot_modeling_results( plot_suffix = plot_suffix )
+
+	################################################################################
+	def experiment5( self ):
+		"""
+		Reduce weight for XL restraint (1e-3, 1e-4) and increase max_epochs to 4000.
+		Also try using the GaussianDistanceRestraint.
+
+		"""
+		self.initiate( benchmark_name = "experiment" )
+		# Name of the experiment.
+		self.expt_name = "experiment5"
+
+		for i, gdr_allow in enumerate( [False, True] ):
+			# XL restraint weights.
+			self.expt_params = [1e-4, 1e-3]
+			total_expt = len( self.expt_params )
+			total_expt = len( self.expt_params )
+			start = i
+			step = 0.1
+
+			self.modeling_versions = [
+			round(start+step*j, 1 ) for j in range( 0, total_expt )
+			]
+			self.modeling_versions[0] = i
+			print( self.modeling_versions )
+
+			if len( self.expt_params ) != len( self.modeling_versions ):
+				raise ValueError( "No. of experimental params and modeling versions do not match. " +
+					f"{self.expt_params} \t {self.modeling_versions}" )
+
+			for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
+				# Suffix for the plots file.
+				plot_suffix = f"gdr_{gdr_allow}"
+
+				self.expt_dir = os.path.join( self.output_dir, self.expt_name )
+				os.makedirs( self.expt_dir, exist_ok = True )
+
+				print( f"\n\033[1mModeling version = {ver} " +
+						f"Experiment: {self.expt_name} XLrestrain weight {expt_param}. GDR loss: {gdr_allow}\033[0m" )
+				objective = f"Experiment: {self.expt_name} - XLrestrain weight {expt_param}. GDR loss: {gdr_allow}"
+
+				topo_dict = topology_dict()
+				topo_dict.loss.fape.add_penalty = False
+				topo_dict.loss.supervised_chi.add_penalty = False
+				topo_dict.loss.chain_center_of_mass.add_penalty = False
+				topo_dict.loss.violation.add_penalty = True
+				topo_dict.loss.violation.weight = 0.03
+				topo_dict.loss.gdr.enabled = gdr_allow
+				topo_dict.loss.gdr.add_penalty = gdr_allow
+				topo_dict.loss.gdr.weight = 1e-11
+				topo_dict.loss.xlr.add_penalty = True
+				topo_dict.loss.xlr.type = "ub_harmonic"
+				topo_dict.loss.xlr.weight = expt_param
+
+				topo_dict.analysis.enabled = True
+				topo_dict.model.name = "structure_module_finetuning"
+				topo_dict.train.version = ver
+				topo_dict.train.max_epochs = 4000
+				topo_dict.train.device = self.device
 
 				sim = self.init_modeling_obj( topo_dict = topo_dict )
 				sim.modeling_objective = objective
@@ -564,4 +651,4 @@ class PerturbRepresentation():
 		plt.close()
 
 if __name__ == "__main__":
-	PerturbRepresentation().forward()
+	Experiments().forward()
