@@ -20,7 +20,7 @@ mol delrep 0 top
 
 # Modify representation ---------------------------------
 # Add NewRibbons representation, color by chain
-mol representation NewRibbons
+mol representation NewCartoon
 mol color Chain
 mol addrep top
 
@@ -54,7 +54,8 @@ for {set i 0} {$i < $n} {incr i} {
 
 # Create movie
 set fps [expr {$n / $movie_duration}]
-exec convert -delay [expr {100/$fps}] -loop 0 $tmpdir/frame*.tga $giffile
+# exec convert -delay [expr {100/$fps}] -loop 0 $tmpdir/frame*.tga $giffile
+exec magick convert -delay [expr {100/$fps}] -loop 0 $tmpdir/frame*.tga $giffile
 
 # Clean up
 file delete -force $tmpdir
