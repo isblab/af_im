@@ -167,7 +167,7 @@ def get_distance_map( coords1: np.array, coords2: np.array ):
 
 ################################################################################
 ################################################################################
-def prep_output(out, batch, feature_dict, feature_processor, config_preset, multimer_ri_gap, subtract_plddt):
+def prep_output( out, batch, feature_dict, feature_processor, config_preset, subtract_plddt ):
     plddt = out["plddt"]
 
     plddt_b_factors = np.repeat(
