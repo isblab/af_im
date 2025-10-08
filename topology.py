@@ -5,6 +5,8 @@ Essentially, this script will create the topology file for modeling.
 import os, copy
 import ml_collections as mlc
 
+db_dir = "/data/alpha-fold-db/"
+tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 
 def topology_dict() -> mlc.ConfigDict:
 	"""
@@ -15,7 +17,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "4rhz: finetune SM with increase xlr weight (1e-4) for more epochs (4000). " +
+	"objective": "8wtd: testing new sys rep script. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -26,19 +28,41 @@ config = mlc.ConfigDict(
 		"config_preset": "model_1_multimer_v3",
 		"ofold_params": os.path.join(
 						os.path.abspath(
-							f"openfold/resources/params/params_model_1_multimer_v3.npz"
+							f"openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
 							)
 						),
-		"model_checkpoint": os.path.abspath(
-							"openfold/resources/openfold_params/finetuning_ptm_2.pt"
-							),
-		"ofold_tools": "/home/kartik/miniforge3/envs/il_ofold/bin/",
-		"db_dir": "/data/alpha-fold-db/",
+		"model_checkpoint": None,
+		"jax_params_path": os.path.join(
+						os.path.abspath(
+							f"openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
+							)
+						),
+		"tool_base": tool_base,
+		"db_dir": db_dir,
 		"db_preset": "full_dbs",
 		"mode": "multimer",
 		"max_template_date": "2023-01-01",
 		"seed": 1,
-		"cpu_cores": 16
+		"cpu_cores": 16,
+		"subtract_plddt": True,
+		"long_sequence_inference": False,
+		"use_deepspeed_evoformer_attention": False,
+		"skip_relaxation": False,
+		"databases_n_tools": {
+			"template_mmcif_dir": os.path.join( db_dir, "pdb_mmcif/mmcif_files" ),
+			"uniref90_database_path": os.path.join( db_dir, "uniref90/uniref90.fasta" ),
+			"mgnify_database_path": os.path.join( db_dir, "mgnify/mgy_clusters_2022_05.fa" ),
+			"pdb70_database_path": os.path.join( db_dir, "pdb70/pdb70" ),
+			"uniclust30_database_path": os.path.join( db_dir, "uniclust30/uniclust30_2018_08/uniclust30_2018_08" ),
+			"pdb_seqres_database_path": os.path.join( db_dir, "pdb_seqres/pdb_seqres.txt" ),
+			"uniref30_database_path": os.path.join( db_dir, "uniref30/UniRef30_2021_03" ),
+			"uniprot_database_path": os.path.join( db_dir, "uniprot/uniprot.fasta" ),
+			"bfd_database_path": os.path.join( db_dir,"bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" ),
+			"jackhmmer_binary_path": os.path.join( tool_base, "jackhmmer" ),
+			"hhblits_binary_path": os.path.join( tool_base, "hhblits" ),
+			"hhsearch_binary_path": os.path.join( tool_base, "hhsearch" ),
+			"kalign_binary_path": os.path.join( tool_base, "kalign" )
+		}
 	},
 	"optimizer": {
 		"SGD": {
@@ -75,6 +99,7 @@ config = mlc.ConfigDict(
 			},
 		# If true, freeze weights for StructureModule.
 		"freeze_sm": False,
+		# Required for single_perturbation/pair_perturbation
 		"adapter": {
 			# linear_perturb/sigmoid_gating/tanh_gating/lora/film
 			"name": "",
@@ -249,13 +274,13 @@ config = mlc.ConfigDict(
 	},
 	"train": {
 		# Version for the modeling run.
-		"version": None,
+		"version": 0,
 		"mode": "test", # deprecated
-		"max_epochs": 4000, # max no. of epochs for training.
+		"max_epochs": 100, # max no. of epochs for training.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"allow_mcpa": True, # use multi-chain permutation align
 		"allow_grad_update": True, # allow gradient update - to be deprecated.
-		"device": "cuda:0" # CUDS device to be used.
+		"device": "cuda:0" # CUDA device to be used.
 	}
 }
 )
