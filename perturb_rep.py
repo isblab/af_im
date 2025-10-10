@@ -39,8 +39,9 @@ class Experiments():
 		# File format to save the structure.
 		self.struct_format = "pdb"
 		# Suffix for the sys_config and xls file.
-		self.sys_conf_suff = "_tpfp"
+		self.sys_conf_suff = ""
 		self.device = "cuda:0"
+		self.skip_rerun = False
 		self.enable_relax_validate = False
 		self.remove_sys_modeling_dir = False
 		self.create_summary_plots_and_files = False
@@ -113,7 +114,9 @@ class Experiments():
 		# self.experiment2()
 		# self.experiment3()
 		# self.experiment4()
-		self.experiment5()
+		# self.experiment5()
+		# self.experiment6()
+		self.experiment7()
 
 
 	def init_modeling_obj( self, topo_dict: ConfigDict ):
@@ -124,7 +127,7 @@ class Experiments():
 		sim.benchmark_name = self.benchmark_name
 		sim.sys_conf_suff = self.sys_conf_suff
 		sim.enable_relax_validate = self.enable_relax_validate
-		sim.skip_rerun = True
+		sim.skip_rerun = self.skip_rerun
 		sim.remove_sys_modeling_dir = self.remove_sys_modeling_dir
 		sim.create_summary_plots_and_files = self.create_summary_plots_and_files
 		return sim
@@ -432,6 +435,156 @@ class Experiments():
 				sim.forward()
 
 			self.plot_modeling_results( plot_suffix = plot_suffix )
+
+	################################################################################
+	def experiment6( self ):
+		"""
+		Redoing experiment 5 with two changes:
+			Using only TP XLs.
+			Increasing max_epochs to 6000.
+		"""
+		self.initiate( benchmark_name = "experiment" )
+		# Name of the experiment.
+		self.expt_name = "experiment6"
+
+		for i, gdr_allow in enumerate( [False, True] ):
+			# XL restraint weights.
+			self.expt_params = [1e-4, 1e-3]
+			total_expt = len( self.expt_params )
+			total_expt = len( self.expt_params )
+			# Version 0, 1 are present in experiment5, so staring from version 2.
+			start = i+2
+			step = 0.1
+
+			self.modeling_versions = [
+			round(start+step*j, 1 ) for j in range( 0, total_expt )
+			]
+			# e.g. 1 instead of 1.0
+			self.modeling_versions[0] = int( self.modeling_versions[0] )
+			print( self.modeling_versions )
+
+			if len( self.expt_params ) != len( self.modeling_versions ):
+				raise ValueError( "No. of experimental params and modeling versions do not match. " +
+					f"{self.expt_params} \t {self.modeling_versions}" )
+
+			for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
+				# Run longer for 1e-4.
+				if expt_param == 1e-4:
+					max_epochs = 6000
+				elif expt_param == 1e-3:
+					max_epochs = 4000
+				else:
+					raise ValueError( f"Incorrect expt_param ({expt_param}) specified..." )
+				# Suffix for the plots file.
+				plot_suffix = f"gdr_{gdr_allow}"
+
+				self.expt_dir = os.path.join( self.output_dir, self.expt_name )
+				os.makedirs( self.expt_dir, exist_ok = True )
+
+				print( f"\n\033[1mModeling version = {ver} " +
+						f"Experiment: {self.expt_name} XL restrain weight {expt_param}. GDR loss: {gdr_allow}. Only TP XLs.\033[0m" )
+				objective = f"Experiment: {self.expt_name} - XL restrain weight {expt_param}. GDR loss: {gdr_allow}. Only TP XLs."
+
+				topo_dict = topology_dict()
+				topo_dict.loss.fape.add_penalty = False
+				topo_dict.loss.supervised_chi.add_penalty = False
+				topo_dict.loss.chain_center_of_mass.add_penalty = False
+				topo_dict.loss.violation.add_penalty = True
+				topo_dict.loss.violation.weight = 0.03
+				topo_dict.loss.gdr.enabled = gdr_allow
+				topo_dict.loss.gdr.add_penalty = gdr_allow
+				topo_dict.loss.gdr.weight = 1e-11
+				topo_dict.loss.xlr.add_penalty = True
+				topo_dict.loss.xlr.type = "ub_harmonic"
+				topo_dict.loss.xlr.weight = expt_param
+
+				topo_dict.analysis.enabled = True
+				topo_dict.model.name = "structure_module_finetuning"
+				topo_dict.train.version = ver
+				topo_dict.train.max_epochs = max_epochs
+				topo_dict.train.device = self.device
+
+				sim = self.init_modeling_obj( topo_dict = topo_dict )
+				sim.modeling_objective = objective
+				sim.modeling_version = ver
+				sim.forward()
+
+			self.plot_modeling_results( plot_suffix = plot_suffix )
+
+	################################################################################
+	def experiment7( self ):
+		"""
+		Removing GaussianDistanceRestarint.
+		Switching ON supervised_chi loss to improve side chains.
+		Using only TP XLs.
+		Increasing max_epochs to 6000 for xl_weight = 1e-4.
+		"""
+		self.initiate( benchmark_name = "experiment" )
+		# Name of the experiment.
+		self.expt_name = "experiment7"
+
+		# XL restraint weights.
+		self.expt_params = [1e-4, 1e-3]
+		total_expt = len( self.expt_params )
+		total_expt = len( self.expt_params )
+		# Staring from version 4.
+		start = 4
+		step = 0.1
+
+		self.modeling_versions = [
+		round(start+step*j, 1 ) for j in range( 0, total_expt )
+		]
+		# e.g. 1 instead of 1.0
+		self.modeling_versions[0] = int( self.modeling_versions[0] )
+		print( self.modeling_versions )
+
+		if len( self.expt_params ) != len( self.modeling_versions ):
+			raise ValueError( "No. of experimental params and modeling versions do not match. " +
+				f"{self.expt_params} \t {self.modeling_versions}" )
+
+		for expt_param, ver in zip( self.expt_params, self.modeling_versions ):
+			# Run longer for 1e-4.
+			if expt_param == 1e-4:
+				max_epochs = 6000
+			elif expt_param == 1e-3:
+				max_epochs = 4000
+			else:
+				raise ValueError( f"Incorrect expt_param ({expt_param}) specified..." )
+			# Suffix for the plots file.
+			plot_suffix = f"torsion"
+
+			self.expt_dir = os.path.join( self.output_dir, self.expt_name )
+			os.makedirs( self.expt_dir, exist_ok = True )
+
+			print( f"\n\033[1mModeling version = {ver} " +
+					f"Experiment: {self.expt_name} XL restrain weight {expt_param}. Enabling supervised_chi loss.\033[0m" )
+			objective = f"Experiment: {self.expt_name} - XL restrain weight {expt_param}. Enabling supervised_chi loss."
+
+			topo_dict = topology_dict()
+			topo_dict.loss.fape.add_penalty = False
+			topo_dict.loss.supervised_chi.add_penalty = True
+			topo_dict.loss.supervised_chi.weight = 1.0  # default weight
+			topo_dict.loss.chain_center_of_mass.add_penalty = False
+			topo_dict.loss.violation.add_penalty = True
+			topo_dict.loss.violation.weight = 0.03
+			topo_dict.loss.gdr.enabled = False
+			topo_dict.loss.gdr.add_penalty = False
+			topo_dict.loss.xlr.add_penalty = True
+			topo_dict.loss.xlr.type = "ub_harmonic"
+			topo_dict.loss.xlr.weight = expt_param
+
+			topo_dict.analysis.enabled = True
+			topo_dict.model.name = "structure_module_finetuning"
+			topo_dict.train.version = ver
+			topo_dict.train.max_epochs = max_epochs
+			topo_dict.train.device = self.device
+
+			sim = self.init_modeling_obj( topo_dict = topo_dict )
+			sim.modeling_objective = objective
+			sim.modeling_version = ver
+			sim.forward()
+
+		self.plot_modeling_results( plot_suffix = plot_suffix )
 
 	################################################################################
 	################################################################################
