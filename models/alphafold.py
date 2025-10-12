@@ -542,18 +542,3 @@ class Recycler( LoadState, Model, nn.Module ):
 		del m, z, s
 		return outputs
 
-
-class TheForge( LoadState, Model ):
-	"""
-	Given a set of rigid bodies, do the following:
-		1. Predict rigid transformations to sample new configurations.
-		2. Use the predicted configuration (template) to bias the AF2 prediction.
-			> To let AF2 feel the effect of the new template, use AF sampling techniques.
-	"""
-	def __init__( self, system_features: mlc.ConfigDict,
-						ofold_config: mlc.ConfigDict,
-						model_config: mlc.ConfigDict,
-						mode: str, is_multimer: bool, device: str ):
-		LoadState.__init__( self, ofold_config, mode, is_multimer, device )
-		Model.__init__( self )
-
