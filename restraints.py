@@ -5,7 +5,7 @@ from torch import nn
 
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.loss import softmax_cross_entropy
-
+import openfold.np.residue_constants as rc
 # from loss import final_pred_to_dist_map
 
 
@@ -29,7 +29,9 @@ def final_pred_to_dist_map(
 	"""
 	# Extracting Ca-coordinates - index 1.
 	# [B,N,3] --> For 2ayo: [1,480,3]
-	ca_pos = final_atom_pos[..., 1, :]
+	ca_idx = rc.atom_order["CA"]
+	#[B, N, 37, 3] -> [B, N, 3]
+	ca_pos = final_atom_pos[:, :, ca_idx, :]
 	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
 	D = torch.sqrt( 
 					torch.sum( ( diff )**2, dim = -1 ) + eps
@@ -133,6 +135,9 @@ class XlRestraint():
 			final_atom_pos = out["final_atom_positions"],
 			length_scale = self.length_scale,
 			eps = self.eps )
+
+		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
+			print("NaN or Inf detected in final_atom_positions!")
 
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
