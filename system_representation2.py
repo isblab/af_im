@@ -60,7 +60,7 @@ from openfold.utils.script_utils import (load_models_from_command_line, parse_fa
                                          prep_output, relax_protein)
 from openfold.utils.tensor_utils import tensor_tree_map
 
-from utils.utils import open_file_handler
+from utils.utils import open_file_handler, parse_nested_dict
 from utils.pdb_utils import prep_output
 
 
@@ -79,9 +79,10 @@ class SystemRepresentation():
 			device: str = "cpu"
 		):
 		self.sys_name = sys_name
-		self.is_multimer = is_multimer
-		self.openfold_dir = sys_rep_config.ofold_dir
-		self.script = sys_rep_config.ofold_script
+		# For now, stick to multimers.
+		self.is_multimer = sys_rep_config.is_multimer
+		self.openfold_dir = sys_rep_config.ofold_dir  # deprecated
+		self.script = sys_rep_config.ofold_script  # deprecated
 		self.db_dir = sys_rep_config.db_dir
 		self.config_preset = sys_rep_config.config_preset
 		self.db_preset = sys_rep_config.db_preset
@@ -100,10 +101,6 @@ class SystemRepresentation():
 		self.skip_relaxation = sys_rep_config.skip_relaxation
 
 		self.databases_n_tools = sys_rep_config.databases_n_tools
-		# self.template_mmcif_dir = sys_rep_config.databases.template_mmcif_dir
-		# self.kalign_binary_path = sys_rep_config.databases.kalign_binary_path
-		# self.release_dates_path = sys_rep_config.databases.release_dates_path
-		# self.obsolete_pdbs_path = sys_rep_config.databases.obsolete_pdbs_path
 
 		self.fasta_dir = fasta_dir
 		self.alignment_dir = alignment_dir
@@ -115,68 +112,90 @@ class SystemRepresentation():
 
 		seed_worker()
 
+		#Will be created downstream.
+		self.feature_dict = None
+		self.processed_feature_dict = None
+		self.init_pred_dict = None
+
 
 	def forward( self ):
+		"""
+		"""
 		self.file_paths = self.create_required_paths()
 
-		self.init_model_config()
+		self.init_ofold_config()
 		self.init_feature_processor()
 		print( "Initialized the feature processor..." )
 
-		init_model_path = glob.glob(
-				f"{self.ofold_output_dir}/predictions/*{self.init_model_prefix}.cif"
-				)
+		if self.skip_relaxation:
+			init_model_path = os.path.join(
+				self.ofold_output_dir,
+				"predictions/" + self.file_paths["pred_file_prefix"] + "_unrelaxed.cif" )
+		else:
+			init_model_path = os.path.join(
+				self.ofold_output_dir,
+				"predictions/" + self.file_paths["pred_file_prefix"] + "_relaxed.cif" )
 
-		# if os.path.exists( init_model_path ):
-		if len( init_model_path ) == 0:
-			# Get the input features.
+		if not os.path.exists( init_model_path ):
+			# Get the input features (See AF2 supplementary).
 			print( "Creating processed feature dict..." )
-			feature_dict, processed_feature_dict, tag = self.prepare_input()
+			self.feature_dict, self.processed_feature_dict, tag = self.prepare_input()
+
 			w = open_file_handler( self.file_paths["feature_dict"], "wb" )
-			pkl.dump( feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
+			pkl.dump( self.feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
 			w.close()
 
 			w = open_file_handler( self.file_paths["processed_feature_dict"], "wb" )
-			pkl.dump( processed_feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
+			pkl.dump( self.processed_feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
 			w.close()
 
-			print( processed_feature_dict.keys() )
+			print( self.processed_feature_dict.keys() )
 
 			# Run the prediction.
 			print( "Running model prediction..." )
 			out, output_directory = self.get_init_pred(
-				processed_feature_dict = processed_feature_dict,
+				processed_feature_dict = self.processed_feature_dict,
 				tag = tag
 			)
+			self.init_pred_dict = out
+			del out
 
 			w = open_file_handler( self.file_paths["out_dict_path"], "wb" )
-			pkl.dump( out, w, protocol = pkl.HIGHEST_PROTOCOL )
+			pkl.dump( self.init_pred_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
 			w.close()
 
 			# Save the prediction on disk.
 			self.save_init_pred(
-				feature_dict = feature_dict,
-				processed_feature_dict = processed_feature_dict,
-				out = out,
+				feature_dict = self.feature_dict,
+				processed_feature_dict = self.processed_feature_dict,
+				out = self.init_pred_dict,
 				output_directory = output_directory )
 		else:
-			# Sanity check.
-			if not os.path.exists( init_model_path[0] ):
-				raise FileNotFoundError(
-					f"{init_model_path[0]} file not found..."
-				)
 			f = open_file_handler( self.file_paths["feature_dict"], "rb" )
-			feature_dict = pkl.load( f )
+			self.feature_dict = pkl.load( f )
 			f.close()
 
 			f = open_file_handler( self.file_paths["processed_feature_dict"], "rb" )
-			processed_feature_dict = pkl.load( f )
+			self.processed_feature_dict = pkl.load( f )
 			f.close()
 
+			print( self.processed_feature_dict.keys() )
+
 			f = open_file_handler( self.file_paths["out_dict_path"], "rb" )
-			out = pkl.load( f )
+			self.init_pred_dict = pkl.load( f )
 			f.close()
-		exit()
+
+		self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "detach" )
+		self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "detach" )
+
+		# Add masks for excluded volume and sequence connectivity.
+		intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
+		connectivity_mask = self.get_sequence_connectivity_feats()
+
+		self.processed_feature_dict["intra_ev_mask"] = intra_ev_mask
+		self.processed_feature_dict["inter_ev_mask"] = inter_ev_mask
+		self.processed_feature_dict["connectivity_mask"] = connectivity_mask
+
 
 
 	def create_required_paths( self ):
@@ -198,11 +217,11 @@ class SystemRepresentation():
 		return file_paths
 
 	def init_feature_processor( self ):
-		self.feature_processor = feature_pipeline.FeaturePipeline( self.model_config.data )
+		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 
 
-	def init_model_config( self ):
-		self.model_config = model_config(
+	def init_ofold_config( self ):
+		self.ofold_config = model_config(
 			self.config_preset,
 			long_sequence_inference = self.long_sequence_inference,
 			use_deepspeed_evoformer_attention = self.use_deepspeed_evoformer_attention,
@@ -238,7 +257,7 @@ class SystemRepresentation():
 		template_featurizer = templates.HmmsearchHitFeaturizer(
 			mmcif_dir = self.databases_n_tools.template_mmcif_dir,
 			max_template_date = self.max_template_date,
-			max_hits = self.model_config.data.predict.max_templates,
+			max_hits = self.ofold_config.data.predict.max_templates,
 			kalign_binary_path = self.databases_n_tools.kalign_binary_path,
 			# path to a file with a mapping from PDB IDs to their release dates.
 			#	 Thanks to this we don't have to redundantly parse mmCIF files to get that information.
@@ -255,7 +274,7 @@ class SystemRepresentation():
 			monomer_data_pipeline = data_processor,
 		)
 
-		self.feature_processor = feature_pipeline.FeaturePipeline( self.model_config.data )
+		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 
 		tag_list = []
 		seq_list = []
@@ -304,6 +323,7 @@ class SystemRepresentation():
 			k: torch.as_tensor( v, device = self.device )
 			for k, v in processed_feature_dict.items()
 		}
+
 		return feature_dict, processed_feature_dict, tag
 
 
@@ -317,7 +337,7 @@ class SystemRepresentation():
 		Taken from run_pretrained_openfold.py -> main().
 		"""
 		model_generator = load_models_from_command_line(
-			self.model_config,
+			self.ofold_config,
 			self.device,
 			self.openfold_checkpoint_path,
 			self.jax_params_path,
@@ -328,10 +348,9 @@ class SystemRepresentation():
 		out = run_model( model, processed_feature_dict, tag, self.ofold_output_dir )
 
 		# Toss out the recycling dimensions --- we don't need them anymore
-		#processed_feature_dict = tensor_tree_map(
-		#	lambda x: np.array( x[..., -1].cpu() ),
-		#	processed_feature_dict
-		#)
+		processed_feature_dict = tensor_tree_map(
+			lambda x: np.array( x[..., -1].cpu() ),
+			processed_feature_dict )
 		out = tensor_tree_map( lambda x: np.array( x.cpu() ), out )
 
 		return out, output_directory
@@ -380,6 +399,7 @@ class SystemRepresentation():
 			self.ofold_output_dir,
 			output_name
 		)
+		print( unrelaxed_output_path )
 		w = open( unrelaxed_output_path, "w" )
 		w.write( protein.to_modelcif( unrelaxed_protein ) )
 		w.close()
@@ -389,7 +409,8 @@ class SystemRepresentation():
 			self.ofold_output_dir,
 			output_name
 		)
-		w = open( "unrelaxed_output_path", "w" )
+		print( unrelaxed_output_path )
+		w = open( unrelaxed_output_path, "w" )
 		w.write( protein.to_pdb( unrelaxed_protein ) )
 		w.close()
 		if not self.skip_relaxation:
@@ -397,12 +418,60 @@ class SystemRepresentation():
 			print( f"Running AMBER relaxation..." )
 			output_name = self.file_paths["pred_file_prefix"]
 			relax_protein(
-				self.model_config,
+				self.ofold_config,
 				self.device,
 				unrelaxed_protein,
 				output_directory,
 				output_name,
 				cif_output = True )
+
+
+	def get_excluded_volume_feats( self ):
+		"""
+		Create masks to account for:
+			Only intrachain residue pairs.
+			Only interchain residue pairs.
+		Mask out all diagonal elements.
+
+		intra_ev_mask, inter_ev_mask -> [N, N] 
+		"""
+		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+
+		N = asym_id.shape[0]
+
+		#ignore all diagonal element.
+		diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
+		diagonal_mask = diagonal_mask.int()
+
+		intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+		intra_ev_mask *= diagonal_mask
+		inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
+		inter_ev_mask *= diagonal_mask
+
+		return intra_ev_mask, inter_ev_mask
+
+
+	def get_sequence_connectivity_feats( self ):
+		"""
+		Create a mask to ignore all but intrachain adjacent residues.
+		Using an asymmetric mask to account for only ij pairs.
+
+		connectivity_maks -> [N, N]
+		"""
+		residue_index = self.processed_feature_dict["residue_index"]
+		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+
+		N = asym_id.shape[0]
+
+		intra_chain_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+
+		# Adjacent residues in sequence.
+		adjacent_mask = torch.zeros( [N, N] )
+		adjacent_mask[residue_index, residue_index+1] = 1
+
+		connectivity_mask = intra_chain_mask*adjacent_mask
+
+		return connectivity_mask
 
 
 	def get_distance_map( self, final_atom_position: torch.Tensor ) -> torch.Tensor:
