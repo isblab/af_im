@@ -7,6 +7,12 @@ import ml_collections as mlc
 
 db_dir = "/data/alpha-fold-db/"
 tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
+long_sequence_inference = False
+use_deepspeed_evoformer_attention = False
+
+# For loss functions.
+length_scale = 10.0
+eps = 1e-8
 
 def topology_dict() -> mlc.ConfigDict:
 	"""
@@ -17,12 +23,12 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "8wtd: testing new sys rep script. " +
+	"objective": "8wtd: testing new pose sampling + recycling model. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
 	"system_representation": {
-		"init_model_prefix": "_unrelaxed",
+		"init_model_prefix": "_relaxed",
 		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
 		"ofold_script": os.path.abspath( "./openfold/run_pretrained_openfold.py" ),
 		"config_preset": "model_1_multimer_v3",
@@ -38,15 +44,15 @@ config = mlc.ConfigDict(
 							)
 						),
 		"tool_base": tool_base,
-		"db_dir": db_dir,
-		"db_preset": "full_dbs",
-		"mode": "multimer",
+		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
+		"db_preset": "full_dbs", # Use full or reduced database (full_dbs/ reduced_dbs).
+		"is_multimer": True,
 		"max_template_date": "2023-01-01",
-		"seed": 1,
-		"cpu_cores": 16,
-		"subtract_plddt": True,
-		"long_sequence_inference": False,
-		"use_deepspeed_evoformer_attention": False,
+		"seed": 1,  # seed for PRNGs.
+		"cpu_cores": 16,  # CPU cores to be used for OpenFold run.
+		"subtract_plddt": True,  # 100-pLDDT as a proxy for b-factor.
+		"long_sequence_inference": long_sequence_inference,
+		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"skip_relaxation": False,
 		"databases_n_tools": {
 			"template_mmcif_dir": os.path.join( db_dir, "pdb_mmcif/mmcif_files" ),
@@ -86,38 +92,41 @@ config = mlc.ConfigDict(
 	},
 	"model": {
 		# structure_module_finetuning, pair_perturbation, single_perturbation
-		"name": "structure_module_finetuning",
-		# train or eval.
-		"mode": {
-			"sm": "eval",
-			"plddt": "eval",
-			"distogram": "eval"
-			},
-		"update_params": {
-			# No. of structure module blocks.
-			"sm_no_blocks": 8,
-			},
-		# If true, freeze weights for StructureModule.
-		"freeze_sm": False,
-		# Required for single_perturbation/pair_perturbation
-		"adapter": {
-			# linear_perturb/sigmoid_gating/tanh_gating/lora/film
-			"name": "",
-			# use bias in Linear layer for adapter.
-			"bias": False,
-			# reduced feature dim size for lora adpater
-			"lora_k": 64,
-			# controls the magnitude of perturbation.
-			"alpha": 0.9,
-			# Only for pair_perturbation. Mask intra-chain contacts in pair_rep.
-			"inter_mask": True
-		}
+		"name": "pose_recycling",
+		"long_sequence_inference": long_sequence_inference,
+		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
+		"rigid_type": "chains",
+		## train or eval.
+		#"mode": {
+		#	"sm": "eval",
+		#	"plddt": "eval",
+		#	"distogram": "eval"
+		#	},
+		#"update_params": {
+		#	# No. of structure module blocks.
+		#	"sm_no_blocks": 8,
+		#	},
+		## If true, freeze weights for StructureModule.
+		#"freeze_sm": False,
+		## Required for single_perturbation/pair_perturbation
+		#"adapter": {
+		#	# linear_perturb/sigmoid_gating/tanh_gating/lora/film
+		#	"name": "",
+		#	# use bias in Linear layer for adapter.
+		#	"bias": False,
+		#	# reduced feature dim size for lora adpater
+		#	"lora_k": 64,
+		#	# controls the magnitude of perturbation.
+		#	"alpha": 0.9,
+		#	# Only for pair_perturbation. Mask intra-chain contacts in pair_rep.
+		#	"inter_mask": True
+		#}
 	},
 	"loss": {
 		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
 		# FAPE, aupervised_chi, violation, chain_center_of_mass, distogram taken directly from OpenFold configs.
 		"fape": {
-			"enabled": True,
+			"enabled": False,
 			"add_penalty": False,
 			# For monomer.
 			"backbone": {
@@ -142,35 +151,35 @@ config = mlc.ConfigDict(
 			# For both monomer and multimer.
 			"sidechain": {
 					"clamp_distance": 10.0,
-					"length_scale": 10.0,
+					"length_scale": length_scale,
 					"weight": 0.5
 			},
-		"eps": 1e-4,
+		"eps": 1e-4, # as in OpenFold
 		"weight": 1.0,
 		},
 		"supervised_chi": {
-			"enabled": True,
+			"enabled": False,
 			"add_penalty": False,
 			"chi_weight": 0.5,
 			"angle_norm_weight": 0.01,
-			"eps": 1e-8,
+			"eps": eps,
 			"weight": 1.0,
 		},
-		"violation": {
-			"enabled": True,
-			"add_penalty": True,
-			"violation_tolerance_factor": 12.0,
-			"clash_overlap_tolerance": 1.5,
-			"average_clashes": True,
-			"eps": 1e-8,
-			"weight": 0.03
-		},
+		#"violation": {
+		#	"enabled": False,
+		#	"add_penalty": False,
+		#	"violation_tolerance_factor": 12.0,
+		#	"clash_overlap_tolerance": 1.5,
+		#	"average_clashes": True,
+		#	"weight": 0.03,
+		#	"eps": eps
+		#},
 		"chain_center_of_mass": {
-			"enabled": True,
+			"enabled": False,
 			"add_penalty": False,
 			"clamp_distance": -4.0,
 			"weight": 0.05,
-			"eps": 1e-8
+			"eps": eps
 		},
 		"distogram": {
 			"enabled": False,
@@ -179,22 +188,39 @@ config = mlc.ConfigDict(
 			"max_bin": 21.6875,   # From OpenFold
 			"no_bins": 64,
 			"weight": 0.3,
-			"eps": 1e-8,  # 1e-6,
+			"eps": eps,  # 1e-6,
 		},
 		"rigid_chain": {
 			"enabled": False,
 			"add_penalty": False,
-			"length_scale": 10.0,
+			"length_scale": length_scale,
 			"weight": 0.03,
-			"eps": 1e-8
+			"eps": eps
 		},
 		# GaussianDistanceRestraint
 		"gdr": {
+			"enabled": False,
+			"add_penalty": False,
+			"length_scale": length_scale,
+			"weight": 1e-3,
+			"eps": eps
+		},
+		"violation":{
 			"enabled": True,
 			"add_penalty": True,
-			"length_scale": 10.0,
-			"eps": 1e-8,
-			"weight": 1e-3
+			"ev": {
+				"intra_chain_dist": 2.0,
+				"inter_chain_dist": 4.0,
+				"length_scale": length_scale,
+				"weight": 1.0,
+				"eps": eps
+			},
+			"sc": {
+				"inter_res_dist": 4.0,
+				"length_scale": length_scale,
+				"weight": 1.0,
+				"eps": eps
+			},
 		},
 		"xlr": {
 			"enabled": True,
@@ -202,9 +228,9 @@ config = mlc.ConfigDict(
 			"type": "ub_harmonic", # ub_harmonic/pseudo_huber
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
-			"length_scale": 10.0,
+			"length_scale": length_scale,
 			"weight": 1e-4,
-			"eps": 1e-8
+			"eps": eps
 		},
 	},
 	"metrics": {
@@ -215,9 +241,9 @@ config = mlc.ConfigDict(
 	"analysis": {
 		# Run analysis pipeline.
 		"enabled": False,
-		# run relaxation and MolProbity validation.
+		# Run relaxation and MolProbity validation.
 		"enable_relax_validate": True,
-		# metrics to include for model_selection.
+		# Metrics to include for model_selection.
 		"assessment_metrics": ["loss-violation", "metrics-xlr"],
 		"model_selection": {
 			"method": {
@@ -260,7 +286,7 @@ config = mlc.ConfigDict(
 			# If True, use GPU else CPU.
 			"use_gpu": True,
 			"parallelize": False, # Do not use with GPU.
-			# No. of CPu cores to be used for relaxation.
+			# No. of CPU cores to be used for relaxation.
 			"cpu_cores": 16,
 			"output_format": "pdb",
 			"relaxed_model_dir": "relaxed_models",
@@ -275,11 +301,12 @@ config = mlc.ConfigDict(
 	"train": {
 		# Version for the modeling run.
 		"version": 0,
-		"mode": "test", # deprecated
-		"max_epochs": 100, # max no. of epochs for training.
+		"skip_pose_sampling": False,
+		"max_epochs": 100, # max epochs for sampling.
+		"max_pose_iters": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
-		"allow_mcpa": True, # use multi-chain permutation align
-		"allow_grad_update": True, # allow gradient update - to be deprecated.
+		#"allow_mcpa": True, # use multi-chain permutation align
+		#"allow_grad_update": True, # allow gradient update - to be deprecated.
 		"device": "cuda:0" # CUDA device to be used.
 	}
 }
