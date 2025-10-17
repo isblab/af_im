@@ -9,7 +9,7 @@ from typing import List, Dict, Tuple, Iterator
 import numpy as np
 from scipy.spatial import distance_matrix
 
-import gemmi
+#import gemmi
 import Bio
 from Bio.PDB import PDBParser, MMCIFParser, Structure, Model, Residue, MMCIFIO
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
@@ -238,7 +238,7 @@ def prep_protein( outputs: Dict, feature_dict: Dict,
 		feature_dict,       # feature_dict,
 		feature_processor,  # feature_processor
 		config_preset = None,
-		multimer_ri_gap = 1,
+		#multimer_ri_gap = 1,
 		subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
 	)
 
