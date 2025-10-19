@@ -93,7 +93,7 @@ class SystemRepresentation():
 		self.init_model_prefix = sys_rep_config.init_model_prefix
 		self.ofold_seed = sys_rep_config.seed
 		self.cpu_cores = sys_rep_config.cpu_cores
-		self.mode = sys_rep_config.mode
+		self.is_multimer = sys_rep_config.is_multimer
 		self.max_template_date = sys_rep_config.max_template_date
 		self.subtract_plddt = sys_rep_config.subtract_plddt
 		self.long_sequence_inference = sys_rep_config.long_sequence_inference

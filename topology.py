@@ -211,16 +211,16 @@ config = mlc.ConfigDict(
 			"ev": {
 				"intra_chain_dist": 2.0,
 				"inter_chain_dist": 4.0,
-				"length_scale": length_scale,
-				"weight": 1.0,
-				"eps": eps
+				"weight": 1.0
 			},
 			"sc": {
 				"inter_res_dist": 4.0,
-				"length_scale": length_scale,
-				"weight": 1.0,
-				"eps": eps
+				"tolerance_sigma": 0.5,
+				"weight": 1.0
 			},
+			"weight": 1.0,
+			"length_scale": length_scale,
+			"eps": eps
 		},
 		"xlr": {
 			"enabled": True,
@@ -229,7 +229,7 @@ config = mlc.ConfigDict(
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
 			"length_scale": length_scale,
-			"weight": 1e-4,
+			"weight": 1.0,
 			"eps": eps
 		},
 	},
@@ -302,6 +302,7 @@ config = mlc.ConfigDict(
 		# Version for the modeling run.
 		"version": 0,
 		"skip_pose_sampling": False,
+		"fill_none": True,  # If skipping pose sampling, replace final_atom_positions with None.
 		"max_epochs": 100, # max epochs for sampling.
 		"max_pose_iters": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
