@@ -24,16 +24,21 @@ from utils.pdb_utils import Parser, get_chain_id
 
 class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
-		self.benchmark_name = "xlsim"  # xlsim/abag/oreilly
+		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment
 		# Define the modeling objective.
-		self.modeling_objective = "Using TP+FP XLs. No FAPE and supervised_chi loss."
-		self.modeling_version = 4
+		self.modeling_objective = "Testing new pose sampling + recycling pipeline."
+		self.modeling_version = 0
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
 		# Maximum no. of epochs for fine-tuning.
 		self.max_epochs = 100
+		# Max epochs for pose sampling.
+		self.max_pose_iters = 20
+		self.skip_pose_sampling = False
+		# If skipping pose sampling, use final_atom_positions=None.
+		self.fill_none = False
 		# Precision of the float values in the results.
 		self.prec = 4
 		# Set GPU to use.
@@ -42,6 +47,8 @@ class BenchmarkModeling():
 		self.db_preset = "full_dbs"
 		# If True, skip re-running modeling if output files already exist.
 		self.skip_rerun = True
+		# Enable analysis.
+		self.enable_analysis = False
 		# If True run AMBER relaxation and MolProbity validation.
 		self.enable_relax_validate = True
 		# If True, will not show prompt for existing modeling dir.
@@ -51,15 +58,11 @@ class BenchmarkModeling():
 		# if True, deletes the existing system analysis dir.
 		self.remove_sys_analysis_dir = False
 		# If True, create the required plots.
-		self.create_summary_plots_and_files = True
+		self.create_summary_plots_and_files = False
 
 		# Modify settings for losses to be used.
-		self.fape = {"enabled": True, "add_penalty": False, "weight": 1.0,
-					"interfape": True, "interfape_weight": 0.5}
-		self.supervised_chi = {"enabled": True, "add_penalty": False, "weight": 1.0}
-		self.violation = {"enabled": True, "add_penalty": True, "weight": 0.03}
-		self.ccom = {"enabled": True, "add_penalty": False, "weight": 0.05}
-		self.xlr = {"enabled": True, "add_penalty": True, "weight": 0.05}
+		self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0}
+		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
 
 		self.topo_dict = topo_dict
 
@@ -170,31 +173,19 @@ class BenchmarkModeling():
 			topo_dict.objective = f"{sys_name} {self.modeling_objective}"
 			topo_dict.train.version = self.modeling_version
 			topo_dict.train.device = self.device
+			topo_dict.analysis.enabled = self.enable_analysis
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
 			topo_dict.train.max_epochs = self.max_epochs
-
-			# FAPE loss settings.
-			topo_dict.loss.fape.enabled = self.fape["enabled"]
-			topo_dict.loss.fape.add_penalty = self.fape["add_penalty"]
-			topo_dict.loss.fape.weight = self.fape["weight"]
-			topo_dict.loss.fape.interface_backbone.enabled = self.fape["interfape"]
-			topo_dict.loss.fape.interface_backbone.weight = self.fape["interfape_weight"]
-
-			# Supervised chi loss settings.
-			topo_dict.loss.supervised_chi.enabled = self.supervised_chi["enabled"]
-			topo_dict.loss.supervised_chi.add_penalty = self.supervised_chi["add_penalty"]
-			topo_dict.loss.supervised_chi.weight = self.supervised_chi["weight"]
+			topo_dict.train.max_pose_iters = self.max_pose_iters
+			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
+			topo_dict.train.fill_none = self.fill_none
+			topo_dict.train.device = self.device
 
 			# Violation loss settings.
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
 			topo_dict.loss.violation.add_penalty = self.violation["add_penalty"]
 			topo_dict.loss.violation.weight = self.violation["weight"]
-
-			# Chain center of mass loss settings.
-			topo_dict.loss.chain_center_of_mass.enabled = self.ccom["enabled"]
-			topo_dict.loss.chain_center_of_mass.add_penalty = self.ccom["add_penalty"]
-			topo_dict.loss.chain_center_of_mass.weight = self.ccom["weight"]
 
 			# XL restraint loss settings.
 			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
@@ -618,9 +609,7 @@ class BenchmarkModeling():
 				violations_list.append(
 					data_dict["loss"]["violation"]
 				)
-				ccom_list.append(
-					data_dict["loss"]["chain_center_of_mass"]
-				)
+
 			else:
 				x = self.get_dict_for_source(
 					sys_name = sys_name,
@@ -632,10 +621,10 @@ class BenchmarkModeling():
 				xl_satisfaction_list.append( data_dict["per_model_xl_sat"] )
 				global_satisfaction_list.append( data_dict["global_data_satisfaction"] )
 				violations_list.append( data_dict["per_model_viol"] )
-				ccom_list.append( data_dict["per_model_ccom"] )
+				#ccom_list.append( data_dict["per_model_ccom"] )
 
 		return ( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
-				global_satisfaction_list, violations_list, ccom_list )
+				global_satisfaction_list, violations_list )
 
 
 	def create_violin( self, data: List, ax, r: int, color: str, ylabel: str ):
@@ -675,7 +664,7 @@ class BenchmarkModeling():
 	def plot_per_epoch_distribution( self ):
 		"""
 		Plot the distribution of per epoch values for
-			 loss, ccom loss, and xl satisfaction for each systems.
+			 loss loss, and xl satisfaction for each systems.
 		 Create separate plots for each term.
 		"""
 		all_sampled = self.get_input_for_per_epoch_plots( source = "all_sampled" )
@@ -685,7 +674,7 @@ class BenchmarkModeling():
 		# i = 0
 		for name, out in zip( ["all_sampled", "good_scoring"], [all_sampled, good_scoring] ):
 			plt.rcParams["font.family"] = "sans"
-			_, ax = plt.subplots( 3, 1, figsize = ( 30, 20 ) )
+			_, ax = plt.subplots( 2, 1, figsize = ( 30, 20 ) )
 
 			( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
 					global_satisfaction_list, violations_list, ccom_list ) = out
@@ -694,13 +683,10 @@ class BenchmarkModeling():
 								color = "tab:blue", ylabel = "Per model XL satisfaction" )
 			self.create_violin( data = violations_list, ax = ax, r = 1,
 								color = "tab:blue", ylabel = "Per model Violations" )
-			self.create_violin( data = ccom_list, ax = ax, r = 2,
-								color = "tab:blue", ylabel = "Per model Chain center of mass" )
 
 			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
 			ax[0].set_xticks( complex_idx, complexes_list )
 			ax[1].set_xticks( complex_idx, complexes_list )
-			ax[2].set_xticks( complex_idx, complexes_list )
 			# Plot global XL satisfaction as a triangle.
 			if len( global_satisfaction_list ) != 0:
 				ax[0].scatter( complex_idx, global_satisfaction_list,
@@ -1062,18 +1048,19 @@ class BenchmarkModeling():
 				"objective": self.modeling_objective,
 				"version": str( self.modeling_version ),
 				"max_epochs": str( self.max_epochs ),
+				"max_pose_iters": str( self.max_pose_iters ),
+				"skip_pose_sampling": self.skip_pose_sampling,
+				"fill_none": self.fill_none,
 				"prec": self.prec,
 				"device": self.device,
 				"db_preset": self.db_preset,
 				"sys_conf_suff": self.sys_conf_suff,
+				"enable_analysis": self.enable_analysis,
 				"enable_relax_validate": self.enable_relax_validate,
 				"disable_overwrite_prompt": self.disable_overwrite_prompt,
 				"remove_sys_modeling_dir": self.remove_sys_modeling_dir,
 				"remove_sys_analysis_dir": self.remove_sys_analysis_dir,
-				"fape": self.fape,
-				"supervised_chi": self.supervised_chi,
 				"violation": self.violation,
-				"ccom": self.ccom,
 				"xlr": self.xlr,
 				"base_dir": self.base_dir,
 				"meta_dir": self.meta_dir,
@@ -1085,7 +1072,6 @@ class BenchmarkModeling():
 				"dockq_dict_file": self.dockq_dict_file,
 				"molprob_plot_file": self.molprob_plot_file,
 				"logs_file": self.logs_file,
-				# "misc_file": self.misc_file,
 				"config_file": self.config_file
 			} )
 		write_json( configs, self.config_file )
