@@ -209,8 +209,14 @@ class FitToData():
 			#torch.cuda.reset_peak_memory_stats()
 
 			# Skip pose sampling if specified.
-			if self.topology.train.skip_pose_sampling:
+			if not self.topology.train.skip_pose_sampling:
 				out = self.predict_pose()
+				if self.topology.train.fill_none:
+					out["final_atom_positions"] = None
+					# else keep the initial predicted final_atom_positions.
+			else:
+				out = copy.deepcopy( self.init_pred_dict )
+				self.add_to_device( out )
 
 			torch.cuda.empty_cache()
 			# Note time taken by recycling alone.
@@ -241,9 +247,8 @@ class FitToData():
 
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
-				out = out, last_epoch = last_epoch,
-				update_pose_metrics = False )
-			self.update_metric_dict( metrics_dict )
+				out = out, last_epoch = last_epoch  )
+			self.update_metric_dict( metrics_dict, update_pose_metrics = False )
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
@@ -316,9 +321,8 @@ class FitToData():
 				else:
 					last_epoch = False
 				metrics_dict = self.metrics_fn.forward(
-					out = out, last_epoch = last_epoch,
-					update_pose_metrics = False )
-				self.update_metric_dict( metrics_dict )
+					out = out, last_epoch = last_epoch )
+				self.update_metric_dict( metrics_dict, update_pose_metrics = True )
 
 				# smo.add_model( prot = u, model_id = sub_epoch )
 				optimizer.zero_grad()

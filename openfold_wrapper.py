@@ -233,6 +233,7 @@ class IntegrativeLearning():
 		# If the stats file form simulation output doesn't already exist.
 		if os.path.exists( self.stats_file ):
 			stats_dict = np.load( self.stats_file, allow_pickle = True ).item()
+			stats_dict_pose = np.load( self.stats_pose_file, allow_pickle = True ).item()
 		else:
 			fit.forward()
 			# Store metrics metadata.
@@ -265,10 +266,13 @@ class IntegrativeLearning():
 			loss_plot_file = self.loss_plot_pose_file
 			metrics_plot_file = self.metrics_plot_pose_file
 
-		self.plot_metrics( loss_dict = loss_dict,
-							metrics_dict = metrics_dict,
-							loss_plot_file = loss_plot_file,
-							metrics_plot_file = metrics_plot_file )
+		if len( loss_dict ) != 0:
+			self.plot_metrics( loss_dict = loss_dict,
+								metrics_dict = metrics_dict,
+								loss_plot_file = loss_plot_file,
+								metrics_plot_file = metrics_plot_file )
+		else:
+			print( f"Loss dict is empty. Skipping creating plots..." )
 
 
 	def run_analysis( self ):
@@ -355,10 +359,14 @@ class IntegrativeLearning():
 		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
 
-		# File path for the loss plot.
+		# File path to the loss plot for the full run (pose sampling+recycling).
 		self.loss_plot_file = os.path.join( self.modeling_output_dir, "Loss.png" )
-		# File path for the metric plot.
+		# File path to the loss plot for only pose sampling.
+		self.loss_plot_pose_file = os.path.join( self.modeling_output_dir, "Loss_pose.png" )
+		# File path to the metrics plot for the full run (pose sampling+recycling).
 		self.metrics_plot_file = os.path.join( self.modeling_output_dir, "Metrics.png" )
+		# File path to the loss plot for only pose sampling.
+		self.metrics_plot_pose_file = os.path.join( self.modeling_output_dir, "Metrics_pose.png" )
 		# File path for XL map plot.
 		self.xl_map_plot_file = os.path.join( self.modeling_output_dir, "XL_map.png" )
 

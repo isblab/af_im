@@ -20,12 +20,12 @@ from restraints import XlRestraint, final_pred_to_dist_map
 ###############################################################################
 ###############################################################################
 def get_excluded_volume(
-	out: Dict[str, Any],
+	dist: torch.Tensor,
 	intra_ev_mask: torch.Tensor,
 	inter_ev_mask: torch.Tensor,
 	intra_chain_dist: float,
 	inter_chain_dist: float,
-	length_scale: float, eps: float ) -> torch.Tensor:
+	eps: float ) -> torch.Tensor:
 	"""
 	Loss to penalize steric clashes between residues,
 		both intra and inter-chain (excluded volume).
@@ -33,16 +33,16 @@ def get_excluded_volume(
 	intra_chain_dist -> distance between intrachain Ca-atoms to consider a clash.
 	inter_chain_dist -> distance between interchain Ca-atoms to consider a clash.
 	"""
-	intra_ev_mask = intra_ev_mask.to( out["final_atom_positions"].device )
-	inter_ev_mask = inter_ev_mask.to( out["final_atom_positions"].device )
+	intra_ev_mask = intra_ev_mask.to( dist.device )
+	inter_ev_mask = inter_ev_mask.to( dist.device )
 
-	dist = final_pred_to_dist_map(
-		final_atom_pos = out["final_atom_positions"],
-		length_scale = length_scale,
-		eps = eps )
+	#dist = final_pred_to_dist_map(
+	#	final_atom_pos = out["final_atom_positions"],
+	#	length_scale = length_scale,
+	#	eps = eps )
 
 	# Intrachain clashes.
-	diff_intra = torch.clamp( intra_chain_dist - dist, max = 0.0 )
+	diff_intra = torch.clamp( intra_chain_dist - dist, min = 0.0 )
 	intra_ev = torch.sum(
 		( diff_intra[intra_ev_mask.bool()] )**2
 		)/ ( torch.sum( intra_ev_mask ) + eps )
@@ -57,7 +57,7 @@ def get_excluded_volume(
 	#	intra_ev = torch.tensor( [0.0], device = dist.device )
 
 	# Interchain clashes.
-	diff_inter = torch.clamp( inter_chain_dist - dist, max = 0.0 )
+	diff_inter = torch.clamp( inter_chain_dist - dist, min = 0.0 )
 	inter_ev = torch.sum(
 		( diff_inter[inter_ev_mask.bool()] )**2
 		)/ ( torch.sum( inter_ev_mask ) + eps )
@@ -78,11 +78,11 @@ def get_excluded_volume(
 ###############################################################################
 ###############################################################################
 def get_sequence_connectivity(
-	out: Dict[str, Any],
+	dist: torch.Tensor,
 	inter_res_dist: float,
 	tolerance_sigma: float,
 	connectivity_mask: torch.Tensor,
-	length_scale: float, eps: float ) -> torch.Tensor:
+	eps: float ) -> torch.Tensor:
 	"""
 	Loss to penalize violation fo sequence connectivity.
 	Distance between Ca-stoms must be within tolerance,
@@ -91,23 +91,28 @@ def get_sequence_connectivity(
 	inter_res_dist -> expected distance between adjacent Ca-atoms to consider connectivity.
 	tolerance_sigma -> standard deviation around the expected distance.
 	"""
-	connectivity_mask = connectivity_mask.to( out["final_atom_positions"].device )
+	connectivity_mask = connectivity_mask.to( dist.device )
 
-	dist = final_pred_to_dist_map(
-		final_atom_pos = out["final_atom_positions"],
-		length_scale = length_scale,
-		eps = eps )
+	#dist = final_pred_to_dist_map(
+	#	final_atom_pos = out["final_atom_positions"],
+	#	length_scale = length_scale,
+	#	eps = eps )
 
-	connectivity_viol = ( dist - inter_res_dist )**2/ tolerance_sigma
-	loss = torch.sum(
-		connectivity_viol[connectivity_mask.bool()] )/ ( torch.sum( connectivity_mask ) + eps )
-	# Interchain clashes.
-	#masked = dist*connectivity_mask
-	#connectivity_viol = masked > inter_res_tolerance
-	#denom = torch.sum( connectivity_viol )
+	#diff = torch.clamp( inter_res_dist - dist, min = 0.0 )
 	#loss = torch.sum(
-	#	( masked[connectivity_viol] - inter_res_tolerance )**2
-	#	)/ ( denom + eps )
+	#	( diff[connectivity_mask.bool()] )**2
+	#	)/ ( torch.sum( connectivity_mask ) + eps )
+
+	#connectivity_viol = ( dist - inter_res_dist )**2/ tolerance_sigma
+	#loss = torch.sum(
+	#	connectivity_viol[connectivity_mask.bool()] )/ ( torch.sum( connectivity_mask ) + eps )
+	# Interchain clashes.
+	masked = dist*connectivity_mask
+	connectivity_viol = masked > inter_res_dist
+	denom = torch.sum( connectivity_viol )
+	loss = torch.sum(
+		( masked[connectivity_viol] - inter_res_dist )**2
+		)/ ( denom + eps )
 
 	return loss
 
@@ -120,22 +125,27 @@ def get_violation_loss(
 	"""
 	Compute a violation loss accounting for excluded volume and sequence connectivity.
 	"""
+	dist = final_pred_to_dist_map(
+		final_atom_pos = out["final_atom_positions"],
+		length_scale = config.length_scale,
+		eps = config.eps )
+
 	ev = get_excluded_volume(
-				out = out,
+				dist = dist,
 				intra_ev_mask = batch["intra_ev_mask"],
 				inter_ev_mask = batch["inter_ev_mask"],
-				intra_chain_dist = config.intra_chain_dist,
-				inter_chain_dist = config.inter_chain_dist,
-				length_scale = config.length_scale,
+				intra_chain_dist = config.ev.intra_chain_dist,
+				inter_chain_dist = config.ev.inter_chain_dist,
 				eps = config.eps )
 
 	sc = get_sequence_connectivity(
-				out = out,
+				dist = dist,
 				connectivity_mask = batch["connectivity_mask"],
-				inter_res_tolerance = config.inter_res_tolerance,
-				length_scale = config.length_scale,
+				inter_res_dist = config.sc.inter_res_dist,
+				tolerance_sigma = config.sc.tolerance_sigma,
 				eps = config.eps )
 
+	print( f"ev = {ev}\tsc = {sc}" )
 	loss = config.ev.weight*ev + config.sc.weight*sc
 	return loss
 
@@ -501,6 +511,7 @@ class LossFunction( nn.Module ):
 		#		)
 		#	)
 
+		device = out["final_atom_positions"].device
 		# Iteratively calculate the loss for all included terms.
 		loss_fns = {}
 		for obj in self.loss_fns_included:
@@ -511,11 +522,11 @@ class LossFunction( nn.Module ):
 				loss_fns[loss_name] = obj.get( out, batch )
 
 
-		cum_loss = torch.tensor( [0] ).to( self.device )
+		cum_loss = torch.tensor( [0] ).to( device )
 		losses = {}
 
 		for loss_name, loss_fn in loss_fns.items():
-			weight = torch.tensor( self.config[loss_name].weight, device = self.device )
+			weight = torch.tensor( self.config[loss_name].weight, device = device )
 			loss = loss_fn()
 
 			# print_str += f"{loss_name}: {loss.item()} --> {weight}\t"
