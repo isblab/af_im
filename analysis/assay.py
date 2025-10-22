@@ -242,7 +242,7 @@ class Assay():
 		) -> np.array:
 		"""
 		Given the ensemble of predicted structures, separate good and bad models.
-		For this we use the loss trems: violation loss, ccom loss, and
+		For this we use the loss trems: violation loss, and
 			data satisfaction metrics: xl satisfaction.
 		Good models: high data satisfaction and low physical violations.
 		"""
@@ -284,7 +284,6 @@ class Assay():
 		"""
 		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
 		violation = np.array( self.stats_dict["loss"]["violation"] )
-		ccom = np.array( self.stats_dict["loss"]["chain_center_of_mass"] )
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models_index]
 
@@ -295,11 +294,9 @@ class Assay():
 		global_data_sat = total_satisfied/num_xls
 		per_model_xl_sat = xlr[good_models_index]
 		per_model_viol = violation[good_models_index]
-		per_model_ccom = ccom[good_models_index]
 
 		self.analysis_dict["per_model_xl_sat"] = per_model_xl_sat
 		self.analysis_dict["per_model_viol"] = per_model_viol
-		self.analysis_dict["per_model_ccom"] = per_model_ccom
 		self.analysis_dict["global_data_satisfaction"] = global_data_sat
 		print( "global data satisfaction = ", global_data_sat )
 
@@ -389,6 +386,7 @@ class Assay():
 		ax[r].tick_params( axis = "both" , labelsize = 25, length = 10, width = 4 )
 		ax[r].set_ylabel( ylabel, fontsize = 25 )
 		ax[r].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
+		return ax
 
 
 	def create_analysis_plot( self ):
@@ -402,8 +400,9 @@ class Assay():
 
 		as_xl = self.stats_dict["metrics"]["xlr"]
 		gs_xl = self.analysis_dict["per_model_xl_sat"]
-		self.create_violin( data = [as_xl, gs_xl], ax = ax, r = 0,
+		ax = self.create_violin( data = [as_xl, gs_xl], ax = ax, r = 0,
 							color = "orange", ylabel = "per model XL satisfaction" )
+		ax[0].set_ylin( 0, 1.1 )
 
 		as_viol = self.stats_dict["loss"]["violation"]
 		gs_viol = self.analysis_dict["per_model_viol"]
@@ -429,169 +428,7 @@ class Assay():
 		# ax[1].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
 		# ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
 
+		plt.tight_layout()
 		plt.savefig( self.plot_file, dpi = 300 )
 		plt.close()
-
-
-
-
-	# def compute_model_rmsd( self, prot1: torch.Tensor, prot2: torch.Tensor ):
-	# 	"""
-	# 	Given the AF2 predicted atom positions ([N,37,3]) for
-	# 		a pair of models, compute the Ca-RMSD.
-	# 	"""
-	# 	ca_idx = residue_constants.atom_order["CA"]
-	# 	prot1_ca = prot2_1[:,ca_idx,:].numpy()
-	# 	prot2_ca = prot2_2[:,ca_idx,:].numpy()
-	# 	rot, rssd = R.align_vectors( prot1_ca, prot2_ca )
-	# 	rmsd = rssd/np.sqrt( prot1_ca.shape[0] )
-	# 	return rmsd
-
-
-	# def assess_structural_similarity( self, good_models: np.array ):
-	# 	"""
-	# 	Given the good-scoring models, remove
-	# 		structurally similar models (RMSD <= 0.5).
-	# 	"""
-	# 	selected_good_models = np.array( [] )
-	# 	ignore_models = []
-	# 	if len( good_models ) == 1:
-	# 		selected_good_models = copy( good_models )
-	# 	else:
-	# 		protein_obj = self.stats_dict["protein"]
-	# 		for i in good_models:
-	# 			if i in ignore_models:
-	# 				continue
-	# 			for j in good_models[1:]:
-	# 				rmsd = self.compute_model_rmsd(
-	# 					prot1 = protein_obj[i], prot2 = protein_obj[j]
-	# 					)
-	# 				if rmsd <= 0.5:
-	# 					ignore_models.append( j )
-	# 				else:
-	# 					selected_good_models = np.append( selected_good_models, i )
-	# 	return selected_good_models
-
-
-
-	# def create_analysis_dir( self ):
-	# 	"""
-	# 	Create a dir to store analysis results.
-	# 	"""
-	# 	self.analysis_dir = os.path.join( self.output_dir, "analysis" )
-	# 	if not os.path.exists( self.analysis_dir ):
-	# 		os.makedirs( self.analysis_dir )
-
-	# # 	self.tmp_dir = os.path.join( self.analysis_dir, "tmp" )
-	# # 	if not os.path.exists( self.tmp_dir ):
-	# # 		os.makedirs( self.tmp_dir )
-
-
-
-	# def prep_data( self ) -> np.array:
-	# 	"""
-	# 	Given the dict containing loss and metrics, do
-	# 		Select the following:
-	# 			Violation loss, CCOM loss, restraint loss.
-	# 			Restraint metrics
-	# 		Stack together in an array.
-	# 	"""
-	# 	# Convert all metric values to -- (1 - metric).
-	# 	# 	Lower (1 - metric) the better -- same as loss.
-	# 	metrics = {}
-	# 	for k in self.metrics_dict:
-	# 		metrics[k] = 1 - np.array( self.metrics_dict )
-
-	# 	data = np.stack( 
-	# 			[
-	# 				self.loss_dict["violation"],
-	# 				self.loss_dict["chain_center_of_mass"],
-	# 				self.loss_dict["xlr"],
-	# 				metrics
-	# 			],
-	# 			axis = 1
-	# 	)
-
-	# 	return data
-
-
-	# def get_scaled_data( self, data: np.array ) -> np.array:
-	# 	"""
-	# 	Perform standard scaling.
-	# 	"""
-	# 	scaler = StandardScaler()
-	# 	scaled_data = scaler.fit_transform( data )
-
-	# 	return scaled_data
-
-
-	# def get_hdbscan_clusters( self, data: np.array ) -> Dict[int, List[int]]:
-	# 	"""
-	# 	Run HDBSCAN clustering the return dict for all clusters.
-	# 	"""
-	# 	hdb = hdbscan.HDBSCAN( min_cluster_size = self.min_cluster_size,
-	# 							min_samples = self.min_samples )
-	# 	hdb.fit( scaled_data )
-
-	# 	# Get cluster labels for each data point.
-	# 	labels = hdb.labels_
-
-	# 	hdb_clusters = {}
-	# 	for label in np.unique(labels):
-	# 		# Get indices for all data points having a label.
-	# 		hdb_clusters[label] = np.array( 
-	# 								np.where( labels == label )[0]
-	# 								)
-
-	# 	return hdb_clusters
-
-
-	# def model_filtering( self ) -> List:
-	# 	"""
-	# 	Remove outlier models from the given set of models.
-	# 	Use HDBSCAN to identify such noise models (unclustered).
-	# 		Consider the all except the unclustered models for further analysis.
-	# 		Use violation loss, CCOM loss, restraint loss, and 
-	# 			restraint metrics for clustering.
-	# 	"""
-	# 	data = self.prep_data()
-	# 	# The model at epoch 0 will be kept.
-	# 	scaled_data = self.get_scaled_data( data[1:, :] )
-
-	# 	clusters = self.hdb_clusters( scaled_data )
-
-	# 	# Add the epoch 0 model.
-	# 	selected_models = [0]
-	# 	# Add 1 to all cluster indices to correct for the 
-	# 	# 	numbering due to removing the epoch 0 model.
-	# 	for label in clusters:
-	# 		clusters[label] += 1
-
-	# 		if label == -1:
-	# 			unclustered_models = clusters[label]
-	# 		else:
-	# 			# Ignore the unclustered models.
-	# 			selected_models.extend( clusters[label] )
-
-	# 	selected_models = sorted( selected_models )
-	# 	return unclustered_models, selected_models
-
-
-	# def save_loss_metrics( self, model_ids: List[int], file_name: str ):
-	# 	"""
-	# 	Select the loss and metric values for the given model IDs and save on disk.
-	# 	"""
-	# 	df_dict = {"model_id": model_ids}
-	# 	for k in self.loss_dict:
-	# 		v = np.array( self.loss_dict[k] )
-	# 		df_dict[k] = v[model_ids]
-
-	# 	for k in self.metrics_dict:
-	# 		v = np.array( self.metrics_dict[k] )
-	# 		df_dict[f"{k}_metric"] = np.round( 
-	# 										np.mean( v[model_ids]), 
-	# 										self.prec
-	# 										)
-	# 	file_name = os.path.join( self.analysis_dir, f"summary_{file_name}.csv" )
-	# 	df.to_csv( file_name, index = False )
 
