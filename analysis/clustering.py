@@ -230,7 +230,7 @@ class SelectGoodModels():
 			# 	data_sat.append( data >= q )
 			# else:
 			# data_satisfaction >= the quantile.
-			data_sat.append( data > q )
+			data_sat.append( data >= q )
 
 		data_sat = np.column_stack( data_sat )
 		# Selecting models that satisfy all data types.
