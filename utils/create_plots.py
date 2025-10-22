@@ -38,28 +38,19 @@ def create_plot_from_dict( data_dict: Dict, file_name: str ):
 
 
 
-def plot_scalar_metrics( metric_dict: Dict, file_name: str ):
+def plot_per_epoch_xl_satisfcation( metric_dict: Dict, file_name: str ):
 	"""
-	Plot the per epoch loss.
+	Plot XL satisfaction per epoch.
 	"""
-	total = len( metric_dict )
-	col = 2
-	row = math.ceil( total/col )
+	_, ax = plt.subplots( 1, 1, figsize = ( 8, 8 ) )
 
-	_, ax = plt.subplots( row, 1, figsize = ( row*8, row*8 ) )
-
-	c, r = 0, 0
-	for k in metric_dict:
-		loss = metric_dict[k]
-		epochs = np.arange( 0, len( loss ), 1)
-		ax.plot( epochs, loss, label = k )
-		ax.set_xlabel( "Epochs", fontsize = 16+row*2 )
-		ax.set_ylabel( f"{k}", fontsize = 16+row*2 )
-		ax.xaxis.set_tick_params( labelsize = 14+row, length = 8+row, width = row )
-		ax.yaxis.set_tick_params( labelsize = 14+row, length = 8+row, width = row )
-
-		r = r+1 if c == 1 else r
-		c = 0 if c == 1 else 1
+	xlr_metric = metric_dict["xlr"]
+	epochs = np.arange( 0, len( xlr_metric ), 1)
+	ax.plot( epochs, xlr_metric, label = "XL" )
+	ax.set_xlabel( "Epochs", fontsize = 16 )
+	ax.set_ylabel( "XL satisfaction", fontsize = 16 )
+	ax.xaxis.set_tick_params( labelsize = 14, length = 8, width = 1 )
+	ax.yaxis.set_tick_params( labelsize = 14, length = 8, width = 1 )
 
 	plt.tight_layout()
 	plt.savefig( file_name, dpi = 300 )
