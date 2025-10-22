@@ -57,8 +57,9 @@ class Recycler():
 		#num_recycles = 0
 		#for cycle_no in range(num_iters):
 		# Select the features for the current recycling cycle.
-		fetch_cur_batch = lambda t: t[..., 0]
-		feats = tensor_tree_map(fetch_cur_batch, batch)
+		# fetch_cur_batch = lambda t: t[..., 0]
+		# feats = tensor_tree_map(fetch_cur_batch, batch)
+		feats = batch
 		del batch
 
 		# Enable grad iff we're training and it's the final recycling layer
