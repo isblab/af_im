@@ -85,8 +85,10 @@ class Assay():
 										f"{self.sys_name}_ensemble" )
 		self.molprobity_csv_file = os.path.join( self.analysis_dir,
 										"molprobity_validation.csv" )
-		self.plot_file = os.path.join( self.analysis_dir,
+		self.plot1_file = os.path.join( self.analysis_dir,
 										"analysis_plot1.png" )
+		self.plot2_file = os.path.join( self.analysis_dir,
+										"analysis_plot2.png" )
 
 
 	def create_required_dir( self ):
@@ -284,6 +286,8 @@ class Assay():
 		"""
 		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
 		violation = np.array( self.stats_dict["loss"]["violation"] )
+		ptm = np.array( self.stats_dict["metrics"]["ptm"] )
+		iptm = np.array( self.stats_dict["metrics"]["iptm"] )
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models_index]
 
@@ -294,9 +298,13 @@ class Assay():
 		global_data_sat = total_satisfied/num_xls
 		per_model_xl_sat = xlr[good_models_index]
 		per_model_viol = violation[good_models_index]
+		per_model_ptm = ptm[good_models_index]
+		per_model_iptm = iptm[good_models_index]
 
 		self.analysis_dict["per_model_xl_sat"] = per_model_xl_sat
 		self.analysis_dict["per_model_viol"] = per_model_viol
+		self.analysis_dict["per_model_ptm"] = per_model_ptm
+		self.analysis_dict["per_model_iptm"] = per_model_iptm
 		self.analysis_dict["global_data_satisfaction"] = global_data_sat
 		print( "global data satisfaction = ", global_data_sat )
 
@@ -394,6 +402,8 @@ class Assay():
 		Create plots for all sampled vs good-scoring models
 			1. Distribution of violations
 			2. Distribution of xl satisfaction
+			3. istribution of pLDDT.
+			4. istribution of ipTM.
 		"""
 		plt.rcParams["font.family"] = "sans"
 		_, ax = plt.subplots( 1, 2, figsize = ( 30, 20 ) )
@@ -402,12 +412,35 @@ class Assay():
 		gs_xl = self.analysis_dict["per_model_xl_sat"]
 		ax = self.create_violin( data = [as_xl, gs_xl], ax = ax, r = 0,
 							color = "orange", ylabel = "per model XL satisfaction" )
-		ax[0].set_ylin( 0, 1.1 )
+		ax[0].set_ylim( -0.1, 1.1 )
 
 		as_viol = self.stats_dict["loss"]["violation"]
 		gs_viol = self.analysis_dict["per_model_viol"]
 		self.create_violin( data = [as_viol, gs_viol], ax = ax, r = 1,
 							color = "orange", ylabel = "per model Violations" )
+
+		plt.tight_layout()
+		plt.savefig( self.plot1_file, dpi = 300 )
+		plt.close()
+
+		plt.rcParams["font.family"] = "sans"
+		_, ax = plt.subplots( 1, 2, figsize = ( 30, 20 ) )
+
+		as_ptm = self.stats_dict["metrics"]["ptm"]
+		gs_ptm = self.analysis_dict["per_model_ptm"]
+		self.create_violin( data = [as_ptm, gs_ptm], ax = ax, r = 0,
+							color = "orange", ylabel = "per model pTM" )
+		ax[0].set_ylim( -0.1, 1.1 )
+
+		as_iptm = self.stats_dict["metrics"]["iptm"]
+		gs_iptm = self.analysis_dict["per_model_iptm"]
+		self.create_violin( data = [as_iptm, gs_iptm], ax = ax, r = 1,
+							color = "orange", ylabel = "per model ipTM" )
+		ax[1].set_ylim( -0.1, 1.1 )
+
+		plt.tight_layout()
+		plt.savefig( self.plot2_file, dpi = 300 )
+		plt.close()
 
 
 		# ax[0].violinplot( dataset = [as_viol, gs_viol], orientation = "vertical",
@@ -427,8 +460,4 @@ class Assay():
 		# ax[1].set_ylabel( "Per model XL satisfaction", fontsize = 35 )
 		# ax[1].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
 		# ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
-
-		plt.tight_layout()
-		plt.savefig( self.plot_file, dpi = 300 )
-		plt.close()
 
