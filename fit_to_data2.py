@@ -12,6 +12,7 @@ from openfold.np import protein
 
 from models.rigid_sampler import PoseSampling
 from models.recycler import Recycler
+from models.af_sampling import msa_subsampler
 
 from loss import LossFunction
 from metrics import Metrics
@@ -201,6 +202,11 @@ class FitToData():
 			device = self.device )
 
 		t_start = time.perf_counter()
+		msa = batch.pop( "msa" )
+		msa = msa.cpu()
+		msa_feat = batch["msa_feat"].cpu()
+		orig_msa_feat_shape = msa_feat.shape
+		msa_mask = batch["msa_mask"].cpu()
 		for epoch in range( self.topology.train.max_epochs ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
@@ -224,6 +230,17 @@ class FitToData():
 
 			print( "\n\033[1mRecycling optimized pose...\033[0m" )
 			with torch.no_grad():
+				if self.topology.model.subsampling.enabled:
+					print( "Using MSA subsampling..." )
+					batch["msa_feat"], batch["msa_mask"] = self.msa_subsampling(
+						msa = msa,
+						msa_feat = msa_feat,
+						 msa_mask = msa_mask )
+					print( f"Full msa_feat = {orig_msa_feat_shape}" +
+		   				f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
+				else:
+					print( "MSA subsampling switched off..." )
+
 				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
@@ -248,7 +265,9 @@ class FitToData():
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
 				out = out, last_epoch = last_epoch  )
-			self.update_metric_dict( metrics_dict, update_pose_metrics = False )
+			self.update_metric_dict(
+				out = out,
+				metrics_dict = metrics_dict, update_pose_metrics = False )
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
@@ -322,7 +341,9 @@ class FitToData():
 					last_epoch = False
 				metrics_dict = self.metrics_fn.forward(
 					out = out, last_epoch = last_epoch )
-				self.update_metric_dict( metrics_dict, update_pose_metrics = True )
+				self.update_metric_dict(
+					out = out,
+					metrics_dict = metrics_dict, update_pose_metrics = True )
 
 				# smo.add_model( prot = u, model_id = sub_epoch )
 				optimizer.zero_grad()
@@ -334,6 +355,24 @@ class FitToData():
 
 		#smo.save( smo.system, "./dummy" )
 		return out
+
+
+	def msa_subsampling( self,
+			msa: torch.Tensor,
+			msa_feat: torch.Tensor,
+			msa_mask: torch.Tensor ):
+		"""
+		Subsample the MSA and update the msa_feat.
+		"""
+		subsampled_idx = msa_subsampler(
+			msa = msa,
+			subsample_type = self.topology.model.subsampling.type,
+			params = self.topology.model.subsampling.params )
+
+		print( subsampled_idx )
+		msa_feat_ = msa_feat[:,subsampled_idx,:].to( self.device )
+		msa_mask_ = msa_mask[:,subsampled_idx,:].to( self.device )
+		return msa_feat_, msa_mask_
 
 
 	def update_loss_dict( self, losses: Dict[str, torch.Tensor], update_pose_metrics: bool ):
@@ -363,7 +402,8 @@ class FitToData():
 		print( f"Losses: {str_}" )
 
 
-	def update_metric_dict( self, metrics_dict: Dict[str, float], update_pose_metrics: bool ):
+	def update_metric_dict( self, out: Dict[str, torch.Tensor],
+		metrics_dict: Dict[str, float], update_pose_metrics: bool ):
 		"""
 		Save per epoch metric values for all individual merics in stats_dict.
 		"""
@@ -380,6 +420,7 @@ class FitToData():
 		else:
 			if "metrics" not in self.stats_dict:
 				self.stats_dict["metrics"] = {k: [] for k in metrics_dict.keys()}
+				self.stats_dict["metrics"].update( {k: [] for k in ["plddt", "pae", "ptm", "iptm"]} )
 
 			str_ = ""		
 			for k, v in metrics_dict.items():
@@ -387,7 +428,20 @@ class FitToData():
 				str_ += f"{k}: {v} \t"
 
 				self.stats_dict["metrics"][k].append( v )
-
+			
+			for k1, k2 in zip(
+				["plddt", "pae", "ptm", "iptm"],
+				["plddt", "predicted_aligned_error", "ptm_score", "iptm_score"] ):
+				v = out[k2]
+				if k1 in ["ptm", "iptm"]:
+					self.stats_dict["metrics"][k1].append( v.item() )
+					str_ += f"{k1}: {v} \t"
+				else:
+					self.stats_dict["metrics"][k1].append( v  )
+			# self.stats_dict["metrics"]["plddt"].append( out["plddt"] )
+			# self.stats_dict["metrics"]["pae"].append( out["predicted_aligned_error"] )
+			# self.stats_dict["metrics"]["ptm"].append( out["ptm_score"] )
+			# self.stats_dict["metrics"]["iptm"].append( out["iptm_score"] )
 
 		print( f"Metrics: {str_}" )
 

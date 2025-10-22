@@ -22,7 +22,7 @@ from system_representation2 import SystemRepresentation
 from fit_to_data2 import FitToData
 from analysis.assay import Assay
 from utils.create_plots import ( create_plot_from_dict,
-								plot_scalar_metrics,
+								plot_per_epoch_xl_satisfcation,
 								plot_xl_map )
 from utils.utils import ( read_json, write_configdict_to_json,
 							open_file_handler, run_subprocess )
@@ -445,7 +445,7 @@ class IntegrativeLearning():
 		Create plots for all metrics.
 		"""
 		create_plot_from_dict( loss_dict, loss_plot_file )
-		plot_scalar_metrics( metrics_dict, metrics_plot_file )
+		plot_per_epoch_xl_satisfcation( metrics_dict, metrics_plot_file )
 
 
 	def write_summary( self,
@@ -467,7 +467,10 @@ class IntegrativeLearning():
 		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1",
 								"avg_last_0.1"]
 		num_per_epoch_labels = len( df_dict["labels"] )
-		df_dict["labels"].extend( [f"{k}_global_satisfaction" for k in metrics_dict.keys()] )
+		df_dict["labels"].extend( [
+			f"{k}_global_satisfaction" for k in metrics_dict.keys()
+			if k not in ["plddt", "pae", "ptm", "iptm"]
+			] )
 		num_global_labels = len( df_dict["labels"] ) - num_per_epoch_labels
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
@@ -484,16 +487,23 @@ class IntegrativeLearning():
 							)
 			df_dict[k].extend( "" for i in range( num_global_labels ) )
 
-		df_dict.update( {f"{k}_metric":[] for k in metrics_dict.keys()} )
+		df_dict.update( {
+			f"{k}_metric":[] for k in metrics_dict.keys()
+			if k not in ["plddt", "pae", "ptm", "iptm"]
+			} )
 		for k, v in metrics_dict.items():
-			print( f"Global {k} satisfaction = ", metadata[k]["global_satisfaction"] )
+			if k in ["plddt", "pae", "ptm", "iptm"]:
+				continue
+
+			global_sat = round( metadata[k]["global_satisfaction"], self.prec )
+			print( f"Global {k} satisfaction = ", global_sat )
 			df_dict[f"{k}_metric"].extend(
 							[v[0],
 							v[-1],
 							np.mean( v ),
 							np.mean( v[:first_n] ),
 							np.mean( v[last_n:] ),
-							round( metadata[k]["global_satisfaction"], self.prec )
+							global_sat
 							] )
 
 		df = pd.DataFrame( df_dict )
