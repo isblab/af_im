@@ -223,12 +223,14 @@ class SelectGoodModels():
 				continue
 			data = data_dict[name]
 			q = np.quantile( data, quantiles[name] )
-			# If q == 1.0, select data_sat == 0.
-			if q == 1.0:
-				data_sat.append( data == q )
-			else:
-				# data_satisfaction greater than the quantile.
-				data_sat.append( data > q )
+			# # If q == 1.0, select data_sat == 0.
+			# if q == 1.0:
+			# 	data_sat.append( data == q )
+			# elif q == 0.0:
+			# 	data_sat.append( data >= q )
+			# else:
+			# data_satisfaction >= the quantile.
+			data_sat.append( data > q )
 
 		data_sat = np.column_stack( data_sat )
 		# Selecting models that satisfy all data types.
