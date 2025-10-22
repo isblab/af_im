@@ -188,6 +188,12 @@ class SystemRepresentation():
 		self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "detach" )
 		self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "detach" )
 
+		# Select the features for the current recycling cycle
+		cycle_no = 0
+		fetch_cur_batch = lambda t: t[..., cycle_no]
+		# self.feature_dict = tensor_tree_map(fetch_cur_batch, self.feature_dict)
+		self.processed_feature_dict = tensor_tree_map(fetch_cur_batch, self.processed_feature_dict)
+
 		# Add masks for excluded volume and sequence connectivity.
 		intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
 		connectivity_mask = self.get_sequence_connectivity_feats()
@@ -319,10 +325,20 @@ class SystemRepresentation():
 			feature_dict, mode = "predict", is_multimer = self.is_multimer
 		)
 
-		processed_feature_dict = {
-			k: torch.as_tensor( v, device = self.device )
-			for k, v in processed_feature_dict.items()
-		}
+		# processed_feature_dict = {
+		# 	k: torch.as_tensor( v, device = self.device )
+		# 	for k, v in processed_feature_dict.items()
+		# }
+		processed_feature_dict = parse_nested_dict(
+			processed_feature_dict,
+			"add_to_device",
+			self.device )
+
+		# Toss out the recycling dimensions --- we don't need them anymore
+		# processed_feature_dict = tensor_tree_map(
+		# 	lambda x: np.array( x[..., -1].cpu() ),
+		# 	processed_feature_dict )
+		# out = tensor_tree_map( lambda x: np.array( x.cpu() ), out )
 
 		return feature_dict, processed_feature_dict, tag
 
