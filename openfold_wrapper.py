@@ -135,6 +135,7 @@ class IntegrativeLearning():
 			processed_feature_dict = processed_feature_dict,
 			init_pred_dict = init_pred_dict )
 
+
 		print( "\n" + "-"*70 + "\n" +"-"*26 +
 			" \033[1m\033[9m Analysis \033[0m Assay\033[0m " +
 			"-"*26 + "\n" + "-"*70 + "\n" )
@@ -247,6 +248,7 @@ class IntegrativeLearning():
 		self.save_sampling_results( stats_dict = stats_dict, stats_full = True )
 		self.save_sampling_results( stats_dict = stats_dict_pose, stats_full = False )
 
+
 		return fit
 
 
@@ -273,6 +275,12 @@ class IntegrativeLearning():
 								metrics_plot_file = metrics_plot_file )
 		else:
 			print( f"Loss dict is empty. Skipping creating plots..." )
+
+		if stats_full:
+			self.write_summary(
+				loss_dict = loss_dict,
+				metrics_dict = metrics_dict,
+				metadata = metadata )
 
 
 	def run_analysis( self ):
