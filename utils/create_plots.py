@@ -32,6 +32,7 @@ def create_plot_from_dict( data_dict: Dict, file_name: str ):
 		r = r+1 if c == 1 else r
 		c = 0 if c == 1 else 1
 
+	plt.tight_layout()
 	plt.savefig( file_name, dpi = 300 )
 	plt.close()
 
@@ -60,6 +61,7 @@ def plot_scalar_metrics( metric_dict: Dict, file_name: str ):
 		r = r+1 if c == 1 else r
 		c = 0 if c == 1 else 1
 
+	plt.tight_layout()
 	plt.savefig( file_name, dpi = 300 )
 	plt.close()
 
