@@ -26,14 +26,14 @@ class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
 		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment
 		# Define the modeling objective.
-		self.modeling_objective = "Testing new pose sampling + recycling pipeline."
+		self.modeling_objective = "Testing pose sampling + recycling. No MSA subsampling."
 		self.modeling_version = 0
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
 		# Maximum no. of epochs for fine-tuning.
-		self.max_epochs = 100
+		self.max_epochs = 50
 		# Max epochs for pose sampling.
 		self.max_pose_iters = 20
 		self.skip_pose_sampling = False
@@ -48,7 +48,7 @@ class BenchmarkModeling():
 		# If True, skip re-running modeling if output files already exist.
 		self.skip_rerun = True
 		# Enable analysis.
-		self.enable_analysis = False
+		self.enable_analysis = True
 		# If True run AMBER relaxation and MolProbity validation.
 		self.enable_relax_validate = True
 		# If True, will not show prompt for existing modeling dir.
@@ -63,6 +63,16 @@ class BenchmarkModeling():
 		# Modify settings for losses to be used.
 		self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0}
 		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
+		# Configs for MSA subsampling.
+		self.subsampling = {
+			"enabled": False,
+			"type": "sequential",  # random/sequential
+			"params": {
+			"neff": 5,
+			"eff_cutoff": 0.8,
+			"cap_msa": True
+			}
+		}
 
 		self.topo_dict = topo_dict
 
@@ -181,6 +191,9 @@ class BenchmarkModeling():
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
 			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
+
+			# MSA subsampling configs.
+			topo_dict.model.subsampling = self.subsampling
 
 			# Violation loss settings.
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
@@ -553,7 +566,7 @@ class BenchmarkModeling():
 	################################################################################
 	def plot_modeling_results( self ):
 		"""
-		For violation loss, ccom loss, and XL satisfaction,
+		For violation loss, and XL satisfaction,
 			Plot distribution of per epoch values for each system.
 			Plot distribution of avg values across systems.
 		"""
@@ -586,13 +599,12 @@ class BenchmarkModeling():
 		"""
 		Obtain the following for plotting per-epoch distribution plots:
 			1. sys_name for all complexes.
-			2. per-epoch violations ccom, xl satisfaction.
+			2. per-epoch violations, xl satisfaction.
 		"""
 		xl_satisfaction_list = []
 		global_satisfaction_list = []
 		epoch0_xl_satisfaction_list = []
 		violations_list = []
-		ccom_list = []
 		complexes_list = []
 		for sys_name in self.benchmark["PDB ID"]:
 			data_dict = self.get_dict_for_source(
@@ -621,7 +633,6 @@ class BenchmarkModeling():
 				xl_satisfaction_list.append( data_dict["per_model_xl_sat"] )
 				global_satisfaction_list.append( data_dict["global_data_satisfaction"] )
 				violations_list.append( data_dict["per_model_viol"] )
-				#ccom_list.append( data_dict["per_model_ccom"] )
 
 		return ( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
 				global_satisfaction_list, violations_list )
@@ -677,7 +688,7 @@ class BenchmarkModeling():
 			_, ax = plt.subplots( 2, 1, figsize = ( 30, 20 ) )
 
 			( complexes_list, xl_satisfaction_list, epoch0_xl_satisfaction_list,
-					global_satisfaction_list, violations_list, ccom_list ) = out
+					global_satisfaction_list, violations_list ) = out
 
 			self.create_violin( data = xl_satisfaction_list, ax = ax, r = 0,
 								color = "tab:blue", ylabel = "Per model XL satisfaction" )
@@ -685,6 +696,9 @@ class BenchmarkModeling():
 								color = "tab:blue", ylabel = "Per model Violations" )
 
 			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
+
+			ax[0].set_ylim( -0.1, 1.1 )
+			ax[1].set_ylim( -0.1 )
 			ax[0].set_xticks( complex_idx, complexes_list )
 			ax[1].set_xticks( complex_idx, complexes_list )
 			# Plot global XL satisfaction as a triangle.
@@ -696,9 +710,9 @@ class BenchmarkModeling():
 							c = "red",
 							alpha = 1, linewidth = 2 )
 
-			# i += 1
 
 			path = os.path.join( self.benchmark_modeling_dir, f"{name}_per_model_metrics.png" )
+			plt.tight_layout()
 			plt.savefig( path, dpi = 300 )
 			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
 		plt.close()
@@ -732,8 +746,11 @@ class BenchmarkModeling():
 
 		ax.set_xlabel( "Complexs", fontsize = 20 )
 		ax.set_ylabel( "Fraction of FP XLs satisfied", fontsize = 20 )
+		ax.set_ylim( -0.1, 1.1 )
 		ax.set_xticks( complex_idx, complexes )
 		ax.tick_params( axis = "both" , labelsize = 10, length = 10, width = 3 )
+
+		plt.tight_layout()
 		plt.savefig( self.fp_satisfaction_plot_file, dpi = 300 )
 		plt.close()
 
@@ -762,6 +779,9 @@ class BenchmarkModeling():
 		ax.scatter( complex_idx, init_dockq,
 					color = "red", marker = "s", s = 70,
 					alpha = 1, linewidth = 2  )
+		ax.set_ylim( 0 )
+		
+		plt.tight_layout()
 		plt.savefig( self.dockq_plot_file, dpi = 300 )
 		plt.close()
 
@@ -794,20 +814,24 @@ class BenchmarkModeling():
 		complex_idx = np.arange( 1, len( complexes ) + 1 )
 
 		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 1, 1, figsize = ( 30, 20 ) )
+		_, ax = plt.subplots( 1, 1, figsize = ( 20, 10 ) )
 
 		ax.scatter( resolution, molprobity_score,
-					marker = "s", s = 70,
+					marker = "s", s = 40.0,
 					alpha = 1, linewidth = 2  )
 		ax.plot( resolution, reference_y,
 					alpha = 1, linewidth = 2  )
-		ax.set_xlabel( "Resolution of experimental structure", fontsize = 25 )
-		ax.set_ylabel( "Molprobity score", fontsize = 25 )
+		ax.set_xlabel( "Resolution of experimental structure", fontsize = 16 )
+		ax.set_ylabel( "Molprobity score", fontsize = 16 )
+		ax.tick_params( axis = "both" , labelsize = 16, length = 8, width = 3 )
+		ax.set_xlim( 0 )
+		ax.set_ylim( 0 )
 		# self.create_violin( data = molprobity_score, ax = ax, r = None,
 		# 					color = "tab:blue", ylabel = "MolProbity score" )
 		# ax.scatter( complex_idx, resolution,
 		# 			color = "red", marker = "s", s = 70,
 		# 			alpha = 1, linewidth = 2  )
+		plt.tight_layout()
 		plt.savefig( self.molprob_plot_file, dpi = 300 )
 		plt.close()
 
@@ -858,8 +882,8 @@ class BenchmarkModeling():
 				flat_dict[sys_name].append( 0 )
 
 		df = pd.DataFrame( flat_dict )
-		median = df.iloc[:, 1:].median( axis = 1 )
-		df.insert( 1, "median", median )
+		# median = df.iloc[:, 1:].median( axis = 1 )
+		# df.insert( 1, "median", median )
 		df.to_csv( self.results_file, index = False )
 
 
