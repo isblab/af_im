@@ -265,9 +265,10 @@ class FitToData():
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
 				out = out, last_epoch = last_epoch  )
-			self.update_metric_dict(
-				out = out,
+			self.update_data_metric_dict(
 				metrics_dict = metrics_dict, update_pose_metrics = False )
+			self.update_confidence_metrics(
+				out = out )
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
@@ -309,17 +310,6 @@ class FitToData():
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
 
-		# smo = SaveModels( title = self.sys_name, 
-		#							output_format = "pdb",
-		#							ensemble_dir = "",
-		#							 save_single_model = False )
-
-		# Initialize the System object.
-		# smo.initialize_system()
-
-		#u = self.get_protein_object( self.init_pred_dict )
-		#smo.add_model( prot = u, model_id = 100 )
-
 		for sub_epoch in range( self.topology.train.max_pose_iters ):
 			print( f"\nPose sampling epoch: {sub_epoch} --------------------------" )
 
@@ -327,8 +317,6 @@ class FitToData():
 			self.add_to_device( out )
 			with torch.autograd.detect_anomaly():
 				out = model.predict( out = out )
-
-				#u = self.get_protein_object( out )
 
 				cum_loss, losses = self.loss_fn.forward( out,
 					self.processed_feature_dict,
@@ -341,11 +329,9 @@ class FitToData():
 					last_epoch = False
 				metrics_dict = self.metrics_fn.forward(
 					out = out, last_epoch = last_epoch )
-				self.update_metric_dict(
-					out = out,
+				self.update_data_metric_dict(
 					metrics_dict = metrics_dict, update_pose_metrics = True )
 
-				# smo.add_model( prot = u, model_id = sub_epoch )
 				optimizer.zero_grad()
 				cum_loss.backward()
 				#for name, param in model.named_parameters():
@@ -353,7 +339,6 @@ class FitToData():
 				#		print( f"{name} grad stats: min = {param.grad.min()}, max = {param.grad.max()}, nan = {torch.isnan( param.grad ).any()}" )
 				optimizer.step()
 
-		#smo.save( smo.system, "./dummy" )
 		return out
 
 
@@ -402,8 +387,9 @@ class FitToData():
 		print( f"Losses: {str_}" )
 
 
-	def update_metric_dict( self, out: Dict[str, torch.Tensor],
-		metrics_dict: Dict[str, float], update_pose_metrics: bool ):
+	def update_data_metric_dict( self,
+		metrics_dict: Dict[str, float],
+		update_pose_metrics: bool ):
 		"""
 		Save per epoch metric values for all individual merics in stats_dict.
 		"""
@@ -420,30 +406,36 @@ class FitToData():
 		else:
 			if "metrics" not in self.stats_dict:
 				self.stats_dict["metrics"] = {k: [] for k in metrics_dict.keys()}
-				self.stats_dict["metrics"].update( {k: [] for k in ["plddt", "pae", "ptm", "iptm"]} )
 
-			str_ = ""		
+			str_ = ""
 			for k, v in metrics_dict.items():
 				v = round( v.item(), self.prec )
 				str_ += f"{k}: {v} \t"
 
 				self.stats_dict["metrics"][k].append( v )
-			
-			for k1, k2 in zip(
-				["plddt", "pae", "ptm", "iptm"],
-				["plddt", "predicted_aligned_error", "ptm_score", "iptm_score"] ):
-				v = out[k2]
-				if k1 in ["ptm", "iptm"]:
-					self.stats_dict["metrics"][k1].append( v.item() )
-					str_ += f"{k1}: {v} \t"
-				else:
-					self.stats_dict["metrics"][k1].append( v  )
-			# self.stats_dict["metrics"]["plddt"].append( out["plddt"] )
-			# self.stats_dict["metrics"]["pae"].append( out["predicted_aligned_error"] )
-			# self.stats_dict["metrics"]["ptm"].append( out["ptm_score"] )
-			# self.stats_dict["metrics"]["iptm"].append( out["iptm_score"] )
 
 		print( f"Metrics: {str_}" )
+
+
+	def update_confidence_metrics( self, out: torch.Tensor ):
+		"""
+		Save the per epoch confidence metrics in the stats_dict.
+		"""
+		if "confidence" not in self.stats_dict:
+			self.stats_dict["confidence"].update( 
+				{k: [] for k in ["plddt", "pae", "ptm", "iptm"]} )
+
+		str_ = ""
+		for k1, k2 in zip(
+			["plddt", "pae", "ptm", "iptm"],
+			["plddt", "predicted_aligned_error", "ptm_score", "iptm_score"] ):
+			v = out[k2]
+			if k1 in ["ptm", "iptm"]:
+				self.stats_dict["confidence"][k1].append( v.item() )
+				str_ += f"{k1}: {v} \t"
+			else:
+				self.stats_dict["confidence"][k1].append( v  )
+		print( f"Confidence: {str_}" )
 
 
 	def get_protein_object( self, outputs: Dict[str, torch.Tensor]

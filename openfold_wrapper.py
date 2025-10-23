@@ -469,7 +469,6 @@ class IntegrativeLearning():
 		num_per_epoch_labels = len( df_dict["labels"] )
 		df_dict["labels"].extend( [
 			f"{k}_global_satisfaction" for k in metrics_dict.keys()
-			if k not in ["plddt", "pae", "ptm", "iptm"]
 			] )
 		num_global_labels = len( df_dict["labels"] ) - num_per_epoch_labels
 
@@ -489,12 +488,8 @@ class IntegrativeLearning():
 
 		df_dict.update( {
 			f"{k}_metric":[] for k in metrics_dict.keys()
-			if k not in ["plddt", "pae", "ptm", "iptm"]
 			} )
 		for k, v in metrics_dict.items():
-			if k in ["plddt", "pae", "ptm", "iptm"]:
-				continue
-
 			global_sat = round( metadata[k]["global_satisfaction"], self.prec )
 			print( f"Global {k} satisfaction = ", global_sat )
 			df_dict[f"{k}_metric"].extend(
