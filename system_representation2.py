@@ -1,50 +1,6 @@
 """
 Craete input features for running OpenFold.
 Obtain initial prediction.
-
-We extract the following features using the OpenFold pipeline:
-aatype
-between_segment_residues
-residue_index
-seq_length
-all_atom_positions
-all_atom_mask
-resolution
-is_distillation
-asym_id
-sym_id
-entity_id
-seq_mask
-gt_features
-	all_atom_positions: --> [480, 37, 3]
-	all_atom_mask: --> [480, 37]
-	asym_id: -->  [480]
-	sym_id: --> [480]
-	entity_id: --> 480]
-	aatype: --> [480]
-	atom14_atom_exists: --> [480, 14]
-	residx_atom14_to_atom37: --> [480, 14]
-	residx_atom37_to_atom14: --> [480, 37]
-	atom37_atom_exists: --> [480, 37]
-	atom14_gt_exists: --> [480, 14]
-	atom14_gt_positions: --> [480, 14, 3]
-	atom14_alt_gt_positions  --> [480, 14, 3]
-	atom14_alt_gt_exists: --> [480, 14]
-	atom14_atom_is_ambiguous: --> [480, 14]
-	rigidgroups_gt_frames: --> [480, 8, 4, 4]
-	rigidgroups_gt_exists: --> [480, 8]
-	rigidgroups_group_exists: --> [480, 8]
-	rigidgroups_group_is_ambiguous: --> [480, 8]
-	rigidgroups_alt_gt_frames: --> [480, 8, 4, 4]
-	torsion_angles_sin_cos: --> [480, 7, 2]
-	alt_torsion_angles_sin_cos: --> [480, 7, 2]
-	torsion_angles_mask: --> [480, 7]
-	pseudo_beta: --> [480, 3])
-	pseudo_beta_mask: --> [480]
-	backbone_rigid_tensor: --> [480, 4, 4]
-	backbone_rigid_mask: --> [480]
-	chi_angles_sin_cos: --> [480, 4, 2]
-	chi_mask: --> [480, 4]
 """
 from typing import Tuple, Dict, Any
 import os, glob, pickle as pkl
@@ -59,6 +15,7 @@ from openfold.np import protein
 from openfold.utils.script_utils import (load_models_from_command_line, parse_fasta, run_model,
                                          prep_output, relax_protein)
 from openfold.utils.tensor_utils import tensor_tree_map
+from mod_openfold import parse, process_mmcif, np_example_to_features
 
 from utils.utils import open_file_handler, parse_nested_dict
 from utils.pdb_utils import prep_output
@@ -79,7 +36,6 @@ class SystemRepresentation():
 			device: str = "cpu"
 		):
 		self.sys_name = sys_name
-		# For now, stick to multimers.
 		self.is_multimer = sys_rep_config.is_multimer
 		self.openfold_dir = sys_rep_config.ofold_dir  # deprecated
 		self.script = sys_rep_config.ofold_script  # deprecated
@@ -120,21 +76,18 @@ class SystemRepresentation():
 
 	def forward( self ):
 		"""
+		Obtain the required features for an input required by OpenFold.
+		We use the initial predicted structure as a pseudo ground truth structure.
 		"""
+		# Initialize the dict containing the file paths.
 		self.file_paths = self.create_required_paths()
 
 		self.init_ofold_config()
 		self.init_feature_processor()
 		print( "Initialized the feature processor..." )
 
-		if self.skip_relaxation:
-			init_model_path = os.path.join(
-				self.ofold_output_dir,
-				"predictions/" + self.file_paths["pred_file_prefix"] + "_unrelaxed.cif" )
-		else:
-			init_model_path = os.path.join(
-				self.ofold_output_dir,
-				"predictions/" + self.file_paths["pred_file_prefix"] + "_relaxed.cif" )
+		# Get path for the initial prediction.
+		init_model_path = self.get_init_model_path()
 
 		if not os.path.exists( init_model_path ):
 			# Get the input features (See AF2 supplementary).
@@ -188,22 +141,24 @@ class SystemRepresentation():
 		self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "detach" )
 		self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "detach" )
 
-		# Select the features for the current recycling cycle
+		# Remove all recycling dim.
 		cycle_no = 0
 		fetch_cur_batch = lambda t: t[..., cycle_no]
-		# self.feature_dict = tensor_tree_map(fetch_cur_batch, self.feature_dict)
-		self.processed_feature_dict = tensor_tree_map(fetch_cur_batch, self.processed_feature_dict)
+		self.processed_feature_dict = tensor_tree_map( fetch_cur_batch, self.processed_feature_dict )
 
 		# Add masks for excluded volume and sequence connectivity.
 		intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
 		connectivity_mask = self.get_sequence_connectivity_feats()
 
-		self.processed_feature_dict["intra_ev_mask"] = intra_ev_mask
-		self.processed_feature_dict["inter_ev_mask"] = inter_ev_mask
-		self.processed_feature_dict["connectivity_mask"] = connectivity_mask
+		# Get the gt_features
+		self.gt_feature_dict = self.get_feature_from_init_struct()
+		self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
+		self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
+		self.gt_feature_dict["connectivity_mask"] = connectivity_mask
 
 
-
+	################################################################################
+	################################################################################
 	def create_required_paths( self ):
 		"""
 		Create the required files, dir paths.
@@ -233,12 +188,31 @@ class SystemRepresentation():
 			use_deepspeed_evoformer_attention = self.use_deepspeed_evoformer_attention,
 			)
 
+	def get_init_model_path( self ):
+		"""
+		Get the path for the initial model prediction.
+		"""
+		if self.skip_relaxation:
+			init_model_path = os.path.join(
+				self.ofold_output_dir,
+				"predictions/" + self.file_paths["pred_file_prefix"] + "_unrelaxed.cif" )
+		else:
+			init_model_path = os.path.join(
+				self.ofold_output_dir,
+				"predictions/" + self.file_paths["pred_file_prefix"] + "_relaxed.cif" )
+		return init_model_path
 
+
+	################################################################################
+	################################################################################
 	def generate_feature_dict(
 			self,
 			tags,
 			seqs,
 			data_processor ):
+		"""
+		Taken from run_pretrained_openfold.py.
+		"""
 		tmp_fasta_path = os.path.join( self.ofold_output_dir, f"tmp_{os.getpid()}.fasta" )
 
 		with open(tmp_fasta_path, "w") as fp:
@@ -259,6 +233,23 @@ class SystemRepresentation():
 		"""
 		Create input features for running AF2.
 		Taken from run_pretrained_openfold.py -> main().
+		feature_dict
+			aatype, residue_index, seq_length, msa, num_alignments,
+			template_aatype, template_all_atom_mask, template_all_atom_positions,
+			asym_id, sym_id, entity_id,
+			deletion_matrix, deletion_mean,
+			all_atom_mask, all_atom_positions,
+			assembly_num_chains, entity_mask, num_templates,
+			cluster_bias_mask, bert_mask, seq_mask, msa_mas
+		processed_feature_dict
+			aatype, residue_index, seq_length, msa, num_alignments,
+			template_aatype, template_all_atom_mask, template_all_atom_positions,
+			asym_id, sym_id, entity_id,
+			deletion_matrix, seq_mask, msa_mask, msa_profile, target_feat,
+			atom14_atom_exists, residx_atom14_to_atom37, residx_atom37_to_atom14, atom37_atom_exists,
+			extra_msa, extra_deletion_matrix, extra_msa_mask, bert_mask, true_msa,
+			cluster_profile, cluster_deletion_mean, msa_feat, use_clamped_fape
+		The shapes of all features can be found in openfold config.py.
 		"""
 		template_featurizer = templates.HmmsearchHitFeaturizer(
 			mmcif_dir = self.databases_n_tools.template_mmcif_dir,
@@ -325,24 +316,16 @@ class SystemRepresentation():
 			feature_dict, mode = "predict", is_multimer = self.is_multimer
 		)
 
-		# processed_feature_dict = {
-		# 	k: torch.as_tensor( v, device = self.device )
-		# 	for k, v in processed_feature_dict.items()
-		# }
 		processed_feature_dict = parse_nested_dict(
 			processed_feature_dict,
 			"add_to_device",
 			self.device )
 
-		# Toss out the recycling dimensions --- we don't need them anymore
-		# processed_feature_dict = tensor_tree_map(
-		# 	lambda x: np.array( x[..., -1].cpu() ),
-		# 	processed_feature_dict )
-		# out = tensor_tree_map( lambda x: np.array( x.cpu() ), out )
-
 		return feature_dict, processed_feature_dict, tag
 
 
+	################################################################################
+	################################################################################
 	def get_init_pred(
 			self,
 			processed_feature_dict: Dict[str, Any],
@@ -351,6 +334,15 @@ class SystemRepresentation():
 		"""
 		Obtain the initial predicted structure.
 		Taken from run_pretrained_openfold.py -> main().
+
+		output_dict
+			msa, pair, single, sm, final_atom_positions, final_atom_mask,
+			final_affine_tensor, num_recycles, asym_id,
+			lddt_logits, plddt, distogram_logits, masked_msa_logits,
+			experimentally_resolved_logits,
+			tm_logits, ptm_score, iptm_score,
+			weighted_ptm_score, aligned_confidence_probs,
+			predicted_aligned_error, max_predicted_aligned_error
 		"""
 		model_generator = load_models_from_command_line(
 			self.ofold_config,
@@ -396,6 +388,8 @@ class SystemRepresentation():
 		return unrelaxed_protein
 
 
+	################################################################################
+	################################################################################
 	def save_init_pred(
 			self,
 			out: Dict[str, Any],
@@ -442,6 +436,69 @@ class SystemRepresentation():
 				cif_output = True )
 
 
+	################################################################################
+	################################################################################
+	def get_feature_from_init_struct( self ) -> Dict[str, Any]:
+		"""
+		Using the initial predicted structure as the pseudo ground truth structure
+			to obtain structural features (gt_features) as mentioned below:
+				all_atom_positions: --> [N, 37, 3]
+				all_atom_mask: --> [N, 37]
+				asym_id: -->  [N]
+				sym_id: --> [N]
+				entity_id: --> [N]
+				aatype: --> [N]
+				atom14_atom_exists: --> [N, 14]
+				residx_atom14_to_atom37: --> [N, 14]
+				residx_atom37_to_atom14: --> [N, 37]
+				atom37_atom_exists: --> [N, 37]
+				atom14_gt_exists: --> [N, 14]
+				atom14_gt_positions: --> [N, 14, 3]
+				atom14_alt_gt_positions  --> [N, 14, 3]
+				atom14_alt_gt_exists: --> [N, 14]
+				atom14_atom_is_ambiguous: --> [N, 14]
+				rigidgroups_gt_frames: --> [N, 8, 4, 4]
+				rigidgroups_gt_exists: --> [N, 8]
+				rigidgroups_group_exists: --> [N, 8]
+				rigidgroups_group_is_ambiguous: --> [N, 8]
+				rigidgroups_alt_gt_frames: --> [N, 8, 4, 4]
+				torsion_angles_sin_cos: --> [N, 7, 2]
+				alt_torsion_angles_sin_cos: --> [N, 7, 2]
+				torsion_angles_mask: --> [N, 7]
+				pseudo_beta: --> [N, 3])
+				pseudo_beta_mask: --> [N]
+				backbone_rigid_tensor: --> [N, 4, 4]
+				backbone_rigid_mask: --> [N]
+				chi_angles_sin_cos: --> [N, 4, 2]
+				chi_mask: --> [N, 4]
+		Parse the .cif file to get an mmcif_object.
+		This mmcif_object is not the same as Biopython structure object.
+		"""
+		init_model_path = self.get_init_model_path()
+		with open( init_model_path, "r" ) as f:
+			mmcif_string = f.read()
+
+		mmcif_object = parse( 
+			file_id = self.sys_name, mmcif_string = mmcif_string
+		).mmcif_object
+
+		# Extract relevant relevant features from the mmcif_object.
+		np_example = process_mmcif( mmcif_object )
+
+		# Obtain the ground truth features.
+		data = np_example_to_features(
+				np_example = np_example,
+				config = self.ofold_config["data"],
+				mode = "train",
+				is_multimer = self.is_multimer )
+
+		gt_feats = data["gt_features"]
+		gt_feats["residue_index"] = data["residue_index"]
+		return gt_feats
+
+
+	################################################################################
+	################################################################################
 	def get_excluded_volume_feats( self ):
 		"""
 		Create masks to account for:
@@ -490,6 +547,8 @@ class SystemRepresentation():
 		return connectivity_mask
 
 
+	################################################################################
+	################################################################################
 	def get_distance_map( self, final_atom_position: torch.Tensor ) -> torch.Tensor:
 		"""
 		Given the final_atom_position, create a Ca-ca distance map,
