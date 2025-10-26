@@ -16,6 +16,8 @@ from scipy.spatial.distance import pdist, squareform
 
 import torch
 
+from openfold.data.data_transforms_multimer import create_msa_feat
+
 
 def msa_subsampler( msa: torch.Tensor,
 		subsample_type: str,
@@ -96,3 +98,59 @@ def subsample_sequentially(
                 break
 
     return torch.tensor( subsampled_idx )
+
+
+def msa_column_masking(
+	batch: Dict[str, torch.Tensor],
+	params: Dict[str, Any] ):
+	"""
+	Implement MSA column masking.
+	Replace a specified fraction of residues with the unknown token (21).
+	Adapted from AlphaLink2.
+	msa -> [1, S, N]
+	deletion_matrix -> [1, S, N]
+	"""
+	N = batch["msa"].shape[-1]
+	mask_frac = params["mask_frac"]
+
+	num_mask = int( N*mask_frac )
+
+	idx = np.arange( 0, N, 1 )
+	mask_idx = torch.randperm( len( idx ) )[:num_mask]
+
+	batch["msa"][:, 1:, mask_idx] = 21
+	batch["deletion_matrix"][:, 1:, mask_idx] = 0
+
+	batch = create_msa_feat( batch = batch )
+	return batch, mask_idx
+
+
+def mask_msa_for_xl_res(
+	batch: Dict[str, torch.Tensor],
+	xl_res_dict: Dict
+	) -> Dict[str, torch.Tensor]:
+	"""
+	Mask cross-linked residues in MSA features.
+	Adapter from AlphaLink2.
+	msa -> [1, S, N]
+	deletion_matrix -> [1, S, N]
+	"""
+	res_mask = []
+	for xl_pair in xl_res_dict:
+		res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] )
+		res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] )
+
+		res_mask.extend( [res_idx1, res_idx2] )
+
+	res_mask = torch.tensor( res_mask )
+
+	# Replacee cross-linked residue with the unknown token.
+	batch["msa"][:, 1:, res_mask] = 21
+	batch["deletion_matrix"][:, 1:, res_mask] = 0
+	# batch['msa'][1:,j] = 21
+	# batch["deletion_matrix"][:, 1:, j, :] = 0
+
+	batch.pop( "msa_feat" )
+	batch = create_msa_feat( batch = batch )
+
+	return batch

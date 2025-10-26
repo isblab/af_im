@@ -23,7 +23,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "8wtd: testing new pose sampling + recycling model. " +
+	"objective": "7xvo: testing MSA subsampling with new pipeline. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -91,137 +91,57 @@ config = mlc.ConfigDict(
 		}
 	},
 	"model": {
-		# structure_module_finetuning, pair_perturbation, single_perturbation
 		"name": "pose_recycling",
 		"long_sequence_inference": long_sequence_inference,
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"rigid_type": "chains",
-		## train or eval.
-		#"mode": {
-		#	"sm": "eval",
-		#	"plddt": "eval",
-		#	"distogram": "eval"
-		#	},
-		#"update_params": {
-		#	# No. of structure module blocks.
-		#	"sm_no_blocks": 8,
-		#	},
-		## If true, freeze weights for StructureModule.
-		#"freeze_sm": False,
-		## Required for single_perturbation/pair_perturbation
-		#"adapter": {
-		#	# linear_perturb/sigmoid_gating/tanh_gating/lora/film
-		#	"name": "",
-		#	# use bias in Linear layer for adapter.
-		#	"bias": False,
-		#	# reduced feature dim size for lora adpater
-		#	"lora_k": 64,
-		#	# controls the magnitude of perturbation.
-		#	"alpha": 0.9,
-		#	# Only for pair_perturbation. Mask intra-chain contacts in pair_rep.
-		#	"inter_mask": True
-		#}
+		"subsampling": {
+			"enabled": True,
+			"type": "sequential",  # random/sequential
+			"params": {
+			# Randomly choses a neff value from the provided list.
+			"neff": [5, 10, 15, 20, 25],
+			"eff_cutoff": 0.8,
+			"cap_msa": True
+			}
+		},
+		"column_masking": {
+			"enabled": True,
+			"params": {
+			# Randomly choses a mask fraction from the provided list (Max 0.3).
+			"mask_frac": [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+			}
+		},
+		"msa_xl_res_mask": False
 	},
 	"loss": {
 		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
-		# FAPE, aupervised_chi, violation, chain_center_of_mass, distogram taken directly from OpenFold configs.
-		"fape": {
-			"enabled": False,
-			"add_penalty": False,
-			# For monomer.
-			"backbone": {
-				"clamp_distance": 10.0,
-				"loss_unit_distance": 10.0,
-				"weight": 0.5
-			},
-			# For multimer.
-			"intra_chain_backbone": {
-				"enabled": True,
-				"clamp_distance": 10.0,
-				"loss_unit_distance": 10.0,
-				"weight": 0.5
-			},
-			# For multimer.
-			"interface_backbone": {
-				"enabled": True,
-				"clamp_distance": 30.0,
-				"loss_unit_distance": 20.0,
-				"weight": 0.5
-			},
-			# For both monomer and multimer.
-			"sidechain": {
-					"clamp_distance": 10.0,
-					"length_scale": length_scale,
-					"weight": 0.5
-			},
-		"eps": 1e-4, # as in OpenFold
-		"weight": 1.0,
-		},
-		"supervised_chi": {
-			"enabled": False,
-			"add_penalty": False,
-			"chi_weight": 0.5,
-			"angle_norm_weight": 0.01,
-			"eps": eps,
-			"weight": 1.0,
-		},
-		#"violation": {
-		#	"enabled": False,
-		#	"add_penalty": False,
-		#	"violation_tolerance_factor": 12.0,
-		#	"clash_overlap_tolerance": 1.5,
-		#	"average_clashes": True,
-		#	"weight": 0.03,
-		#	"eps": eps
-		#},
-		"chain_center_of_mass": {
-			"enabled": False,
-			"add_penalty": False,
-			"clamp_distance": -4.0,
-			"weight": 0.05,
-			"eps": eps
-		},
-		"distogram": {
-			"enabled": False,
-			"add_penalty": False,
-			"min_bin": 2.3125,   # From OpenFold
-			"max_bin": 21.6875,   # From OpenFold
-			"no_bins": 64,
-			"weight": 0.3,
-			"eps": eps,  # 1e-6,
-		},
-		"rigid_chain": {
-			"enabled": False,
-			"add_penalty": False,
-			"length_scale": length_scale,
-			"weight": 0.03,
-			"eps": eps
-		},
-		# GaussianDistanceRestraint
-		"gdr": {
-			"enabled": False,
-			"add_penalty": False,
-			"length_scale": length_scale,
-			"weight": 1e-3,
-			"eps": eps
-		},
-		"violation":{
+		"violation": {
 			"enabled": True,
 			"add_penalty": True,
-			"ev": {
-				"intra_chain_dist": 2.0,
-				"inter_chain_dist": 4.0,
-				"weight": 1.0
-			},
-			"sc": {
-				"inter_res_dist": 4.0,
-				"tolerance_sigma": 0.5,
-				"weight": 1.0
-			},
+			"violation_tolerance_factor": 12.0,
+			"clash_overlap_tolerance": 1.5,
+			"average_clashes": True,
 			"weight": 1.0,
-			"length_scale": length_scale,
 			"eps": eps
 		},
+		# "violation":{
+		# 	"enabled": True,
+		# 	"add_penalty": True,
+		# 	"ev": {
+		# 		"intra_chain_dist": 1.5,
+		# 		"inter_chain_dist": 1.5,
+		# 		"weight": 1.0
+		# 	},
+		# 	"sc": {
+		# 		"inter_res_dist": 4.0,
+		# 		"tolerance_sigma": 0.5,
+		# 		"weight": 1.0
+		# 	},
+		# 	"weight": 1.0,
+		# 	"length_scale": length_scale,
+		# 	"eps": eps
+		# },
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
@@ -300,10 +220,10 @@ config = mlc.ConfigDict(
 	},
 	"train": {
 		# Version for the modeling run.
-		"version": 0,
+		"version": None,
 		"skip_pose_sampling": False,
-		"fill_none": True,  # If skipping pose sampling, replace final_atom_positions with None.
-		"max_epochs": 100, # max epochs for sampling.
+		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
+		"max_epochs": 50, # max epochs for sampling.
 		"max_pose_iters": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		#"allow_mcpa": True, # use multi-chain permutation align

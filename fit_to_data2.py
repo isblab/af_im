@@ -12,7 +12,9 @@ from openfold.np import protein
 
 from models.rigid_sampler import PoseSampling
 from models.recycler import Recycler
-from models.af_sampling import msa_subsampler
+from models.af_sampling import (
+	msa_subsampler, msa_column_masking,
+	mask_msa_for_xl_res )
 
 from loss import LossFunction
 from metrics import Metrics
@@ -27,10 +29,10 @@ class FitToData():
 					topology: mlc.ConfigDict,
 					mode: str,
 					jax_params_path: str,
-					feature_dict: Dict[str, Any],
-					processed_feature_dict: Dict[str, Any],
+					feature_dict: Dict[str, np.ndarray],
+					processed_feature_dict: Dict[str, torch.Tensor],
+					gt_feature_dict: Dict[str, torch.Tensor],
 					init_pred_dict: Dict[str, Any],
-					#ofold_output_dir: str,
 					modeling_output_dir: str,
 					prec: int,
 					seed_worker,
@@ -45,8 +47,8 @@ class FitToData():
 		self.jax_params_path = jax_params_path
 		self.feature_dict = feature_dict
 		self.processed_feature_dict = processed_feature_dict
+		self.gt_feature_dict = gt_feature_dict
 		self.init_pred_dict = init_pred_dict
-		#self.ofold_output_dir = ofold_output_dir
 		self.modeling_output_dir = modeling_output_dir
 
 		# Set the seeds.
@@ -74,6 +76,8 @@ class FitToData():
 		self.fit()
 
 
+	################################################################################
+	################################################################################
 	def create_required_paths( self ):
 		"""
 		Create the required file paths.
@@ -91,6 +95,8 @@ class FitToData():
 		os.makedirs( self.ensemble_dir, exist_ok = True )
 
 
+	################################################################################
+	################################################################################
 	def add_batch_dim( self ) -> None:
 		"""
 		Adds a singleton batch dimension to all tensors.
@@ -110,11 +116,15 @@ class FitToData():
 		
 		with torch.no_grad():
 			self.feature_dict = parse_nested_dict( self.feature_dict, "add_dim" )
-			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
-			self.feature_dict["residue_index"] = self.feature_dict["residue_index"] # .to( torch.int64 )
+			self.feature_dict["residue_index"] = self.feature_dict["residue_index"]
 
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, action = "to_tensor" )
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "add_dim" )
+
+			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, action = "to_tensor" )
+			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, "add_dim" )
+			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
+			self.gt_feature_dict["residue_index"] = self.gt_feature_dict["residue_index"].to( torch.int64 )
 
 			self.init_pred_dict = parse_nested_dict( self.init_pred_dict, action = "to_tensor" )
 			# self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "add_dim" )
@@ -123,6 +133,7 @@ class FitToData():
 				if k != "sm":
 					self.init_pred_dict[k] = self.init_pred_dict[k].unsqueeze( 0 )
 				else:
+					# For sm output, 0th dim is the recycling dim.
 					for m in self.init_pred_dict["sm"]:
 						self.init_pred_dict[k][m] = self.init_pred_dict[k][m].unsqueeze( 1 )
 
@@ -141,23 +152,14 @@ class FitToData():
 		dict_ = parse_nested_dict( dict_, "detach" )
 
 
-	def load_openfold_configs( self ):
-		"""
-		Load the OpenFold configs.
-		Overwrite the configs with those mentioned in topology file.
-		"""
-		# Change the no. of blocks in SM.
-		self.ofold_config.model.structure_module.no_blocks = self.topology.model.update_params.sm_no_blocks
-		# Enable long sequence inference.
-
-
+	################################################################################
+	################################################################################
 	def fit( self ) -> None:
 		"""
 		Add a singleton batch dim.
 		Initialize:
-			Models (PoseSampling and Alphafold)
 			A SaveModel object to add and save predicted models to a CIF file.
-			Optimizer
+			Recycler model.
 
 		For each epoch:
 			Perform M rounds of rigid sampling.
@@ -172,8 +174,6 @@ class FitToData():
 				Protein object.
 				pLDDT, PAE, pTM, ipTM, distogram_logits
 		"""
-		self.stats_dict["model_id"] = []
-
 		# Add batch dim.
 		self.add_batch_dim()
 
@@ -181,19 +181,8 @@ class FitToData():
 		save_model_obj = SaveModels( title = self.sys_name, 
 									output_format = "pdb",
 									ensemble_dir = self.ensemble_dir )
-
 		# Initialize the System object.
 		save_model_obj.initialize_system()
-
-		batch = {}
-		
-		# Remove the restraint features.
-		for k in self.processed_feature_dict:
-			if k not in ["restraint_features", "connectivity_mask", "intra_ev_mask", "inter_ev_mask"]:
-				batch[k] = self.processed_feature_dict[k]
-				if isinstance( self.processed_feature_dict[k].dtype, float ):
-					batch[k] = self.batch[k].to( dtype = torch.float32 )
-		self.add_to_device( batch )
 
 		# Initialize the recycling model.
 		recycler_model = Recycler(
@@ -201,22 +190,39 @@ class FitToData():
 			jax_param_path = self.jax_params_path,
 			device = self.device )
 
+		batch = {}
+		for k in self.processed_feature_dict:
+			if k == "restraint_features":
+				continue
+			batch[k] = self.processed_feature_dict[k]
+			if isinstance( self.processed_feature_dict[k].dtype, float ):
+				batch[k] = self.batch[k].to( dtype = torch.float32 )
+
+		# Add batch and gt_features to device.
+		self.add_to_device( batch )
+		self.add_to_device( self.gt_feature_dict )
+
 		t_start = time.perf_counter()
-		msa = batch.pop( "msa" )
-		msa = msa.cpu()
-		msa_feat = batch["msa_feat"].cpu()
-		orig_msa_feat_shape = msa_feat.shape
-		msa_mask = batch["msa_mask"].cpu()
+		# # Separate out the msa and msa_mask.
+		# msa = copy.copy( batch["msa"] )
+		# msa = msa.cpu()
+		# msa_feat = batch["msa_feat"].cpu()
+		# orig_msa_feat_shape = msa_feat.shape
+		# msa_mask = batch["msa_mask"].cpu()
+
+		# Keep track of moel_id's.
+		self.stats_dict["model_id"] = []
+		# Note the time per epoch.
+		self.stats_dict["time_per_epoch"] = []
+
 		for epoch in range( self.topology.train.max_epochs ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
 			print( f"\n\033[1mEpoch: {epoch} \033[0m" + "-"*20 )
 
-			#torch.cuda.reset_peak_memory_stats()
-
 			# Skip pose sampling if specified.
 			if not self.topology.train.skip_pose_sampling:
-				out = self.predict_pose()
+				out = self.predict_pose( batch = batch )
 				if self.topology.train.fill_none:
 					out["final_atom_positions"] = None
 					# else keep the initial predicted final_atom_positions.
@@ -224,43 +230,54 @@ class FitToData():
 				out = copy.deepcopy( self.init_pred_dict )
 				self.add_to_device( out )
 
+			# Clear cache.
 			torch.cuda.empty_cache()
+
 			# Note time taken by recycling alone.
 			t_r_s = time.perf_counter()
-
 			print( "\n\033[1mRecycling optimized pose...\033[0m" )
 			with torch.no_grad():
-				if self.topology.model.subsampling.enabled:
-					print( "Using MSA subsampling..." )
-					batch["msa_feat"], batch["msa_mask"] = self.msa_subsampling(
-						msa = msa,
-						msa_feat = msa_feat,
-						 msa_mask = msa_mask )
-					print( f"Full msa_feat = {orig_msa_feat_shape}" +
-		   				f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
-				else:
-					print( "MSA subsampling switched off..." )
+				batch = self.use_af_sampling( batch = batch )
+				# # Mask cross-linked residues in MSA.
+				# batch = self.mask_msa_for_xl_res( batch = batch )
+				# if self.topology.model.subsampling.enabled:
+				# 	print( "Using MSA subsampling..." )
+				# 	batch["msa_feat"], batch["msa_mask"] = self.msa_subsampling(
+				# 		msa = msa,
+				# 		msa_feat = msa_feat,
+				# 		 msa_mask = msa_mask )
+				# 	print( f"Full msa_feat = {orig_msa_feat_shape}" +
+		   		# 		f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
+				# else:
+				# 	print( "MSA subsampling switched off..." )
 
 				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
+				# Just compute loss but don't backpropagate.
+				_, losses = self.loss_fn.forward( out,
+					self.gt_feature_dict,
+					self.processed_feature_dict["restraint_features"] )
+
 			t_r_e = time.perf_counter()
 			print( f"Time taken for recycling {epoch}: {( t_r_e - t_r_s )} seconds" )
 
+			# Remove computed violations.
+			if "violation" in outputs:
+				outputs.pop( "violation" )
 			self.remove_from_device( outputs )
 			out = copy.deepcopy( outputs )
 			del outputs
+
+			for k in ["msa", "deletion_matrix", "msa_feat"]:
+				batch[k] = self.processed_feature_dict[k].to( self.device )
+			# Clear cache.
 			torch.cuda.empty_cache()
 
 			if epoch == self.topology.train.max_epochs-1:
 				last_epoch = True
 			else:
 				last_epoch = False
-
-			# Just compute loss but don't backpropagate.
-			_, losses = self.loss_fn.forward( out,
-				self.processed_feature_dict,
-				self.processed_feature_dict["restraint_features"] )
 
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
@@ -279,28 +296,32 @@ class FitToData():
 							unrelaxed_protein = unrelaxed_protein,
 							model_id = epoch )
 
-			# Keep track of the no. of epochs.
+			# using epoch as the model_id.
 			self.stats_dict["model_id"].append( epoch )
 			t_e = time.perf_counter()
 			print( f"Time taken for epoch {epoch}: {( t_e - t_s )}  seconds" )
+			self.stats_dict["time_per_epoch"].append( t_e - t_s )
 			print( "-"*80 + "\n" + "-"*80 )
 
 		t_end = time.perf_counter()
 		print( f"Total Time taken for smapling: {( t_end - t_start )}  seconds" )
+
+		# Save the ensemble on disk.
 		self.save_model( save_model = save_model_obj )
 
 
-	def predict_pose( self ):
+	################################################################################
+	################################################################################
+	def predict_pose( self, batch: Dict[str, Any] ):
 		"""
 		For M iterations
-			Define rigid bodies (either cy chain or based on pLDDT and/or PAE).
-			Predict a rigid tranformation using a neural network.
-			Apply the rigid transformation.
+		Run pose sampler
+				Define rigid bodies (either cy chain or based on pLDDT and/or PAE).
+				Predict a rigid tranformation using a neural network.
+				Apply the rigid transformation.
 			Compute loss.
 			Backpropagate.
 		"""
-		# Get model.
-		# 	mode and is_multimer can be removed as we plan to stick to multimers only.
 		print( "\n\033[1mInitiate pose sampling now...\033[0m" )
 		model = PoseSampling(
 			model_config = self.topology.model,
@@ -315,51 +336,132 @@ class FitToData():
 
 			out = copy.deepcopy( self.init_pred_dict )
 			self.add_to_device( out )
-			with torch.autograd.detect_anomaly():
-				out = model.predict( out = out )
+			# with torch.autograd.detect_anomaly(): # Use while debugging.
+			out = model.predict( out = out )
 
-				cum_loss, losses = self.loss_fn.forward( out,
-					self.processed_feature_dict,
-					self.processed_feature_dict["restraint_features"] )
-				self.update_loss_dict( losses, update_pose_metrics = True )
+			cum_loss, losses = self.loss_fn.forward( out,
+				self.gt_feature_dict,
+				self.processed_feature_dict["restraint_features"] )
+			self.update_loss_dict( losses, update_pose_metrics = True )
 
-				if sub_epoch == self.topology.train.max_pose_iters-1:
-					last_epoch = True
-				else:
-					last_epoch = False
-				metrics_dict = self.metrics_fn.forward(
-					out = out, last_epoch = last_epoch )
-				self.update_data_metric_dict(
-					metrics_dict = metrics_dict, update_pose_metrics = True )
+			if sub_epoch == self.topology.train.max_pose_iters-1:
+				last_epoch = True
+			else:
+				last_epoch = False
+			metrics_dict = self.metrics_fn.forward(
+				out = out, last_epoch = last_epoch )
+			self.update_data_metric_dict(
+				metrics_dict = metrics_dict, update_pose_metrics = True )
 
-				optimizer.zero_grad()
-				cum_loss.backward()
-				#for name, param in model.named_parameters():
-				#	if param.grad is not None:
-				#		print( f"{name} grad stats: min = {param.grad.min()}, max = {param.grad.max()}, nan = {torch.isnan( param.grad ).any()}" )
-				optimizer.step()
+			# Remove computed violations.
+			if "violation" in out:
+				out.pop( "violation" )
+
+			optimizer.zero_grad()
+			cum_loss.backward()
+			#for name, param in model.named_parameters():
+			#	if param.grad is not None:
+			#		print( f"{name} grad stats: min = {param.grad.min()}, max = {param.grad.max()}, nan = {torch.isnan( param.grad ).any()}" )
+			optimizer.step()
 
 		return out
 
 
+	################################################################################
+	################################################################################
+	def use_af_sampling( self,
+		batch: Dict[str, torch.Tensor]
+		):
+		"""
+		Apply the specified AF sampling technique:
+			MSA subsampling
+			MSA column amsking
+		"""
+		if self.topology.model.column_masking.enabled:
+			batch = self.column_masking( batch = batch )
+		else:
+			print( "MSA column masking switched off..." )
+
+		if self.topology.model.msa_xl_res_mask:
+			xl_res_dict = self.processed_feature_dict["restraint_features"]["xl_restraint"]["xl_res_dict"]
+			batch = mask_msa_for_xl_res(
+				batch = batch,
+				xl_res_dict = xl_res_dict )
+		else:
+			print( "MSA masking for XL residues switched off..." )
+
+		if self.topology.model.subsampling.enabled:
+			orig_shape = batch["msa_feat"].shape
+			batch = self.msa_subsampling( batch = batch )
+			print( f"Full msa_feat = {orig_shape}" +
+				f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
+		else:
+			print( "MSA subsampling switched off..." )
+		return batch
+
+
 	def msa_subsampling( self,
-			msa: torch.Tensor,
-			msa_feat: torch.Tensor,
-			msa_mask: torch.Tensor ):
+			batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
 		"""
 		Subsample the MSA and update the msa_feat.
+		msa_feat -> [1, S, N, 49]
 		"""
+		params = dict( self.topology.model.subsampling.params )
+		neff_list = params["neff"]
+		neff = np.random.choice( neff_list, 1, replace = False )[0]
+		params["neff"] = int( neff )
+		print( f"Using neff = {params['neff']}..." )
+
 		subsampled_idx = msa_subsampler(
-			msa = msa,
+			msa = batch["msa"],
 			subsample_type = self.topology.model.subsampling.type,
-			params = self.topology.model.subsampling.params )
+			params = params )
 
-		print( subsampled_idx )
-		msa_feat_ = msa_feat[:,subsampled_idx,:].to( self.device )
-		msa_mask_ = msa_mask[:,subsampled_idx,:].to( self.device )
-		return msa_feat_, msa_mask_
+		if "subsample" not in self.stats_dict:
+			self.stats_dict["subsample"] = {
+				"neff": [params["neff"]],
+				"subsampled_indices": [subsampled_idx]
+			}
+		else:
+			self.stats_dict["subsample"]["neff"].append( params["neff"] )
+			self.stats_dict["subsample"]["subsampled_indices"].append( subsampled_idx )
+
+		print( f"Subsampled MSA indices = {subsampled_idx}" )
+
+		# Select subsampled MSA.
+		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
+		batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:, :].to( self.device )
+		return batch
 
 
+	def column_masking( self,
+			batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
+		"""
+		Apply MSA column masking.
+		"""
+		params = dict( self.topology.model.column_masking.params )
+		mask_frac_list = params["mask_frac"]
+		mask_frac = np.random.choice( mask_frac_list, 1, replace = False )[0]
+		params["mask_frac"] = mask_frac
+		print( f"Using column mask fraction = {params['mask_frac']}..." )
+
+		batch, masked_idx = msa_column_masking(
+			batch = batch,
+			params = params )
+
+		print( f"Masked MSA columns = {masked_idx}" )
+		if "col_mask" not in self.stats_dict:
+			self.stats_dict["col_mask"] = {
+				"mask_frac": [params["mask_frac"]],
+				"masked_idx": [masked_idx]
+			}
+		else:
+			self.stats_dict["col_mask"]["mask_frac"].append( params["mask_frac"] )
+			self.stats_dict["col_mask"]["masked_idx"].append( masked_idx )
+		return batch
+
+	################################################################################
+	################################################################################
 	def update_loss_dict( self, losses: Dict[str, torch.Tensor], update_pose_metrics: bool ):
 		"""
 		Keep a tab on the loss per epoch for all individual loss 
@@ -438,6 +540,8 @@ class FitToData():
 		print( f"Confidence: {str_}" )
 
 
+	################################################################################
+	################################################################################
 	def get_protein_object( self, outputs: Dict[str, torch.Tensor]
 							) -> protein.Protein:
 		"""
