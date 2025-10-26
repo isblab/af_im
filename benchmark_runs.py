@@ -26,8 +26,8 @@ class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
 		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment
 		# Define the modeling objective.
-		self.modeling_objective = "Testing pose sampling + recycling. No MSA subsampling."
-		self.modeling_version = 0
+		self.modeling_objective = "Pose sampling+recycling with MSA column masking (mask_frac=0.05)."
+		self.modeling_version = 6
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
@@ -58,21 +58,34 @@ class BenchmarkModeling():
 		# if True, deletes the existing system analysis dir.
 		self.remove_sys_analysis_dir = False
 		# If True, create the required plots.
-		self.create_summary_plots_and_files = False
+		self.create_summary_plots_and_files = True
 
 		# Modify settings for losses to be used.
-		self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0}
+		self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0
+		}
+		# self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0,
+		# 	"ev": {"intra_chain_dist": 2.0, "inter_chain_dist": 2.0, "weight": 1.0}
+		# }
 		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
 		# Configs for MSA subsampling.
 		self.subsampling = {
 			"enabled": False,
 			"type": "sequential",  # random/sequential
 			"params": {
-			"neff": 5,
+			"neff": [5],
 			"eff_cutoff": 0.8,
 			"cap_msa": True
 			}
 		}
+		# Configs for MSA column masking.
+		self.column_masking = {
+			"enabled": True,
+			"params": {
+			"mask_frac": [0.05],
+			}
+		}
+		# mask the cross-linked residues in MSA.
+		self.msa_xl_res_mask = False
 
 		self.topo_dict = topo_dict
 
@@ -194,11 +207,17 @@ class BenchmarkModeling():
 
 			# MSA subsampling configs.
 			topo_dict.model.subsampling = self.subsampling
+			# MSA column masking configs.
+			topo_dict.model.column_masking = self.column_masking
+			topo_dict.msa_xl_res_mask = self.msa_xl_res_mask
 
 			# Violation loss settings.
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
 			topo_dict.loss.violation.add_penalty = self.violation["add_penalty"]
 			topo_dict.loss.violation.weight = self.violation["weight"]
+			# topo_dict.loss.violation.ev.intra_chain_dist = self.violation["ev"]["intra_chain_dist"]
+			# topo_dict.loss.violation.ev.inter_chain_dist = self.violation["ev"]["inter_chain_dist"]
+			# topo_dict.loss.violation.ev.weight = self.violation["ev"]["weight"]
 
 			# XL restraint loss settings.
 			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
@@ -606,7 +625,7 @@ class BenchmarkModeling():
 		epoch0_xl_satisfaction_list = []
 		violations_list = []
 		complexes_list = []
-		for sys_name in self.benchmark["PDB ID"]:
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			data_dict = self.get_dict_for_source(
 				sys_name = sys_name,
 				source = source )
@@ -616,7 +635,8 @@ class BenchmarkModeling():
 					data_dict["metrics"]["xlr"]
 				)
 				epoch0_xl_satisfaction_list.append(
-					data_dict["metrics"]["xlr"][0]
+					self.benchmark.iloc[i, 1]
+					# data_dict["metrics"]["xlr"][0]
 				)
 				violations_list.append(
 					data_dict["loss"]["violation"]
