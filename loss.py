@@ -12,6 +12,7 @@ from openfold.utils.loss import ( find_structural_violations,
 								violation_loss,
 								chain_center_of_mass_loss, distogram_loss
 								)
+from openfold.utils.tensor_utils import batched_gather
 
 from mod_openfold import fape_loss
 from restraints import XlRestraint, final_pred_to_dist_map
@@ -120,7 +121,7 @@ def get_sequence_connectivity(
 ###############################################################################
 def get_violation_loss(
 		out: Dict[str, Any],
-		batch: Dict[str, Any],
+		gt_feature_dict: Dict[str, torch.Tensor],
 		config: mlc.ConfigDict ) -> torch.Tensor:
 	"""
 	Compute a violation loss accounting for excluded volume and sequence connectivity.
@@ -132,15 +133,15 @@ def get_violation_loss(
 
 	ev = get_excluded_volume(
 				dist = dist,
-				intra_ev_mask = batch["intra_ev_mask"],
-				inter_ev_mask = batch["inter_ev_mask"],
+				intra_ev_mask = gt_feature_dict["intra_ev_mask"],
+				inter_ev_mask = gt_feature_dict["inter_ev_mask"],
 				intra_chain_dist = config.ev.intra_chain_dist,
 				inter_chain_dist = config.ev.inter_chain_dist,
 				eps = config.eps )
 
 	sc = get_sequence_connectivity(
 				dist = dist,
-				connectivity_mask = batch["connectivity_mask"],
+				connectivity_mask = gt_feature_dict["connectivity_mask"],
 				inter_res_dist = config.sc.inter_res_dist,
 				tolerance_sigma = config.sc.tolerance_sigma,
 				eps = config.eps )
@@ -357,18 +358,18 @@ def get_violation_loss(
 #								**{**batch, **self.config},
 #								)
 
-#class ViolationLoss():
-#	# Just a wrapper for the OpenFold Violation loss.
-#	def __init__(  self, config ):
-#		self.name = "violation"
-#		self.config = config
+# class ViolationLoss():
+# 	# Just a wrapper for the OpenFold Violation loss.
+# 	def __init__(  self, config ):
+# 		self.name = "violation"
+# 		self.config = config
 
-#	def get( self, out, batch ):
-#		# Violation loss does not need the argument batch, just kept here for uniformity.
-#		return lambda: violation_loss(
-#								out["violation"],
-#								**{**batch, **self.config}
-#								)
+# 	def get( self, out, batch ):
+# 		# Violation loss does not need the argument batch, just kept here for uniformity.
+# 		return lambda: violation_loss(
+# 								out["violation"],
+# 								**{**batch, **self.config}
+# 								)
 
 #class ChainCenterOfMassLoss():
 #	# Just a wrapper for the OpenFold Chain center of mass loss.
@@ -444,12 +445,24 @@ class ViolationLoss():
 		self.name = "violation"
 		self.config = config
 
-	def get( self, out, batch ):
-		return lambda: get_violation_loss(
-				out = out,
-				batch = batch,
-				config = self.config
-			)
+	def get( self, out, gt_feature_dict ):
+		return lambda: violation_loss(
+                out["violation"],
+                **{**gt_feature_dict, **self.config},
+            )
+
+# class ViolationLoss():
+# 	# Just a wrapper for the custom violation loss.
+# 	def __init__(  self, config ):
+# 		self.name = "violation"
+# 		self.config = config
+
+# 	def get( self, out, gt_feature_dict ):
+# 		return lambda: get_violation_loss(
+#                 out = out,
+# 				gt_feature_dict = gt_feature_dict,
+#                 config = self.config
+#             )
 
 
 #class ExcludedVolumeLoss():
@@ -485,6 +498,25 @@ class ViolationLoss():
 #				eps = self.config.eps
 #			)
 
+
+def atom37_to_atom14(
+		atom37: torch.Tensor,
+		gt_feature_dict: Dict[str, torch.Tensor] ):
+	"""
+	Convert atom37 representation to atom14.
+	Adapted from openfold/data/feats/atom14_to_atom37().
+	"""
+	atom14_data = batched_gather(
+		atom37,
+		gt_feature_dict["residx_atom14_to_atom37"],
+		dim=-2,
+		no_batch_dims=len(atom37.shape[:-2]),
+	)
+
+	atom14_data = atom14_data * gt_feature_dict["atom14_atom_exists"][..., None]
+
+	return atom14_data
+
 ###############################################################################
 ###############################################################################
 class LossFunction( nn.Module ):
@@ -495,21 +527,29 @@ class LossFunction( nn.Module ):
 		self.loss_fns_included  =self.loss_included()
 
 
-	def forward( self, out: Dict, batch: Dict, restraint_features: Dict ):
-		#if "violation" not in out.keys():
-		#	out["violation"] = find_structural_violations(
-		#		batch,
-		#		out["sm"]["positions"][-1],
-		#		**self.config.violation,
-		#	)
+	def forward( self, out: Dict[str, Any],
+		gt_feature_dict: Dict[str, torch.Tensor],
+		restraint_features: Dict[str, Any] ):
+		# AF2 losses require the atom14 representation.
+		atom37 = out["final_atom_positions"]
+		atom14 = atom37_to_atom14( atom37 = atom37, gt_feature_dict = gt_feature_dict )
 
-		#if "renamed_atom14_gt_positions" not in out.keys():
-		#	batch.update(
-		#		compute_renamed_ground_truth(
-		#			batch,
-		#			out["sm"]["positions"][-1],
-		#		)
-		#	)
+		if "violation" not in out.keys():
+			out["violation"] = find_structural_violations(
+				gt_feature_dict,
+				atom14,
+				# out["sm"]["positions"][-1],
+				**self.config.violation,
+			)
+
+		if "renamed_atom14_gt_positions" not in out.keys():
+			gt_feature_dict.update(
+				compute_renamed_ground_truth(
+					gt_feature_dict,
+					atom14
+					# out["sm"]["positions"][-1],
+				)
+			)
 
 		device = out["final_atom_positions"].device
 		# Iteratively calculate the loss for all included terms.
@@ -519,7 +559,7 @@ class LossFunction( nn.Module ):
 			if loss_name == "xlr":
 				loss_fns[loss_name] = obj.get( out, restraint_features["xl_restraint"] )
 			else:
-				loss_fns[loss_name] = obj.get( out, batch )
+				loss_fns[loss_name] = obj.get( out, gt_feature_dict )
 
 
 		cum_loss = torch.tensor( [0] ).to( device )
