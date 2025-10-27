@@ -203,12 +203,6 @@ class FitToData():
 		self.add_to_device( self.gt_feature_dict )
 
 		t_start = time.perf_counter()
-		# # Separate out the msa and msa_mask.
-		# msa = copy.copy( batch["msa"] )
-		# msa = msa.cpu()
-		# msa_feat = batch["msa_feat"].cpu()
-		# orig_msa_feat_shape = msa_feat.shape
-		# msa_mask = batch["msa_mask"].cpu()
 
 		# Keep track of moel_id's.
 		self.stats_dict["model_id"] = []
@@ -222,7 +216,7 @@ class FitToData():
 
 			# Skip pose sampling if specified.
 			if not self.topology.train.skip_pose_sampling:
-				out = self.predict_pose( batch = batch )
+				out = self.predict_pose()
 				if self.topology.train.fill_none:
 					out["final_atom_positions"] = None
 					# else keep the initial predicted final_atom_positions.
@@ -237,38 +231,23 @@ class FitToData():
 			t_r_s = time.perf_counter()
 			print( "\n\033[1mRecycling optimized pose...\033[0m" )
 			with torch.no_grad():
-				batch = self.use_af_sampling( batch = batch )
-				# # Mask cross-linked residues in MSA.
-				# batch = self.mask_msa_for_xl_res( batch = batch )
-				# if self.topology.model.subsampling.enabled:
-				# 	print( "Using MSA subsampling..." )
-				# 	batch["msa_feat"], batch["msa_mask"] = self.msa_subsampling(
-				# 		msa = msa,
-				# 		msa_feat = msa_feat,
-				# 		 msa_mask = msa_mask )
-				# 	print( f"Full msa_feat = {orig_msa_feat_shape}" +
-		   		# 		f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
-				# else:
-				# 	print( "MSA subsampling switched off..." )
+				batch = self.af_sampling( batch = batch )
 
-				outputs = recycler_model.forward(
+				out = recycler_model.forward(
 					out = out,
 					batch = batch )
 				# Just compute loss but don't backpropagate.
 				_, losses = self.loss_fn.forward( out,
 					self.gt_feature_dict,
 					self.processed_feature_dict["restraint_features"] )
-
+				self.remove_from_device( out )
+				# Remove computed violations.
+				if "violation" in out:
+					out.pop( "violation" )
 			t_r_e = time.perf_counter()
 			print( f"Time taken for recycling {epoch}: {( t_r_e - t_r_s )} seconds" )
 
-			# Remove computed violations.
-			if "violation" in outputs:
-				outputs.pop( "violation" )
-			self.remove_from_device( outputs )
-			out = copy.deepcopy( outputs )
-			del outputs
-
+			# Removed the modified MSA features.
 			for k in ["msa", "deletion_matrix", "msa_feat"]:
 				batch[k] = self.processed_feature_dict[k].to( self.device )
 			# Clear cache.
@@ -279,6 +258,7 @@ class FitToData():
 			else:
 				last_epoch = False
 
+			# Log the required loss and metrics.
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
 				out = out, last_epoch = last_epoch  )
@@ -312,7 +292,7 @@ class FitToData():
 
 	################################################################################
 	################################################################################
-	def predict_pose( self, batch: Dict[str, Any] ):
+	def predict_pose( self ):
 		"""
 		For M iterations
 		Run pose sampler
@@ -369,7 +349,7 @@ class FitToData():
 
 	################################################################################
 	################################################################################
-	def use_af_sampling( self,
+	def af_sampling( self,
 		batch: Dict[str, torch.Tensor]
 		):
 		"""
