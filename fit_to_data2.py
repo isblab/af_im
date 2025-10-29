@@ -233,22 +233,25 @@ class FitToData():
 			with torch.no_grad():
 				batch = self.af_sampling( batch = batch )
 
-				out = recycler_model.forward(
+				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
+				out = copy.deepcopy( outputs )
+				del outputs
 				# Just compute loss but don't backpropagate.
 				_, losses = self.loss_fn.forward( out,
 					self.gt_feature_dict,
 					self.processed_feature_dict["restraint_features"] )
-				self.remove_from_device( out )
 				# Remove computed violations.
 				if "violation" in out:
 					out.pop( "violation" )
+
+				self.remove_from_device( out )
 			t_r_e = time.perf_counter()
 			print( f"Time taken for recycling {epoch}: {( t_r_e - t_r_s )} seconds" )
 
 			# Removed the modified MSA features.
-			for k in ["msa", "deletion_matrix", "msa_feat"]:
+			for k in ["msa", "msa_feat", "msa_mask", "deletion_matrix", "cluster_deletion_mean", "cluster_profile"]:
 				batch[k] = self.processed_feature_dict[k].to( self.device )
 			# Clear cache.
 			torch.cuda.empty_cache()
@@ -356,20 +359,9 @@ class FitToData():
 		Apply the specified AF sampling technique:
 			MSA subsampling
 			MSA column amsking
+			Masking MSA for cross-linked residues
+		If using multiple, MSA subsampling will be done first.
 		"""
-		if self.topology.model.column_masking.enabled:
-			batch = self.column_masking( batch = batch )
-		else:
-			print( "MSA column masking switched off..." )
-
-		if self.topology.model.msa_xl_res_mask:
-			xl_res_dict = self.processed_feature_dict["restraint_features"]["xl_restraint"]["xl_res_dict"]
-			batch = mask_msa_for_xl_res(
-				batch = batch,
-				xl_res_dict = xl_res_dict )
-		else:
-			print( "MSA masking for XL residues switched off..." )
-
 		if self.topology.model.subsampling.enabled:
 			orig_shape = batch["msa_feat"].shape
 			batch = self.msa_subsampling( batch = batch )
@@ -377,6 +369,21 @@ class FitToData():
 				f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
 		else:
 			print( "MSA subsampling switched off..." )
+
+		if self.topology.model.column_masking.enabled:
+			batch = self.column_masking( batch = batch )
+		else:
+			print( "MSA column masking switched off..." )
+
+		if self.topology.model.msa_xl_res_mask:
+			print( "Masking MSA for XL residues..." )
+			xl_res_dict = self.processed_feature_dict["restraint_features"]["xl_restraint"]["xl_res_dict"]
+			batch = mask_msa_for_xl_res(
+				batch = batch,
+				xl_res_dict = xl_res_dict )
+		else:
+			print( "MSA masking for XL residues switched off..." )
+
 		return batch
 
 
@@ -385,6 +392,9 @@ class FitToData():
 		"""
 		Subsample the MSA and update the msa_feat.
 		msa_feat -> [1, S, N, 49]
+		deletion_matrix -> [1, S, N]
+		cluster_deletion_mean -> [1, S, N]
+		cluster_profile -> [1, S, N, 23]
 		"""
 		params = dict( self.topology.model.subsampling.params )
 		neff_list = params["neff"]
@@ -393,7 +403,7 @@ class FitToData():
 		print( f"Using neff = {params['neff']}..." )
 
 		subsampled_idx = msa_subsampler(
-			msa = batch["msa"],
+			msa = batch["msa"].cpu(),
 			subsample_type = self.topology.model.subsampling.type,
 			params = params )
 
@@ -409,8 +419,12 @@ class FitToData():
 		print( f"Subsampled MSA indices = {subsampled_idx}" )
 
 		# Select subsampled MSA.
+		batch["msa"] = batch["msa"][:,subsampled_idx,:].to( self.device )
 		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
-		batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:, :].to( self.device )
+		batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:].to( self.device )
+		batch["deletion_matrix"] = batch["deletion_matrix"][:,subsampled_idx,:].to( self.device )
+		batch['cluster_deletion_mean'] = batch["cluster_deletion_mean"][:,subsampled_idx,:].to( self.device )
+		batch["cluster_profile"] = batch["cluster_profile"][:,subsampled_idx,:, :].to( self.device )
 		return batch
 
 
