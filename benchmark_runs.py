@@ -26,8 +26,8 @@ class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
 		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment
 		# Define the modeling objective.
-		self.modeling_objective = "Pose sampling+recycling with MSA column masking (mask_frac=0.05)."
-		self.modeling_version = 6
+		self.modeling_objective = "MSA column masking (mask_frac=0.3) and MSA subsampling with neff=25. No pose sampling."
+		self.modeling_version = 8.3
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
@@ -69,10 +69,10 @@ class BenchmarkModeling():
 		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
 		# Configs for MSA subsampling.
 		self.subsampling = {
-			"enabled": False,
+			"enabled": True,
 			"type": "sequential",  # random/sequential
 			"params": {
-			"neff": [5],
+			"neff": [25],
 			"eff_cutoff": 0.8,
 			"cap_msa": True
 			}
@@ -81,7 +81,7 @@ class BenchmarkModeling():
 		self.column_masking = {
 			"enabled": True,
 			"params": {
-			"mask_frac": [0.05],
+			"mask_frac": [0.3],
 			}
 		}
 		# mask the cross-linked residues in MSA.
@@ -209,7 +209,7 @@ class BenchmarkModeling():
 			topo_dict.model.subsampling = self.subsampling
 			# MSA column masking configs.
 			topo_dict.model.column_masking = self.column_masking
-			topo_dict.msa_xl_res_mask = self.msa_xl_res_mask
+			topo_dict.model.msa_xl_res_mask = self.msa_xl_res_mask
 
 			# Violation loss settings.
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
@@ -1122,4 +1122,14 @@ class BenchmarkModeling():
 
 if __name__ == "__main__":
 	BenchmarkModeling().forward()
-
+	# for v, mask_frac in zip(
+	# 	[6.5, 6.6], [0.5, 0.6]
+	# 	):
+	# 	obj = BenchmarkModeling()
+	# 	obj.modeling_objective = f"Pose sampling+recycling with MSA column masking (mask_frac={mask_frac})."
+	# 	obj.modeling_version = v
+	# 	obj.subsampling["enabled"] = False
+	# 	obj.column_masking["enabled"] = True
+	# 	obj.column_masking["params"]["mask_frac"] = [mask_frac]
+	# 	obj.forward()
+	# 	del obj
