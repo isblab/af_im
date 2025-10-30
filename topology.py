@@ -33,15 +33,11 @@ config = mlc.ConfigDict(
 		"ofold_script": os.path.abspath( "./openfold/run_pretrained_openfold.py" ),
 		"config_preset": "model_1_multimer_v3",
 		"ofold_params": os.path.join(
-						os.path.abspath(
-							f"openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
-							)
+							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
 						),
 		"model_checkpoint": None,
 		"jax_params_path": os.path.join(
-						os.path.abspath(
-							f"openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
-							)
+							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
 						),
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
