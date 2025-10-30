@@ -122,6 +122,7 @@ class IntegrativeLearning():
 			"-"*23 + "\n" + "-"*70 + "\n" )
 		( feature_dict,
    		processed_feature_dict,
+		gt_feature_dict,
 		init_pred_dict ) = self.run_system_representation()
 
 		# Add restraint features to system features dict.
@@ -133,8 +134,8 @@ class IntegrativeLearning():
 		fit = self.run_fit_to_data(
 			feature_dict =feature_dict,
 			processed_feature_dict = processed_feature_dict,
+			gt_feature_dict = gt_feature_dict,
 			init_pred_dict = init_pred_dict )
-
 
 		print( "\n" + "-"*70 + "\n" +"-"*26 +
 			" \033[1m\033[9m Analysis \033[0m Assay\033[0m " +
@@ -179,7 +180,8 @@ class IntegrativeLearning():
 
 
 	def run_system_representation( self
-			) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+			) -> Tuple[Dict[str, np.ndarray], Dict[str, torch.Tensor],
+			Dict[str, torch.Tensor], Dict[str, Any]]:
 		"""
 		Instantiate and run the SystemRepresentation module.
 		"""
@@ -200,15 +202,18 @@ class IntegrativeLearning():
 
 		feature_dict = sys_rep_obj.feature_dict
 		processed_feature_dict = sys_rep_obj.processed_feature_dict
+		gt_feature_dict = sys_rep_obj.gt_feature_dict
 		init_pred_dict = sys_rep_obj.init_pred_dict
 		# Move back to base dir.
 		os.chdir( init_dir )
-		return feature_dict, processed_feature_dict, init_pred_dict
+		return ( feature_dict, processed_feature_dict,
+			gt_feature_dict, init_pred_dict )
 
 
 	def run_fit_to_data( self,
-			feature_dict: Dict[str, Any],
-			processed_feature_dict: Dict[str, Any],
+			feature_dict: Dict[str, np.ndarray],
+			processed_feature_dict: Dict[str, torch.Tensor],
+			gt_feature_dict: Dict[str, torch.Tensor],
 			init_pred_dict: Dict[str, Any]
 			) -> FitToData:
 		"""
@@ -224,8 +229,8 @@ class IntegrativeLearning():
 						jax_params_path = self.topology.system_representation.jax_params_path,
 						feature_dict = feature_dict,
 						processed_feature_dict = processed_feature_dict,
+						gt_feature_dict = gt_feature_dict,
 						init_pred_dict = init_pred_dict,
-						#ofold_output_dir = self.ofold_output_dir,
 						modeling_output_dir = self.modeling_output_dir,
 						prec = self.prec,
 						seed_worker = self.seed_worker,
@@ -247,7 +252,6 @@ class IntegrativeLearning():
 
 		self.save_sampling_results( stats_dict = stats_dict, stats_full = True )
 		self.save_sampling_results( stats_dict = stats_dict_pose, stats_full = False )
-
 
 		return fit
 
@@ -326,7 +330,6 @@ class IntegrativeLearning():
 
 		os.makedirs( self.base_modeling_dir, exist_ok = True )
 		os.makedirs( self.sys_modeling_dir, exist_ok = True )
-		# os.makedirs( self.modeling_mode, exist_ok = True )
 		os.makedirs( self.modeling_output_dir, exist_ok = True )
 		os.makedirs( self.analysis_dir, exist_ok = True )
 
@@ -362,7 +365,7 @@ class IntegrativeLearning():
 												f"analysis/" )
 
 		# File containing residue position to system index mapping.
-		self.res_idx_map_file = os.path.join( self.modeling_output_dir, f"res_idx_map.npy" )
+		self.res_idx_map_file = os.path.join( self.data_dir, f"res_idx_map.npy" )
 		# Topology file for modeling.
 		self.topology_file = os.path.join( self.modeling_output_dir, f"topology_{version}.json" )
 		self.objective_file = os.path.join( self.modeling_output_dir, f"objective_{version}.txt" )
