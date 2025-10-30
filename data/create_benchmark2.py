@@ -16,7 +16,7 @@ class CreateBenchmark():
 	Create input files for modeling.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "xlsim"   # xlsim, abag
+		self.benchmark_name = "xlmerged"   # xlsim, abag, xlmerged
 
 		self.chain_entity_map = {}
 		self.selected_xls = {}
@@ -135,7 +135,6 @@ class CreateBenchmark():
 
 			xl_df.iloc[i, 0] = prot1
 			xl_df.iloc[i, 2] = prot2
-
 
 
 	##------------------------------------------------------------##
