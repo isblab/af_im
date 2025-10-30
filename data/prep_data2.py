@@ -29,7 +29,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "rigid"  # "xlsim", "abag", "rigid"
+		self.benchmark_name = "xlmerged"  # "xlsim", "abag", "rigid", "xlmerged"
 
 		self.dataset_configs = {
 			"global": {
@@ -104,7 +104,9 @@ class Metadata():
 		# 	structure file, SIFTS mapping, benchamrk csv and the required intermediate files.
 		self.meta_dir = os.path.join( self.base_dir, f"{self.benchmark_name}_metadata" )
 
-		# PDB IDs remaining after metadat collection.
+		# Dict mapping PDB ID to its respective benchmark.
+		self.pdb_benchmark_map_file = os.path.join( self.meta_dir, "pdb_benchmark_mapping.json" )
+		# PDB IDs remaining after metadta collection.
 		self.benchmark_pdbs_file =  os.path.join( self.meta_dir,
 										f"{self.benchmark_name}_benchmark_pdb_ids.txt" )
 		# Logs file path.
@@ -164,10 +166,50 @@ class Metadata():
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
 		elif self.benchmark_name == "abag":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
+		elif self.benchmark_name == "xlmerged":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_merged_benchmark()
 		elif self.benchmark_name == "rigid":
 			self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
 		else:
 			raise ValueError( "Unsupported benchmark specified..." )
+
+
+	def get_pdb_ids_for_merged_benchmark( self ) -> List:
+		"""
+		For the merged simulated XL benchmark, obtain PDB IDs from:
+			PDB benchmark from AFUnmasked
+			Protein-protein and protein-peptide benchmark from FoldBench
+			SAbDab database
+			Antigen-Antibody benchmark from FoldBench
+		"""
+		afu = self.parse_pdb_afu_benchmark()
+		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
+		fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
+		print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
+		fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
+		print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
+		sabdab = self.parse_sabdab_benchmark()
+		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
+		fb_ab_ag = self.parse_foldbench_benchmark( "ab_ag" )
+		print( f"PDB IDs from FoldBench Ab-Ag benchmark: {len( fb_ab_ag )}" )
+
+		# Remove duplicate PDB IDs.
+		pdb_ids = sorted(
+			list(
+				set( afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag )
+			)
+		)
+
+		# Create a mapping between the PDB DI and the benchmark it belongs to.
+		benchmark_names = [
+			"afu"*len( afu ) +
+			"foldbench"*( len( fb_prot_pep ) + len( fb_prot_prot ) ),
+			"abag"*( len( sabdab ) + len( fb_ab_ag ) )
+		]
+		pdb_benchmark_map = dict( zip( pdb_ids, benchmark_names ) )
+		write_json( pdb_benchmark_map, self.pdb_benchmark_map_file )
+
+		return pdb_ids
 
 
 	def get_pdb_ids_for_xl_benchmark( self ) -> List:
@@ -301,6 +343,7 @@ class Metadata():
 		"""
 		Download .pdb and .cif structures for all complexes.
 		"""
+		warnings.filterwarnings( "ignore" ) 
 		if os.path.exists( self.pdb_struct_dwnld_file ):
 			print( "Structures for benchmark already downloaded..." )
 			f = open_file_handler( self.pdb_struct_dwnld_file, "r" )
