@@ -81,6 +81,7 @@ class SystemRepresentation():
 		"""
 		# Initialize the dict containing the file paths.
 		self.file_paths = self.create_required_paths()
+		os.makedirs( self.file_paths["ofold_pred_dir"], exist_ok = True )
 
 		self.init_ofold_config()
 		self.init_feature_processor()
@@ -173,6 +174,9 @@ class SystemRepresentation():
 			"out_dict_path": os.path.join(
 				self.ofold_output_dir,
 				"predictions/output_dict.pkl" ),
+			"ofold_pred_dir": os.path.join(
+				self.ofold_output_dir,
+				"predictions/" ),
 			"pred_file_prefix": f"{self.sys_name}_init_pred",
 		}
 		return file_paths
