@@ -201,11 +201,13 @@ class Metadata():
 		)
 
 		# Create a mapping between the PDB DI and the benchmark it belongs to.
-		benchmark_names = [
-			"afu"*len( afu ) +
-			"foldbench"*( len( fb_prot_pep ) + len( fb_prot_prot ) ),
-			"abag"*( len( sabdab ) + len( fb_ab_ag ) )
-		]
+		benchmark_names = []
+		benchmark_names.extend(
+			["afu"]*len( afu ) +
+			["foldbench"]*( len( fb_prot_pep ) + len( fb_prot_prot ) ) +
+			["abag"]*( len( sabdab ) + len( fb_ab_ag ) )
+		)
+		print( benchmark_names )
 		pdb_benchmark_map = dict( zip( pdb_ids, benchmark_names ) )
 		write_json( pdb_benchmark_map, self.pdb_benchmark_map_file )
 
