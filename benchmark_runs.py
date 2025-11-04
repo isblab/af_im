@@ -24,10 +24,10 @@ from utils.pdb_utils import Parser, get_chain_id
 
 class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
-		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment
+		self.benchmark_name = "experiment"  # xlsim/abag/oreilly/experiment/xlmerged
 		# Define the modeling objective.
-		self.modeling_objective = "MSA column masking (mask_frac=0.3) and MSA subsampling with neff=25. No pose sampling."
-		self.modeling_version = 8.3
+		self.modeling_objective = "No pose sampling. Recycling with MSA subsampling neff=25 and column masking mask_frac=0.3."
+		self.modeling_version = 3
 		# PDB/CIF output for the predicted structure.
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
@@ -36,7 +36,15 @@ class BenchmarkModeling():
 		self.max_epochs = 50
 		# Max epochs for pose sampling.
 		self.max_pose_iters = 20
+		# Disable template embeddings.
+		self.no_templates = False
 		self.skip_pose_sampling = False
+		# Use all 0's for final_atom_positions.
+		self.init_zero = False
+		# Reuse predicted structure per epoch for pose sampling in next epoch.
+		self.reuse_prediction = False
+		# If True, reinitializes the final_atom_positions every pose sampling iter.
+		self.reinit_per_pose_iter = False
 		# If skipping pose sampling, use final_atom_positions=None.
 		self.fill_none = False
 		# Precision of the float values in the results.
@@ -202,8 +210,13 @@ class BenchmarkModeling():
 			topo_dict.train.max_epochs = self.max_epochs
 			topo_dict.train.max_pose_iters = self.max_pose_iters
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
+			topo_dict.train.init_zero = self.init_zero
+			topo_dict.train.reuse_prediction = self.reuse_prediction
 			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
+
+			# Disable templates.
+			topo_dict.model.no_templates = self.no_templates
 
 			# MSA subsampling configs.
 			topo_dict.model.subsampling = self.subsampling
@@ -635,7 +648,7 @@ class BenchmarkModeling():
 					data_dict["metrics"]["xlr"]
 				)
 				epoch0_xl_satisfaction_list.append(
-					self.benchmark.iloc[i, 1]
+					self.benchmark.iloc[i, 2]
 					# data_dict["metrics"]["xlr"][0]
 				)
 				violations_list.append(
@@ -643,11 +656,11 @@ class BenchmarkModeling():
 				)
 
 			else:
-				x = self.get_dict_for_source(
-					sys_name = sys_name,
-					source = "all_sampled" )
+				# _ = self.get_dict_for_source(
+				# 	sys_name = sys_name,
+				# 	source = "all_sampled" )
 				epoch0_xl_satisfaction_list.append(
-					x["metrics"]["xlr"][0]
+					self.benchmark.iloc[i, 2]
 				)
 
 				xl_satisfaction_list.append( data_dict["per_model_xl_sat"] )
@@ -692,6 +705,7 @@ class BenchmarkModeling():
 			ax[r].set_ylabel( ylabel, fontsize = 20 )
 
 
+	################################################################################
 	def plot_per_epoch_distribution( self ):
 		"""
 		Plot the distribution of per epoch values for
@@ -738,6 +752,7 @@ class BenchmarkModeling():
 		plt.close()
 
 
+	################################################################################
 	def plot_fpxl_ssatisfaction( self ):
 		"""
 		Scatter plot to show fraction of FP XLs satisfied among
@@ -775,6 +790,7 @@ class BenchmarkModeling():
 		plt.close()
 
 
+	################################################################################
 	def plot_dockq_score( self ):
 		"""
 		Plot the DockQ score for all selected
@@ -806,6 +822,7 @@ class BenchmarkModeling():
 		plt.close()
 
 
+	################################################################################
 	def plot_molrobity_scores( self ):
 		"""
 		Plot the distribution of MolProbity scores for each complex.
@@ -1106,6 +1123,8 @@ class BenchmarkModeling():
 				"remove_sys_analysis_dir": self.remove_sys_analysis_dir,
 				"violation": self.violation,
 				"xlr": self.xlr,
+				"subsampling": self.subsampling,
+				"column_maksing": self.column_masking,
 				"base_dir": self.base_dir,
 				"meta_dir": self.meta_dir,
 				"modeling_dir_name": self.modeling_dir_name,
@@ -1122,14 +1141,3 @@ class BenchmarkModeling():
 
 if __name__ == "__main__":
 	BenchmarkModeling().forward()
-	# for v, mask_frac in zip(
-	# 	[6.5, 6.6], [0.5, 0.6]
-	# 	):
-	# 	obj = BenchmarkModeling()
-	# 	obj.modeling_objective = f"Pose sampling+recycling with MSA column masking (mask_frac={mask_frac})."
-	# 	obj.modeling_version = v
-	# 	obj.subsampling["enabled"] = False
-	# 	obj.column_masking["enabled"] = True
-	# 	obj.column_masking["params"]["mask_frac"] = [mask_frac]
-	# 	obj.forward()
-	# 	del obj
