@@ -7,6 +7,7 @@ import ml_collections as mlc
 
 import torch
 
+from openfold.config import model_config
 from openfold.data import feature_pipeline
 from openfold.np import protein
 
@@ -72,6 +73,17 @@ class FitToData():
 		self.create_required_dir()
 
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
+		# Load OpenFold configs file.
+		self.ofold_config = model_config(
+			self.topology.system_representation.config_preset,
+			long_sequence_inference = self.topology.system_representation.long_sequence_inference,
+			use_deepspeed_evoformer_attention = self.topology.system_representation.use_deepspeed_evoformer_attention,
+			)
+		if self.topology.model.no_templates:
+			print( "Disabling template embedding..." )
+			self.ofold_config.model.template.enabled = False
+		else:
+			self.ofold_config.model.template.enabled = True
 
 		self.fit()
 
@@ -154,6 +166,28 @@ class FitToData():
 
 	################################################################################
 	################################################################################
+	def get_final_atom_positions( self ):
+		"""
+		final_atom_positions can be obtained
+			From an initial predicted structure.
+			An all-1's tensor.
+		"""
+		# Skip using the initial predicted structure.
+		if self.topology.train.init_zero:
+			n = self.processed_feature_dict["asym_id"].shape[1]
+			final_atom_positions = torch.zeros( [1, n, 37, 3] )
+			out = {
+				"msa": None,
+				"pair": None,
+				"final_atom_positions": final_atom_positions,
+				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
+				"asym_id": self.processed_feature_dict["asym_id"]
+			}
+		else:
+			out = copy.deepcopy( self.init_pred_dict )
+		return out
+
+
 	def fit( self ) -> None:
 		"""
 		Add a singleton batch dim.
@@ -209,20 +243,65 @@ class FitToData():
 		# Note the time per epoch.
 		self.stats_dict["time_per_epoch"] = []
 
+		# Skip using the initial predicted structure.
+		# if self.topology.train.init_zero:
+		# 	n = self.processed_feature_dict["asym_id"].shape[1]
+		# 	final_atom_positions = torch.zeros( [1, n, 37, 3] )
+		# 	out = {
+		# 		"msa": None,
+		# 		"pair": None,
+		# 		"final_atom_positions": final_atom_positions,
+		# 		"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
+		# 		"asym_id": self.processed_feature_dict["asym_id"]
+		# 	}
+		# else:
+		# 	out = copy.deepcopy( self.init_pred_dict )
+		out = self.get_final_atom_positions()
+
+		# self.add_to_device( out )
+
 		for epoch in range( self.topology.train.max_epochs ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
 			print( f"\n\033[1mEpoch: {epoch} \033[0m" + "-"*20 )
 
+			# If True, out from the previous epoch will be reused.
+			if not self.topology.train.reuse_prediction:
+				out = self.get_final_atom_positions()
+				# out = copy.deepcopy( self.init_pred_dict )
+				self.add_to_device( out )
+
 			# Skip pose sampling if specified.
 			if not self.topology.train.skip_pose_sampling:
-				out = self.predict_pose()
+				# # If True, out from the previous epoch will be reused.
+				# if not self.topology.train.reuse_prediction:
+				# 	out = self.get_final_atom_positions()
+				# 	# out = copy.deepcopy( self.init_pred_dict )
+				# 	self.add_to_device( out )
+
+				out = self.predict_pose( out = out )
+			else:
 				if self.topology.train.fill_none:
 					out["final_atom_positions"] = None
 					# else keep the initial predicted final_atom_positions.
-			else:
-				out = copy.deepcopy( self.init_pred_dict )
-				self.add_to_device( out )
+			# else:
+			# 	# If True, out from the previous epoch will be reused.
+			# 	if not self.topology.train.reuse_prediction:
+			# 		out = self.get_final_atom_positions()
+			# 		# out = copy.deepcopy( self.init_pred_dict )
+			# 		self.add_to_device( out )
+				# if self.topology.train.init_zero:
+				# 	final_atom_positions = torch.zeros( [1, n, 37, 3] )
+				# 	out = {
+				# 	"msa": None,
+				# 	"pair": None,
+				# 	"final_atom_positions": final_atom_positions,
+				# 	"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
+				# 	"asym_id": self.processed_feature_dict["asym_id"]
+				# 	}
+				# else:
+				# 	out = copy.deepcopy( self.init_pred_dict )
+			self.add_to_device( out )
 
 			# Clear cache.
 			torch.cuda.empty_cache()
@@ -295,7 +374,7 @@ class FitToData():
 
 	################################################################################
 	################################################################################
-	def predict_pose( self ):
+	def predict_pose( self, out: Dict[str, Any] ):
 		"""
 		For M iterations
 		Run pose sampler
@@ -317,7 +396,9 @@ class FitToData():
 		for sub_epoch in range( self.topology.train.max_pose_iters ):
 			print( f"\nPose sampling epoch: {sub_epoch} --------------------------" )
 
-			out = copy.deepcopy( self.init_pred_dict )
+			# out = copy.deepcopy( self.init_pred_dict )
+			if self.topology.train.reinit_per_pose_iter:
+				out = self.get_final_atom_positions()
 			self.add_to_device( out )
 			# with torch.autograd.detect_anomaly(): # Use while debugging.
 			out = model.predict( out = out )
@@ -346,6 +427,7 @@ class FitToData():
 			#	if param.grad is not None:
 			#		print( f"{name} grad stats: min = {param.grad.min()}, max = {param.grad.max()}, nan = {torch.isnan( param.grad ).any()}" )
 			optimizer.step()
+			self.remove_from_device( out )
 
 		return out
 

@@ -23,7 +23,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "7xvo: testing MSA subsampling with new pipeline. " +
+	"objective": "7xvo: test new implementation for running pose sampling. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -96,7 +96,7 @@ config = mlc.ConfigDict(
 			"type": "sequential",  # random/sequential
 			"params": {
 			# Randomly choses a neff value from the provided list.
-			"neff": [5, 10, 15, 20, 25],
+			"neff": [25],
 			"eff_cutoff": 0.8,
 			"cap_msa": True
 			}
@@ -105,10 +105,11 @@ config = mlc.ConfigDict(
 			"enabled": True,
 			"params": {
 			# Randomly choses a mask fraction from the provided list (Max 0.3).
-			"mask_frac": [0.05, 0.1, 0.15, 0.2, 0.25, 0.3]
+			"mask_frac": [0.3]
 			}
 		},
-		"msa_xl_res_mask": False
+		"msa_xl_res_mask": False,
+		"no_templates": False
 	},
 	"loss": {
 		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
@@ -218,7 +219,10 @@ config = mlc.ConfigDict(
 		# Version for the modeling run.
 		"version": None,
 		"skip_pose_sampling": False,
+		"init_zero": True,  # If True, use all 0 initial coords for pose sampling.
+		"reinit_per_pose_iter": True,  # If True, reinitializes the final_atom_positions every pose sampling iter.
 		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
+		"reuse_prediction": False,  # If True, reuse the recycled prediction for pose sampling.
 		"max_epochs": 50, # max epochs for sampling.
 		"max_pose_iters": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
