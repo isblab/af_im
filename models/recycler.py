@@ -44,7 +44,10 @@ class Recycler():
 		"""
 		"""
 		# Initialize recycling embeddings
-		m_1_prev = out["msa"][..., 0, :, :]
+		if out["msa"] is None:
+			m_1_prev = out["msa"]
+		else:
+			m_1_prev = out["msa"][..., 0, :, :]
 		z_prev, x_prev = out["pair"], out["final_atom_positions"]
 		prevs = [m_1_prev, z_prev, x_prev]
 		del out
