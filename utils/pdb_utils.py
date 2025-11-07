@@ -560,7 +560,7 @@ class SaveModels():
 		if self.output_format not in ["pdb", "cif"]:
 			raise ValueError( "Invalid output format specified. Use 'pdb' or 'cif'... " )
 
-		# If save_single_models is True, ensemble_dir mjust exist.
+		# If save_single_models is True, ensemble_dir must exist.
 		if self.save_single_model:
 			if not os.path.exists( self.ensemble_dir ):
 				raise ValueError( f"Ensemble dir = {self.ensemble_dir} " +
@@ -574,11 +574,13 @@ class SaveModels():
 		"""
 		if self.output_format == "pdb":
 			self.system = []
-		else:
+		elif self.output_format == "cif":
 			self.system = self.create_system()
 			self.model_group = self.create_model_group()
 			# Add model_group to system.
 			self.system.model_groups.append( self.model_group )
+		else:
+			raise ValueError( f"Incorrect file format provided {self.output_format}..." )
 
 
 	def create_system( self ):
@@ -700,23 +702,21 @@ class SaveModels():
 		Also, save each model on disk.
 		Using the epoch no. as model_id.
 		"""
-		if model_id == 0:
-			headers = get_pdb_headers(prot)
-			if len(headers) > 0:
-				self.system.extend(headers)
+		if  self.output_format == "pdb":
+			if model_id == 0:
+				headers = get_pdb_headers(prot)
+				if len(headers) > 0:
+					self.system.extend(headers)
 
 		self.create_attributes( prot )
 
-		# if self.output_format == "pdb":
-		system = self.add_to_pdb( prot = prot, model_id = model_id  )
-		# else:
-		# 	# Currently not using this.
-		# 	if epoch == 0:
-		# 		self.create_entity_asym_unit( prot = prot )
-		# 	self.add_to_modelcif( prot = prot, epoch = epoch  )
-
-		# Add to the global system storing all models.
-		self.system.extend( system )
+		if self.output_format == "pdb":
+			system = self.add_to_pdb( prot = prot, model_id = model_id  )
+			self.system.extend( system )
+		elif self.output_format == "cif":
+			model = self.add_to_modelcif( model_id = model_id )
+			self.model_group.append( model )
+			system = model
 
 		if self.save_single_model:
 			self.save( system,
@@ -951,8 +951,9 @@ class SaveModels():
 		model = _MyModel( assembly = self.modeled_assembly, name = f"Model {model_index}" ) # - Kartik -
 		# model = _MyModel(assembly=modeled_assembly, name='Best scoring model')
 		model.add_scores()
+		return model
 
-		self.model_group.append( model )
+		# self.model_group.append( model )
 		# model_group = modelcif.model.ModelGroup([model], name = f"Model {model_index}" )
 		# self.system.model_groups.append(model_group)
 
@@ -985,6 +986,7 @@ class SaveModels():
 			fp = open_file_handler( f"{output_path}.pdb", 'w' )
 			fp.write( system )
 		else:
+			self.system.model_groups.append( self.model_group )
 			fh = self.to_mmcif_string()
 
 			fp = open_file_handler( f"{output_path}.cif", 'w' )
