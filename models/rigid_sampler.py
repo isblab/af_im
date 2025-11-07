@@ -110,6 +110,9 @@ class PoseSampling( Model ):
 		Update the current positions by applying a Rigid Transformation.
 		"""
 		final_atom_positions = out.pop( "final_atom_positions" )
+		# with torch.no_grad():
+		# 	if final_atom_positions is None:
+		# 		final_atom_positions = torch.zeros( [out["asym_id"].shape[1], 37, 3] )
 		rigid_bodies, init_mean_coords = get_rigid_body(
 			final_atom_positions = final_atom_positions,
 			asym_id = out["asym_id"],
