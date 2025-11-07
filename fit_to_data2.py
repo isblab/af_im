@@ -16,6 +16,7 @@ from models.recycler import Recycler
 from models.af_sampling import (
 	msa_subsampler, msa_column_masking,
 	mask_msa_for_xl_res )
+from models.custom_template_feats import update_template_feats
 
 from loss import LossFunction
 from metrics import Metrics
@@ -26,7 +27,7 @@ from utils.pdb_utils import ( prep_protein, SaveModels )
 
 class FitToData():
 	def __init__( self, sys_name: str,
-					ofold_config: mlc.ConfigDict,
+					# ofold_config: mlc.ConfigDict,
 					topology: mlc.ConfigDict,
 					mode: str,
 					jax_params_path: str,
@@ -39,9 +40,9 @@ class FitToData():
 					seed_worker,
 					device: str ):
 		self.sys_name = sys_name
-		self.ofold_config = ofold_config
+		# self.ofold_config = ofold_config
 		self.topology = topology
-		self.is_multimer = self.ofold_config.globals.is_multimer,
+		# self.is_multimer = self.ofold_config.globals.is_multimer,
 		self.mode = mode
 		self.prec = prec
 		self.device = device
@@ -72,18 +73,19 @@ class FitToData():
 		self.create_required_paths()
 		self.create_required_dir()
 
-		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 		# Load OpenFold configs file.
 		self.ofold_config = model_config(
 			self.topology.system_representation.config_preset,
 			long_sequence_inference = self.topology.system_representation.long_sequence_inference,
 			use_deepspeed_evoformer_attention = self.topology.system_representation.use_deepspeed_evoformer_attention,
 			)
-		if self.topology.model.no_templates:
-			print( "Disabling template embedding..." )
-			self.ofold_config.model.template.enabled = False
-		else:
-			self.ofold_config.model.template.enabled = True
+		self.is_multimer = self.ofold_config.globals.is_multimer
+		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
+		# if self.topology.model.no_templates:
+		# 	print( "Disabling template embedding..." )
+		# 	self.ofold_config.model.template.enabled = False
+		# else:
+		# 	self.ofold_config.model.template.enabled = True
 
 		self.fit()
 
@@ -166,14 +168,14 @@ class FitToData():
 
 	################################################################################
 	################################################################################
-	def get_final_atom_positions( self ):
+	def init_coords( self ):
 		"""
 		final_atom_positions can be obtained
 			From an initial predicted structure.
-			An all-1's tensor.
+			An all-0's tensor.
 		"""
 		# Skip using the initial predicted structure.
-		if self.topology.train.init_zero:
+		if self.topology.train.init_coord == "zero":
 			n = self.processed_feature_dict["asym_id"].shape[1]
 			final_atom_positions = torch.zeros( [1, n, 37, 3] )
 			out = {
@@ -183,25 +185,69 @@ class FitToData():
 				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
 				"asym_id": self.processed_feature_dict["asym_id"]
 			}
-		else:
+		elif self.topology.train.init_coord == "init":
 			out = copy.deepcopy( self.init_pred_dict )
+		else:
+			raise ValueError( f"Incorrect value for init_coord. Allowed zero/init..." )
+		self.add_to_device( out )
+		return out
+
+
+	def reinit_coords( self,
+		out: torch.tensor,
+		prev_frame_coord: torch.tensor,
+		pose_iter: bool
+		) -> Dict[str, torch.tensor]:
+		"""
+		Every frame, one can reuse the prediction in the following ways,
+			At every frame,
+				previous frame.
+				initialize again.
+			At every pose sampling iteration (step), one can reuse prediction from,
+				previous frame.
+				previous pose sampling iteration (step).
+				initialize again.
+		"""
+		# For pose sampling.
+		if pose_iter:
+			if self.topology.train.reinit_step == "prev_frame":
+				out["final_atom_positions"] = prev_frame_coord
+			elif self.topology.train.reinit_step == "prev_step":
+				pass
+			elif self.topology.train.reinit_step == "init":
+				out = self.init_coords()
+			else:
+				raise ValueError( f"Incorrect value for reinit_pose. Allowed prev_frame/prev_step/init..." )
+		else:
+			if self.topology.train.reinit_frame == "init":
+				out = self.init_coords()
+			elif self.topology.train.reinit_frame == "prev_frame":
+				pass
+			else:
+				raise ValueError( f"Incorrect value for reinit_frame. Allowed init/prev_frame..." )
+
 		return out
 
 
 	def fit( self ) -> None:
 		"""
+		Each frame of the simulation comprises
+			1 cycle of Pose sampling
+				M steps
+			1 round of OpenFold prediction
+
 		Add a singleton batch dim.
 		Initialize:
 			A SaveModel object to add and save predicted models to a CIF file.
 			Recycler model.
 
-		For each epoch:
-			Perform M rounds of rigid sampling.
-				Define rigid bodies (either cy chain or based on pLDDT and/or PAE).
+		For each frame (epoch):
+			Perform M rounds of rigid sampling (one cycle of M steps).
+				Define rigid bodies (either chain or based on pLDDT and/or PAE).
 				Predict and apply a rigid transformation.
 				Compute loss and backpropagate.
 			Recycle final structure as input to AlphaFold (no_grad).
-				This gives the predicted structure per epoch.
+				This gives the predicted structure per frame.
 			Compute the metrics.
 			Save model to a PDB file.
 			Save all required metadata in stats_dict.
@@ -218,7 +264,7 @@ class FitToData():
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 
-		# Initialize the recycling model.
+		# Initialize the OpenFold model predict structures biased by the pose sampled conformation.
 		recycler_model = Recycler(
 			ofold_config = self.ofold_config,
 			jax_param_path = self.jax_params_path,
@@ -240,68 +286,32 @@ class FitToData():
 
 		# Keep track of moel_id's.
 		self.stats_dict["model_id"] = []
-		# Note the time per epoch.
-		self.stats_dict["time_per_epoch"] = []
+		# Note the time per frame.
+		self.stats_dict["time_per_frame"] = []
 
-		# Skip using the initial predicted structure.
-		# if self.topology.train.init_zero:
-		# 	n = self.processed_feature_dict["asym_id"].shape[1]
-		# 	final_atom_positions = torch.zeros( [1, n, 37, 3] )
-		# 	out = {
-		# 		"msa": None,
-		# 		"pair": None,
-		# 		"final_atom_positions": final_atom_positions,
-		# 		"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
-		# 		"asym_id": self.processed_feature_dict["asym_id"]
-		# 	}
-		# else:
-		# 	out = copy.deepcopy( self.init_pred_dict )
-		out = self.get_final_atom_positions()
+		# out = self.get_final_atom_positions()
+		out = self.init_coords()
+		prev_frame_coord = out["final_atom_positions"]
 
-		# self.add_to_device( out )
-
-		for epoch in range( self.topology.train.max_epochs ):
+		for frame in range( self.topology.train.num_frames ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
-			print( f"\n\033[1mEpoch: {epoch} \033[0m" + "-"*20 )
-
-			# If True, out from the previous epoch will be reused.
-			if not self.topology.train.reuse_prediction:
-				out = self.get_final_atom_positions()
-				# out = copy.deepcopy( self.init_pred_dict )
-				self.add_to_device( out )
+			print( f"\n\033[1mFrame: {frame} \033[0m" + "-"*20 )
 
 			# Skip pose sampling if specified.
-			if not self.topology.train.skip_pose_sampling:
-				# # If True, out from the previous epoch will be reused.
-				# if not self.topology.train.reuse_prediction:
-				# 	out = self.get_final_atom_positions()
-				# 	# out = copy.deepcopy( self.init_pred_dict )
-				# 	self.add_to_device( out )
-
-				out = self.predict_pose( out = out )
-			else:
+			if self.topology.train.skip_pose_sampling:
 				if self.topology.train.fill_none:
 					out["final_atom_positions"] = None
-					# else keep the initial predicted final_atom_positions.
-			# else:
-			# 	# If True, out from the previous epoch will be reused.
-			# 	if not self.topology.train.reuse_prediction:
-			# 		out = self.get_final_atom_positions()
-			# 		# out = copy.deepcopy( self.init_pred_dict )
-			# 		self.add_to_device( out )
-				# if self.topology.train.init_zero:
-				# 	final_atom_positions = torch.zeros( [1, n, 37, 3] )
-				# 	out = {
-				# 	"msa": None,
-				# 	"pair": None,
-				# 	"final_atom_positions": final_atom_positions,
-				# 	"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
-				# 	"asym_id": self.processed_feature_dict["asym_id"]
-				# 	}
-				# else:
-				# 	out = copy.deepcopy( self.init_pred_dict )
-			self.add_to_device( out )
+			else:
+				out = self.predict_pose(
+					out = out,
+					prev_frame_coord = prev_frame_coord )
+
+				# this will happen only if pose sampling is enabled.
+				out, batch = self.prepare_pose_for_injection(
+					out = out,
+					batch = batch,
+					frame = frame )
 
 			# Clear cache.
 			torch.cuda.empty_cache()
@@ -327,23 +337,20 @@ class FitToData():
 
 				self.remove_from_device( out )
 			t_r_e = time.perf_counter()
-			print( f"Time taken for recycling {epoch}: {( t_r_e - t_r_s )} seconds" )
+			print( f"Time taken for OpenFold prediction at frame {frame}: {( t_r_e - t_r_s )} seconds" )
 
-			# Removed the modified MSA features.
-			for k in ["msa", "msa_feat", "msa_mask", "deletion_matrix", "cluster_deletion_mean", "cluster_profile"]:
-				batch[k] = self.processed_feature_dict[k].to( self.device )
 			# Clear cache.
 			torch.cuda.empty_cache()
 
-			if epoch == self.topology.train.max_epochs-1:
-				last_epoch = True
+			if frame == self.topology.train.num_frames-1:
+				last_frame = True
 			else:
-				last_epoch = False
+				last_frame = False
 
 			# Log the required loss and metrics.
 			self.update_loss_dict( losses, update_pose_metrics = False )
 			metrics_dict = self.metrics_fn.forward(
-				out = out, last_epoch = last_epoch  )
+				out = out, last_epoch = last_frame )
 			self.update_data_metric_dict(
 				metrics_dict = metrics_dict, update_pose_metrics = False )
 			self.update_confidence_metrics(
@@ -351,18 +358,34 @@ class FitToData():
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
-			self.add_protein_obj_to_stat( model_id = epoch,
+			self.add_protein_obj_to_stat( model_id = frame,
 											unrelaxed_protein = unrelaxed_protein )
 
 			self.add_model( save_model_obj = save_model_obj,
 							unrelaxed_protein = unrelaxed_protein,
-							model_id = epoch )
+							model_id = frame )
 
-			# using epoch as the model_id.
-			self.stats_dict["model_id"].append( epoch )
+			# Current frame coordinates for use in the nest frame if specified.
+			prev_frame_coord = out["final_atom_positions"].to( self.device )
+			# Reinitialize out as specified in topology.
+			out = self.reinit_coords(
+				out = out,
+				prev_frame_coord = prev_frame_coord,
+				pose_iter = False )
+
+			# using frame as the model_id.
+			self.stats_dict["model_id"].append( frame )
+
+			# Removed the modified MSA features.
+			for k in ["msa", "msa_feat", "msa_mask", "deletion_matrix", "cluster_deletion_mean", "cluster_profile"]:
+				batch[k] = self.processed_feature_dict[k].to( self.device )
+			if self.topology.train.add_to_existing_templates:
+				for k in ["template_aatype", "template_all_atom_positions", "template_all_atom_mask"]:
+					batch[k] = self.processed_feature_dict[k].to( self.device )
+
 			t_e = time.perf_counter()
-			print( f"Time taken for epoch {epoch}: {( t_e - t_s )}  seconds" )
-			self.stats_dict["time_per_epoch"].append( t_e - t_s )
+			print( f"Time taken for Frame {frame}: {( t_e - t_s )}  seconds" )
+			self.stats_dict["time_per_frame"].append( t_e - t_s )
 			print( "-"*80 + "\n" + "-"*80 )
 
 		t_end = time.perf_counter()
@@ -372,11 +395,51 @@ class FitToData():
 		self.save_model( save_model = save_model_obj )
 
 
-	################################################################################
-	################################################################################
-	def predict_pose( self, out: Dict[str, Any] ):
+	def prepare_pose_for_injection( self,
+		out: Dict[str, Any],
+		batch: Dict[str, torch.Tensor],
+		frame: int
+		) -> Tuple[Dict[str, Any], Dict[str, torch.Tensor]]:
 		"""
-		For M iterations
+		Modify the batch and out dicts for biaisng OpenFold prediction
+			with the pose sampled structure.
+		The pose sampled structure can be used to bias the prediction from 2 routes:
+			Template embedder
+				Create template features from the pose sampled structure
+					to replace the existing template features.
+			Recycling embedder
+				Use the coordinates of the pose sampled structure
+					as input for the recycling embedder.
+			Or both
+		"""
+		if self.topology.train.use_as_templates:
+			print( "Creating template feats from the pose sampled structures..." )
+			unrelaxed_protein  = self.get_protein_object( outputs = out )
+			batch = update_template_feats(
+				batch = batch,
+				sys_name = self.sys_name,
+				prot = unrelaxed_protein,
+				model_id = frame,
+				sys_config = self.topology.system,
+				add_to_existing_templates = self.topology.train.add_to_existing_templates,
+				device = self.device )
+			print( f"New template feat dim: {batch['all_atom_positions'].shape}..." )
+
+		if not self.topology.train.recycle_pose:
+			out["final_atom_positions"] = None
+		else:
+			print( "Injecting the pose sampled structure via the recycling embedder..." )
+
+		return out, batch
+
+	################################################################################
+	################################################################################
+	def predict_pose( self,
+		out: Dict[str, Any],
+		prev_frame_coord: torch.Tensor ) -> Dict[str, Any]:
+		"""
+		I cycle of pose sampling comprises of M steps.
+		For M iterations (steps)
 		Run pose sampler
 				Define rigid bodies (either cy chain or based on pLDDT and/or PAE).
 				Predict a rigid tranformation using a neural network.
@@ -392,13 +455,16 @@ class FitToData():
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
+	
+		for step in range( self.topology.train.num_steps ):
+			print( f"\nPose sampling step: {step} --------------------------" )
 
-		for sub_epoch in range( self.topology.train.max_pose_iters ):
-			print( f"\nPose sampling epoch: {sub_epoch} --------------------------" )
+			# if self.topology.train.reinit_step0 or step != 0:
+			out = self.reinit_coords(
+				out = out,
+				prev_frame_coord = prev_frame_coord,
+				pose_iter = True )
 
-			# out = copy.deepcopy( self.init_pred_dict )
-			if self.topology.train.reinit_per_pose_iter:
-				out = self.get_final_atom_positions()
 			self.add_to_device( out )
 			# with torch.autograd.detect_anomaly(): # Use while debugging.
 			out = model.predict( out = out )
@@ -408,12 +474,12 @@ class FitToData():
 				self.processed_feature_dict["restraint_features"] )
 			self.update_loss_dict( losses, update_pose_metrics = True )
 
-			if sub_epoch == self.topology.train.max_pose_iters-1:
-				last_epoch = True
+			if step == self.topology.train.num_steps-1:
+				last_step = True
 			else:
-				last_epoch = False
+				last_step = False
 			metrics_dict = self.metrics_fn.forward(
-				out = out, last_epoch = last_epoch )
+				out = out, last_epoch = last_step )
 			self.update_data_metric_dict(
 				metrics_dict = metrics_dict, update_pose_metrics = True )
 
@@ -423,14 +489,11 @@ class FitToData():
 
 			optimizer.zero_grad()
 			cum_loss.backward()
-			#for name, param in model.named_parameters():
-			#	if param.grad is not None:
-			#		print( f"{name} grad stats: min = {param.grad.min()}, max = {param.grad.max()}, nan = {torch.isnan( param.grad ).any()}" )
 			optimizer.step()
 			self.remove_from_device( out )
 
+		self.add_to_device( out )
 		return out
-
 
 	################################################################################
 	################################################################################
@@ -540,7 +603,7 @@ class FitToData():
 	################################################################################
 	def update_loss_dict( self, losses: Dict[str, torch.Tensor], update_pose_metrics: bool ):
 		"""
-		Keep a tab on the loss per epoch for all individual loss 
+		Keep a tab on the loss per frame/step for all individual loss 
 			terms and the cumulative loss.
 		"""
 		if update_pose_metrics:
@@ -569,7 +632,7 @@ class FitToData():
 		metrics_dict: Dict[str, float],
 		update_pose_metrics: bool ):
 		"""
-		Save per epoch metric values for all individual merics in stats_dict.
+		Save per frame/step metric values for all individual merics in stats_dict.
 		"""
 		if update_pose_metrics:
 			if "metrics" not in self.stats_dict_pose:
@@ -597,7 +660,7 @@ class FitToData():
 
 	def update_confidence_metrics( self, out: torch.Tensor ):
 		"""
-		Save the per epoch confidence metrics in the stats_dict.
+		Save the per frame confidence metrics in the stats_dict.
 		"""
 		if "confidence" not in self.stats_dict:
 			self.stats_dict["confidence"].update( 
@@ -654,7 +717,7 @@ class FitToData():
 		For pdb: write the model as a pdb string.
 		For cif: add the predicted structure as a model to a modelcif object.
 		"""
-		# save_model_obj.add_to_modelcif( unrelaxed_protein, epoch )
+		# save_model_obj.add_to_modelcif( unrelaxed_protein, frame )
 		save_model_obj.add_model( prot = unrelaxed_protein, model_id = model_id )
 
 

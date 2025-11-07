@@ -33,18 +33,32 @@ class BenchmarkModeling():
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
 		# Maximum no. of epochs for fine-tuning.
-		self.max_epochs = 50
+		self.num_frames = 50
 		# Max epochs for pose sampling.
-		self.max_pose_iters = 20
+		self.num_steps = 20
 		# Disable template embeddings.
 		self.no_templates = False
 		self.skip_pose_sampling = False
-		# Use all 0's for final_atom_positions.
-		self.init_zero = False
-		# Reuse predicted structure per epoch for pose sampling in next epoch.
-		self.reuse_prediction = False
-		# If True, reinitializes the final_atom_positions every pose sampling iter.
-		self.reinit_per_pose_iter = False
+		# Inject pose sampled structure via template embedder.
+		self.use_as_templates = False
+		# If true, add the pose sampled struct ffeats to existing template feats.
+		self.add_to_existing_templates = False
+		# Inject predicted structure via the recycling embedder.
+		self.recycle_pose = True
+		# Initialize final_atom_positions to 0 or initial predicted structure.
+		self.init_coord = "init"
+		# If true, initialize final_atom_positions again else use from previous epoch.
+		self.reinit_frame = False
+		# Reuse the final_atom_positions form previous epoch/ previous pose or initialize again.
+		self.reinit_step = "none"
+		# Reinitializes final_atom_positions for the 0th sub-epoch too.
+		# self.reinit_step0 = False
+		# # Use all 0's for final_atom_positions.
+		# self.init_zero = False
+		# # Reuse predicted structure per epoch for pose sampling in next epoch.
+		# self.reuse_prediction = False
+		# # If True, reinitializes the final_atom_positions every pose sampling iter.
+		# self.reinit_per_pose_iter = False
 		# If skipping pose sampling, use final_atom_positions=None.
 		self.fill_none = False
 		# Precision of the float values in the results.
@@ -207,11 +221,19 @@ class BenchmarkModeling():
 			topo_dict.analysis.enabled = self.enable_analysis
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
-			topo_dict.train.max_epochs = self.max_epochs
-			topo_dict.train.max_pose_iters = self.max_pose_iters
+			topo_dict.train.num_frames = self.num_frames
+			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
-			topo_dict.train.init_zero = self.init_zero
-			topo_dict.train.reuse_prediction = self.reuse_prediction
+			topo_dict.train.use_as_templates = self.use_as_templates
+			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
+			topo_dict.train.recycle_pose = self.recycle_pose
+			topo_dict.train.init_coord = self.init_coord
+			topo_dict.train.reinit_frame = self.reinit_frame
+			topo_dict.train.reinit_step = self.reinit_step
+			# topo_dict.train.reinit_step0 = self.reinit_step0
+			# topo_dict.train.init_zero = self.init_zero
+			# topo_dict.train.reuse_prediction = self.reuse_prediction
+			# topo_dict.train.reinit_per_pose_iter = self.reinit_per_pose_iter
 			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
 
@@ -228,9 +250,6 @@ class BenchmarkModeling():
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
 			topo_dict.loss.violation.add_penalty = self.violation["add_penalty"]
 			topo_dict.loss.violation.weight = self.violation["weight"]
-			# topo_dict.loss.violation.ev.intra_chain_dist = self.violation["ev"]["intra_chain_dist"]
-			# topo_dict.loss.violation.ev.inter_chain_dist = self.violation["ev"]["inter_chain_dist"]
-			# topo_dict.loss.violation.ev.weight = self.violation["ev"]["weight"]
 
 			# XL restraint loss settings.
 			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
@@ -1108,9 +1127,16 @@ class BenchmarkModeling():
 				"benchmark": self.benchmark_name,
 				"objective": self.modeling_objective,
 				"version": str( self.modeling_version ),
-				"max_epochs": str( self.max_epochs ),
-				"max_pose_iters": str( self.max_pose_iters ),
+				"num_frames": str( self.num_frames ),
+				"num_steps": str( self.num_steps ),
+				"use_as_templates": self.use_as_templates,
+				"add_to_existing_templates": self.add_to_existing_templates,
+				"recycle_pose": self.recycle_pose,
 				"skip_pose_sampling": self.skip_pose_sampling,
+				"init_coord": self.init_coord,
+				"reinit_frame": self.reinit_frame,
+				"reinit_step": self.reinit_step,
+				"reinit_step0": self.reinit_step,
 				"fill_none": self.fill_none,
 				"prec": self.prec,
 				"device": self.device,
@@ -1138,6 +1164,7 @@ class BenchmarkModeling():
 				"config_file": self.config_file
 			} )
 		write_json( configs, self.config_file )
+
 
 if __name__ == "__main__":
 	BenchmarkModeling().forward()

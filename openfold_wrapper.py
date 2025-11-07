@@ -62,8 +62,6 @@ class IntegrativeLearning():
 		else:
 			raise ValueError( f"Invalid mode = {self.pred_mode} specififed..." )
 
-		# Load OpenFold configs file.
-		self.ofold_config = model_config( self.config_preset )
 		# Load the full system specific configs.
 		self.topology = topology_dict
 
@@ -223,7 +221,7 @@ class IntegrativeLearning():
 		"""
 		# Load the models and fit to data.
 		fit = FitToData( sys_name = self.sys_name,
-						ofold_config = self.ofold_config,
+						# ofold_config = self.ofold_config,
 						topology = self.topology,
 						mode = self.pred_mode,
 						jax_params_path = self.topology.system_representation.jax_params_path,
@@ -476,8 +474,8 @@ class IntegrativeLearning():
 		num_global_labels = len( df_dict["labels"] ) - num_per_epoch_labels
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
-		last_n = math.ceil( self.topology.train.max_epochs*0.9 )
-		first_n = math.ceil( self.topology.train.max_epochs*0.1 )
+		last_n = math.ceil( self.topology.train.num_frames*0.9 )
+		first_n = math.ceil( self.topology.train.num_frames*0.1 )
 
 		for k, v in loss_dict.items():
 			df_dict[k].extend(

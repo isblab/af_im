@@ -23,7 +23,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "7xvo: test new implementation for running pose sampling. " +
+	"objective": "7xvo: testing template emebedding for poses. Ad to existing templates. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -109,7 +109,7 @@ config = mlc.ConfigDict(
 			}
 		},
 		"msa_xl_res_mask": False,
-		"no_templates": False
+		"no_templates": False # deprecated
 	},
 	"loss": {
 		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
@@ -157,7 +157,7 @@ config = mlc.ConfigDict(
 	},
 	"analysis": {
 		# Run analysis pipeline.
-		"enabled": False,
+		"enabled": True,
 		# Run relaxation and MolProbity validation.
 		"enable_relax_validate": True,
 		# Metrics to include for model_selection.
@@ -218,13 +218,20 @@ config = mlc.ConfigDict(
 	"train": {
 		# Version for the modeling run.
 		"version": None,
+		"use_as_templates": False,  # Inject pose sampled structure via template embedder.
+		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
+		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
 		"skip_pose_sampling": False,
-		"init_zero": True,  # If True, use all 0 initial coords for pose sampling.
-		"reinit_per_pose_iter": True,  # If True, reinitializes the final_atom_positions every pose sampling iter.
+		"init_coord": "init",  # zero/ init
+		"reinit_frame": "init",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
+		"reinit_step": "init",  # prev_frame/prev_step/init for all but 0th step
+		# "reinit_step0": True,  # If True, reinitializes for the 0th step too.
 		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
-		"reuse_prediction": False,  # If True, reuse the recycled prediction for pose sampling.
-		"max_epochs": 50, # max epochs for sampling.
-		"max_pose_iters": 20, # max epochs for pose sampling.
+		# "init_zero": False,  # If True, use all 0 initial coords for pose sampling.
+		# "reinit_per_pose_iter": False,  # If True, reinitializes the final_atom_positions every pose sampling iter.
+		# "reuse_prediction": "prev_epoch",  # prev_epoch/prev_sub_epoch/none
+		"num_frames": 50, # max epochs for sampling.
+		"num_steps": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		#"allow_mcpa": True, # use multi-chain permutation align
 		#"allow_grad_update": True, # allow gradient update - to be deprecated.
