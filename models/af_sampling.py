@@ -102,7 +102,7 @@ def subsample_sequentially(
 
 def msa_column_masking(
 	batch: Dict[str, torch.Tensor],
-	params: Dict[str, Any] ):
+	params: Dict[str, Any] ) -> Dict[str, torch.Tensor]:
 	"""
 	Implement MSA column masking.
 	Replace a specified fraction of residues with the unknown token (21).
@@ -114,6 +114,10 @@ def msa_column_masking(
 	mask_frac = params["mask_frac"]
 
 	num_mask = int( N*mask_frac )
+	# For small sequences.
+	if num_mask <= 1:
+		raise ValueError( f"Too few columns selected for masking with mask_frac={mask_frac}." +
+			"For small sequences try higher values of mask_frac..." )
 
 	idx = np.arange( 0, N, 1 )
 	mask_idx = torch.randperm( len( idx ) )[:num_mask]
@@ -155,105 +159,26 @@ def mask_msa_for_xl_res(
 
 	return batch
 
-################################################################################
-################################################################################
-def af_sampling( self,
-	batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
+
+def noised_structure(
+	out: Dict[str, Any],
+	params: Dict[str, Any]) -> Dict[str, Any]:
 	"""
-	Apply the specified AF sampling technique:
-		MSA subsampling
-		MSA column amsking
-		Masking MSA for cross-linked residues
-	If using multiple, MSA subsampling will be done first.
+	Create a noised final_atom_positions by:
+		Adding gaussian noise to final_atom_positions.
+		Sampling final_atom_positions from a gaussian.
 	"""
-	if self.topology.model.subsampling.enabled:
-		orig_shape = batch["msa_feat"].shape
-		batch = self.msa_subsampling( batch = batch )
-		print( f"Full msa_feat = {orig_shape}" +
-			f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
+	final_atom_positions = out.pop( "final_atom_positions" ).cpu()
+	mu = torch.full( final_atom_positions.shape, params["mu"] )
+	sigma = torch.full( final_atom_positions.shape, params["sigma"] )
+	noise = torch.normal( mu, sigma )
+
+	# Add noise to the existing structure.
+	if params["noise_struct"]:
+		final_atom_positions += noise
+	# Pure noise structure.
 	else:
-		print( "MSA subsampling switched off..." )
+		final_atom_positions = noise
+	out["final_atom_positions"] = final_atom_positions*out["final_atom_mask"].unsqueeze( -1 ).cpu()
+	return out
 
-	if self.topology.model.column_masking.enabled:
-		batch = self.column_masking( batch = batch )
-	else:
-		print( "MSA column masking switched off..." )
-
-	if self.topology.model.msa_xl_res_mask:
-		print( "Masking MSA for XL residues..." )
-		xl_res_dict = self.processed_feature_dict["restraint_features"]["xl_restraint"]["xl_res_dict"]
-		batch = mask_msa_for_xl_res(
-			batch = batch,
-			xl_res_dict = xl_res_dict )
-	else:
-		print( "MSA masking for XL residues switched off..." )
-
-	return batch
-
-
-def msa_subsampling( self,
-		batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
-	"""
-	Subsample the MSA and update the msa_feat.
-	msa_feat -> [1, S, N, 49]
-	deletion_matrix -> [1, S, N]
-	cluster_deletion_mean -> [1, S, N]
-	cluster_profile -> [1, S, N, 23]
-	"""
-	params = dict( self.topology.model.subsampling.params )
-	neff_list = params["neff"]
-	neff = np.random.choice( neff_list, 1, replace = False )[0]
-	params["neff"] = int( neff )
-	print( f"Using neff = {params['neff']}..." )
-
-	subsampled_idx = msa_subsampler(
-		msa = batch["msa"].cpu(),
-		subsample_type = self.topology.model.subsampling.type,
-		params = params )
-
-	if "subsample" not in self.stats_dict:
-		self.stats_dict["subsample"] = {
-			"neff": [params["neff"]],
-			"subsampled_indices": [subsampled_idx]
-		}
-	else:
-		self.stats_dict["subsample"]["neff"].append( params["neff"] )
-		self.stats_dict["subsample"]["subsampled_indices"].append( subsampled_idx )
-
-	print( f"Subsampled MSA indices = {subsampled_idx}" )
-
-	# Select subsampled MSA.
-	batch["msa"] = batch["msa"][:,subsampled_idx,:].to( self.device )
-	batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
-	batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:].to( self.device )
-	batch["deletion_matrix"] = batch["deletion_matrix"][:,subsampled_idx,:].to( self.device )
-	batch['cluster_deletion_mean'] = batch["cluster_deletion_mean"][:,subsampled_idx,:].to( self.device )
-	batch["cluster_profile"] = batch["cluster_profile"][:,subsampled_idx,:, :].to( self.device )
-	return batch
-
-
-def column_masking( self,
-		batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
-	"""
-	Apply MSA column masking.
-	"""
-	params = dict( self.topology.model.column_masking.params )
-	mask_frac_list = params["mask_frac"]
-	mask_frac = np.random.choice( mask_frac_list, 1, replace = False )[0]
-	params["mask_frac"] = mask_frac
-	print( f"Using column mask fraction = {params['mask_frac']}..." )
-
-	batch, masked_idx = msa_column_masking(
-		batch = batch,
-		params = params )
-
-	print( f"Masked MSA columns = {masked_idx}" )
-	if "col_mask" not in self.stats_dict:
-		self.stats_dict["col_mask"] = {
-			"mask_frac": [params["mask_frac"]],
-			"masked_idx": [masked_idx]
-		}
-	else:
-		self.stats_dict["col_mask"]["mask_frac"].append( params["mask_frac"] )
-		self.stats_dict["col_mask"]["masked_idx"].append( masked_idx )
-	return batch
