@@ -23,7 +23,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "7xvo: testing template emebedding for poses. Ad to existing templates. " +
+	"objective": "7xvo: testing structure noising. " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -106,6 +106,14 @@ config = mlc.ConfigDict(
 			"params": {
 			# Randomly choses a mask fraction from the provided list (Max 0.3).
 			"mask_frac": [0.3]
+			}
+		},
+		"struct_noising": {
+			"enabled": True,
+			"params": {
+				"noise_struct": True,
+				"mu": [0.0],
+				"sigma": [1.0]
 			}
 		},
 		"msa_xl_res_mask": False,
@@ -221,8 +229,9 @@ config = mlc.ConfigDict(
 		"use_as_templates": False,  # Inject pose sampled structure via template embedder.
 		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
 		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
-		"skip_pose_sampling": False,
+		"skip_pose_sampling": True,
 		"init_coord": "init",  # zero/ init
+		"init_rep": ["zero", "init"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
 		"reinit_frame": "init",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
 		"reinit_step": "init",  # prev_frame/prev_step/init for all but 0th step
 		# "reinit_step0": True,  # If True, reinitializes for the 0th step too.
