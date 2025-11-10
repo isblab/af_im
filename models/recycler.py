@@ -43,6 +43,9 @@ class Recycler():
 			batch: Dict[str, Any] ):
 		"""
 		"""
+		if None in [out["msa"], out["pair"], out["final_atom_positions"]]:
+			print( "None detected in MSA/Pair rep or final_atom_positions." +
+				" Recycling embedder will ignore whatever final_atom_positions is provided and initialize to 0..." )
 		# Initialize recycling embeddings
 		if out["msa"] is None:
 			m_1_prev = out["msa"]
