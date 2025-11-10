@@ -1,5 +1,5 @@
 from typing import List, Tuple, Dict, Any
-import os, glob, time, copy
+import os, time, copy
 from collections import ( defaultdict )
 import pickle as pkl
 import numpy as np
@@ -15,7 +15,7 @@ from models.rigid_sampler import PoseSampling
 from models.recycler import Recycler
 from models.af_sampling import (
 	msa_subsampler, msa_column_masking,
-	mask_msa_for_xl_res )
+	mask_msa_for_xl_res, noised_structure )
 from models.custom_template_feats import update_template_feats
 
 from loss import LossFunction
@@ -40,9 +40,7 @@ class FitToData():
 					seed_worker,
 					device: str ):
 		self.sys_name = sys_name
-		# self.ofold_config = ofold_config
 		self.topology = topology
-		# self.is_multimer = self.ofold_config.globals.is_multimer,
 		self.mode = mode
 		self.prec = prec
 		self.device = device
@@ -53,8 +51,9 @@ class FitToData():
 		self.init_pred_dict = init_pred_dict
 		self.modeling_output_dir = modeling_output_dir
 
+		self.seed_worker = seed_worker
 		# Set the seeds.
-		seed_worker()
+		self.seed_worker()
 
 		# Stats for the full run (pose sampling + recycling).
 		self.stats_dict = defaultdict( dict )
@@ -81,11 +80,6 @@ class FitToData():
 			)
 		self.is_multimer = self.ofold_config.globals.is_multimer
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
-		# if self.topology.model.no_templates:
-		# 	print( "Disabling template embedding..." )
-		# 	self.ofold_config.model.template.enabled = False
-		# else:
-		# 	self.ofold_config.model.template.enabled = True
 
 		self.fit()
 
@@ -130,14 +124,13 @@ class FitToData():
 		
 		with torch.no_grad():
 			self.feature_dict = parse_nested_dict( self.feature_dict, "add_dim" )
-			self.feature_dict["residue_index"] = self.feature_dict["residue_index"]
+			# self.feature_dict["residue_index"] = self.feature_dict["residue_index"]
 
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, action = "to_tensor" )
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "add_dim" )
 
 			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, action = "to_tensor" )
-			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, "add_dim" )
-			# dtype = torch.int64 is needed for torch.nn.functional.one_hot() in violation_loss calculation.
+			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, action = "add_dim" )
 			self.gt_feature_dict["residue_index"] = self.gt_feature_dict["residue_index"].to( torch.int64 )
 
 			self.init_pred_dict = parse_nested_dict( self.init_pred_dict, action = "to_tensor" )
@@ -147,7 +140,7 @@ class FitToData():
 				if k != "sm":
 					self.init_pred_dict[k] = self.init_pred_dict[k].unsqueeze( 0 )
 				else:
-					# For sm output, 0th dim is the recycling dim.
+					# For sm output, 0th dim is the SM recycling dim.
 					for m in self.init_pred_dict["sm"]:
 						self.init_pred_dict[k][m] = self.init_pred_dict[k][m].unsqueeze( 1 )
 
@@ -168,27 +161,80 @@ class FitToData():
 
 	################################################################################
 	################################################################################
+	def init_representations( self ):
+		"""
+		Initialize the MSA and Pair representation as specified in the topology file.
+		init_rep
+			init: same reuse the MSA and Pair rep from the initial predicted structure.
+			zero: initialize both to 0's.
+			none: initialize both to None. This causes the
+				recycling embedder to ignore the x_prev (optimized pose to be used).
+		"""
+		n = self.processed_feature_dict["asym_id"].shape[1]
+		s = self.processed_feature_dict["msa"].shape[1]
+		c_m, c_z = 256, 128
+
+		print( f"\tItializing MSA and pair representations: init_rep = {self.topology.train.init_rep}..." )
+		for i, init_ in self.topology.train.init_rep:
+			if init_ == "init":
+				if i == 0:
+					msa = copy.copy( self.init_pred_dict["msa"] )
+				else:
+					pair = copy.copy( self.init_pred_dict["pair"] )
+			elif self.topology.train.init_rep == "zero":
+				if i == 0:
+					msa = torch.zeros( [1, s, n, c_m] )
+				else:
+					pair = torch.zeros( [1, n, n, c_z] )
+			elif "none" in self.topology.train.init_rep:
+				# When None, the optimized structure being input to the recycler is ignored.
+				msa, pair = None, None
+			else:
+				raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
+
+
+		# if self.topology.train.init_msa == "init":
+		# 	msa = copy.copy( self.init_pred_dict["msa"] )
+		# 	pair = copy.copy( self.init_pred_dict["pair"] )
+		# elif self.topology.train.init_rep == "zero":
+		# 	msa = torch.zeros( [1, s, n, c_m] )
+		# 	pair = torch.zeros( [1, n, n, c_z] )
+		# elif self.topology.train.init_rep == "none":
+		# 	# When None, the optimized structure being input to the recycler is ignored.
+		# 	msa, pair = None, None
+		# else:
+		# 	raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
+
+		return {"msa": msa, "pair": pair}
+
+
 	def init_coords( self ):
 		"""
 		final_atom_positions can be obtained
 			From an initial predicted structure.
 			An all-0's tensor.
 		"""
+		n = self.processed_feature_dict["asym_id"].shape[1]
+
+		print( f"\tItializing final_atom-positions: init_coord = {self.topology.train.init_coord}..." )
 		# Skip using the initial predicted structure.
 		if self.topology.train.init_coord == "zero":
-			n = self.processed_feature_dict["asym_id"].shape[1]
 			final_atom_positions = torch.zeros( [1, n, 37, 3] )
 			out = {
-				"msa": None,
-				"pair": None,
 				"final_atom_positions": final_atom_positions,
 				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
 				"asym_id": self.processed_feature_dict["asym_id"]
 			}
 		elif self.topology.train.init_coord == "init":
-			out = copy.deepcopy( self.init_pred_dict )
+			out = {}
+			for k in ["final_atom_positions", "final_atom_mask", "asym_id"]:
+				out[k] = copy.copy( self.init_pred_dict[k] )
+			# out = copy.deepcopy( self.init_pred_dict )
 		else:
 			raise ValueError( f"Incorrect value for init_coord. Allowed zero/init..." )
+		# Add the initialized MSA and Pair representations.
+		out.update( self.init_representations() )
+
 		self.add_to_device( out )
 		return out
 
@@ -207,21 +253,35 @@ class FitToData():
 				previous frame.
 				previous pose sampling iteration (step).
 				initialize again.
+		
+		Inputs:
+		----------
+		out --> dict output from AF2/OpenFold. See SystemRepresentation for details.
+		prev_frame_coord --> final_atom_positions from the previous, (n-1)th, frame.
+		pose_iter --> boolean flag to distinguish between the a frame and a step iteration.
+
+		Returns:
+		----------
+		out --> out dict with final_atom_positions initialized as specified in the topology.
 		"""
 		# For pose sampling.
 		if pose_iter:
+			print( f"Reinitializing final_atom-positions: reinit_pose = {self.topology.train.reinit_step}..." )
 			if self.topology.train.reinit_step == "prev_frame":
 				out["final_atom_positions"] = prev_frame_coord
 			elif self.topology.train.reinit_step == "prev_step":
+				# Return the existing final_atom_positions to be used in the next step.
 				pass
 			elif self.topology.train.reinit_step == "init":
 				out = self.init_coords()
 			else:
 				raise ValueError( f"Incorrect value for reinit_pose. Allowed prev_frame/prev_step/init..." )
 		else:
+			print( f"Reinitializing final_atom-positions: reinit_frame = {self.topology.train.reinit_frame}..." )
 			if self.topology.train.reinit_frame == "init":
 				out = self.init_coords()
 			elif self.topology.train.reinit_frame == "prev_frame":
+				# Return the existing final_atom_positions to be used in the next frame.
 				pass
 			else:
 				raise ValueError( f"Incorrect value for reinit_frame. Allowed init/prev_frame..." )
@@ -274,9 +334,11 @@ class FitToData():
 		for k in self.processed_feature_dict:
 			if k == "restraint_features":
 				continue
-			batch[k] = self.processed_feature_dict[k]
-			if isinstance( self.processed_feature_dict[k].dtype, float ):
-				batch[k] = self.batch[k].to( dtype = torch.float32 )
+			v = self.processed_feature_dict[k]
+			batch[k] = v
+			if torch.is_tensor( v ) and torch.is_floating_point( v ):
+			# if isinstance( self.processed_feature_dict[k].dtype, float ):
+				batch[k] = batch[k].to( dtype = torch.float32 )
 
 		# Add batch and gt_features to device.
 		self.add_to_device( batch )
@@ -300,18 +362,25 @@ class FitToData():
 
 			# Skip pose sampling if specified.
 			if self.topology.train.skip_pose_sampling:
+				# self.seed_worker()
 				if self.topology.train.fill_none:
 					out["final_atom_positions"] = None
+				self.add_to_device( out )
+
 			else:
+				rng_state = torch.random.get_rng_state()
 				out = self.predict_pose(
 					out = out,
 					prev_frame_coord = prev_frame_coord )
+				torch.random.set_rng_state( rng_state )
+				# self.seed_worker()
 
-				# this will happen only if pose sampling is enabled.
-				out, batch = self.prepare_pose_for_injection(
-					out = out,
-					batch = batch,
-					frame = frame )
+			# this will happen only if pose sampling is enabled.
+			# if not self.topology.train.skip_pose_sampling or self.topology.model.struct_noising.enabled:
+			out, batch = self.prepare_pose_for_injection(
+				out = out,
+				batch = batch,
+				frame = frame )
 
 			# Clear cache.
 			torch.cuda.empty_cache()
@@ -320,7 +389,7 @@ class FitToData():
 			t_r_s = time.perf_counter()
 			print( "\n\033[1mRecycling optimized pose...\033[0m" )
 			with torch.no_grad():
-				batch = self.af_sampling( batch = batch )
+				out, batch = self.af_sampling( out = out, batch = batch )
 
 				outputs = recycler_model.forward(
 					out = out,
@@ -365,13 +434,17 @@ class FitToData():
 							unrelaxed_protein = unrelaxed_protein,
 							model_id = frame )
 
-			# Current frame coordinates for use in the nest frame if specified.
-			prev_frame_coord = out["final_atom_positions"].to( self.device )
-			# Reinitialize out as specified in topology.
-			out = self.reinit_coords(
-				out = out,
-				prev_frame_coord = prev_frame_coord,
-				pose_iter = False )
+			# Ignore this is if structure noising is enabled.
+			if self.topology.model.struct_noising.enabled:
+				pass
+			else:
+				# Current frame coordinates for use in the nest frame if specified.
+				prev_frame_coord = out["final_atom_positions"].to( self.device )
+				# Reinitialize out as specified in topology.
+				out = self.reinit_coords(
+					out = out,
+					prev_frame_coord = prev_frame_coord,
+					pose_iter = False )
 
 			# using frame as the model_id.
 			self.stats_dict["model_id"].append( frame )
@@ -425,10 +498,11 @@ class FitToData():
 				device = self.device )
 			print( f"New template feat dim: {batch['all_atom_positions'].shape}..." )
 
-		if not self.topology.train.recycle_pose:
-			out["final_atom_positions"] = None
+		if self.topology.train.recycle_pose:
+			print( "Using the recycling embedder..." )
 		else:
-			print( "Injecting the pose sampled structure via the recycling embedder..." )
+			# This let's the recycling embedder initialize MSA, Pair rep and x_prev to 0.
+			out["final_atom_positions"] = None
 
 		return out, batch
 
@@ -498,6 +572,7 @@ class FitToData():
 	################################################################################
 	################################################################################
 	def af_sampling( self,
+		out: Dict[str, Any],
 		batch: Dict[str, torch.Tensor]
 		):
 		"""
@@ -529,7 +604,27 @@ class FitToData():
 		else:
 			print( "MSA masking for XL residues switched off..." )
 
-		return batch
+		if self.topology.model.struct_noising.enabled:
+			if not self.topology.train.skip_pose_sampling:
+				raise ValueError( "Structure noising not compatible with Pose sampling..." )
+			if not self.topology.train.recycle_pose:
+				raise ValueError( "Recycling must be allowed for structure noising..." )
+			print( "Using structure noising..." )
+			params = dict( self.topology.model.struct_noising.params )
+			mu_list = params["mu"]
+			sigma_list = params["sigma"]
+			mu = np.random.choice( mu_list, 1, replace = False )[0]
+			sigma = np.random.choice( sigma_list, 1, replace = False )[0]
+			params["mu"] = mu
+			params["sigma"] = sigma
+			print( f"Using mu = {params['mu']} and sigma = {params['sigma']}..." )
+			out = noised_structure( out = out, params = params )
+			out["final_atom_positions"] = out["final_atom_positions"].to( self.device )
+		else:
+			print( "Structure noising switched off..." )
+		print( "\n" )
+
+		return out, batch
 
 
 	def msa_subsampling( self,
