@@ -109,7 +109,7 @@ config = mlc.ConfigDict(
 			}
 		},
 		"struct_noising": {
-			"enabled": True,
+			"enabled": False,
 			"params": {
 				"noise_struct": True,
 				"mu": [0.0],
@@ -160,7 +160,9 @@ config = mlc.ConfigDict(
 	},
 	"metrics": {
 		"xlr": {
-			"enabled": True
+			"enabled": True,
+			"length_scale": length_scale,
+			"eps": eps
 		}
 	},
 	"analysis": {
@@ -230,20 +232,14 @@ config = mlc.ConfigDict(
 		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
 		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
 		"skip_pose_sampling": True,
-		"init_coord": "init",  # zero/ init
+		"init_coord": "zero",  # zero/ init
 		"init_rep": ["zero", "init"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
-		"reinit_frame": "init",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
-		"reinit_step": "init",  # prev_frame/prev_step/init for all but 0th step
-		# "reinit_step0": True,  # If True, reinitializes for the 0th step too.
+		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
+		"reinit_step": "prev_step",  # prev_frame/prev_step/init for all but 0th step
 		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
-		# "init_zero": False,  # If True, use all 0 initial coords for pose sampling.
-		# "reinit_per_pose_iter": False,  # If True, reinitializes the final_atom_positions every pose sampling iter.
-		# "reuse_prediction": "prev_epoch",  # prev_epoch/prev_sub_epoch/none
 		"num_frames": 50, # max epochs for sampling.
 		"num_steps": 20, # max epochs for pose sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).
-		#"allow_mcpa": True, # use multi-chain permutation align
-		#"allow_grad_update": True, # allow gradient update - to be deprecated.
 		"device": "cuda:0" # CUDA device to be used.
 	}
 }
