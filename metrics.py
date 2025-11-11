@@ -1,24 +1,14 @@
+"""
+Contains modules to compute data satisfaction metrics.
+"""
 from typing import List, Dict
 import ml_collections as mlc
 import numpy as np
 
 import torch
 
+from utils.metric_utils import final_pred_to_dist_map
 
-def pred_to_dist_map( pred_positions: torch.Tensor, xl_max_bound: float
-			) -> torch.Tensor:
-	"""
-	Using the "final_atom_positions" to create a Ca distance map.
-	"""
-	# Extracting Ca-coordinates.
-	# [B,N,3] --> For 2ayo: [1,480,3]
-	ca_pos = pred_positions[..., 1, :]
-	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
-	D = torch.sqrt( 
-					torch.sum( ( diff )**2, dim = -1 ) + 1e-8
-					)
-
-	return D
 
 
 class XlMetrics():
@@ -28,7 +18,8 @@ class XlMetrics():
 		Check what all XLs are satisfied.
 		"""
 		self.name = "xlr"
-		self.length_scale = 10.0
+		self.length_scale = config.length_scale
+		self.eps = config.eps
 		self.xl_max_bound = restraint_features["xl_max_bound"]/ self.length_scale
 		# A dict containing all ambiguous pairs for each cross-linked residue pair.
 		self.xl_res_dict = restraint_features["xl_res_dict"]
@@ -50,7 +41,6 @@ class XlMetrics():
 
 		xl_metric = self.compute_xl_metric( xl_satisfaction )
 		self.stack_per_model_xl_satisfaction( xl_satisfaction )
-		# self.compute_global_xl_satisfaction( xl_satisfaction )
 
 		return xl_metric
 
@@ -60,11 +50,11 @@ class XlMetrics():
 		"""
 		Get the predicted distance map.
 		"""
-		self.D = pred_to_dist_map( out["final_atom_positions"], 
-									self.xl_max_bound )
-
-		# Adjust the length scales.
-		self.D = self.D / self.length_scale
+		self.D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			length_scale = self.length_scale,
+			eps = self.eps
+		)
 
 
 	def get_satisfied_xl_pairs( self ):
@@ -76,9 +66,9 @@ class XlMetrics():
 		for xl_pair in self.xl_res_dict:
 			res_idx1 = self.xl_res_dict[xl_pair]["res1"]
 			res_idx2 = self.xl_res_dict[xl_pair]["res2"]
-			xl_indices = ( 0, res_idx1, res_idx2 )
 
-			min_D = torch.min( self.D[xl_indices] )
+			# [B, N, N]
+			min_D = torch.min( self.D[0, res_idx1, res_idx2] )
 
 			violated = int( min_D > self.xl_max_bound )
 			xl_satisfaction.append( 1 - violated )
@@ -102,19 +92,16 @@ class XlMetrics():
 		if self.xl_satisfaction_array.shape[0] == 0:
 			self.xl_satisfaction_array = xl_satisfaction
 		else:
-			self.xl_satisfaction_array = np.vstack( [self.xl_satisfaction_array, xl_satisfaction] )
-
-		# self.satisfied_xls += xl_satisfaction
+			self.xl_satisfaction_array = np.vstack( [self.xl_satisfaction_array, xl_satisfaction.numpy()] )
 
 
 
 	def compute_global_xl_satisfaction( self ):
 		"""
-		Global XL sstisfaction denotes the fraction of XLs satisfied across all models.
+		Global XL satisfaction denotes the fraction of XLs satisfied across all models.
 		"""
-		print( self.xl_satisfaction_array.shape, "  ", self.total_xls )
+		print( f"XL satisfaction array: {self.xl_satisfaction_array.shape} \t Total XLs = {self.total_xls}" )
 		ensemble_satisfaction = np.sum( self.xl_satisfaction_array, axis = 0 )
-		print( ensemble_satisfaction.shape )
 		total_satisfied = np.count_nonzero( ensemble_satisfaction )
 		global_xl_satisfaction = total_satisfied/self.total_xls
 		return global_xl_satisfaction
@@ -158,7 +145,7 @@ class Metrics():
 		"global_satisfaction": metric_instance.compute_global_xl_satisfaction(),
 		"xl_satisfaction_array": metric_instance.xl_satisfaction_array
 		}
-		# other_metric_dict[name] = obj.satisfied_xls
+		print("Here")
 
 
 
