@@ -27,7 +27,6 @@ from utils.pdb_utils import ( prep_protein, SaveModels )
 
 class FitToData():
 	def __init__( self, sys_name: str,
-					# ofold_config: mlc.ConfigDict,
 					topology: mlc.ConfigDict,
 					mode: str,
 					jax_params_path: str,
@@ -175,35 +174,23 @@ class FitToData():
 		c_m, c_z = 256, 128
 
 		print( f"\tItializing MSA and pair representations: init_rep = {self.topology.train.init_rep}..." )
-		for i, init_ in self.topology.train.init_rep:
-			if init_ == "init":
-				if i == 0:
-					msa = copy.copy( self.init_pred_dict["msa"] )
+		if "none" in self.topology.train.init_rep:
+			# When None, the optimized structure being input to the recycler is ignored.
+			msa, pair = None, None
+		else:
+			for i, init_ in enumerate( self.topology.train.init_rep ):
+				if init_ == "init":
+					if i == 0:
+						msa = copy.copy( self.init_pred_dict["msa"] )
+					else:
+						pair = copy.copy( self.init_pred_dict["pair"] )
+				elif init_ == "zero":
+					if i == 0:
+						msa = torch.zeros( [1, s, n, c_m] )
+					else:
+						pair = torch.zeros( [1, n, n, c_z] )
 				else:
-					pair = copy.copy( self.init_pred_dict["pair"] )
-			elif self.topology.train.init_rep == "zero":
-				if i == 0:
-					msa = torch.zeros( [1, s, n, c_m] )
-				else:
-					pair = torch.zeros( [1, n, n, c_z] )
-			elif "none" in self.topology.train.init_rep:
-				# When None, the optimized structure being input to the recycler is ignored.
-				msa, pair = None, None
-			else:
-				raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
-
-
-		# if self.topology.train.init_msa == "init":
-		# 	msa = copy.copy( self.init_pred_dict["msa"] )
-		# 	pair = copy.copy( self.init_pred_dict["pair"] )
-		# elif self.topology.train.init_rep == "zero":
-		# 	msa = torch.zeros( [1, s, n, c_m] )
-		# 	pair = torch.zeros( [1, n, n, c_z] )
-		# elif self.topology.train.init_rep == "none":
-		# 	# When None, the optimized structure being input to the recycler is ignored.
-		# 	msa, pair = None, None
-		# else:
-		# 	raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
+					raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
 
 		return {"msa": msa, "pair": pair}
 
