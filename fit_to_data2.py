@@ -169,8 +169,10 @@ class FitToData():
 			none: initialize both to None. This causes the
 				recycling embedder to ignore the x_prev (optimized pose to be used).
 		"""
-		n = self.processed_feature_dict["asym_id"].shape[1]
-		s = self.processed_feature_dict["msa"].shape[1]
+		# n = self.processed_feature_dict["asym_id"].shape[1]
+		# msa -> [1, S, N]
+		_, s, n = self.processed_feature_dict["msa"].shape
+		# MSA and Pair representation channel dim.
 		c_m, c_z = 256, 128
 
 		print( f"\tItializing MSA and pair representations: init_rep = {self.topology.train.init_rep}..." )
@@ -207,14 +209,16 @@ class FitToData():
 		# Skip using the initial predicted structure.
 		if self.topology.train.init_coord == "zero":
 			final_atom_positions = torch.zeros( [1, n, 37, 3] )
+			plddt = torch.zeros( [1, n] )
 			out = {
 				"final_atom_positions": final_atom_positions,
 				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
-				"asym_id": self.processed_feature_dict["asym_id"]
+				"asym_id": self.processed_feature_dict["asym_id"],
+				"plddt": plddt
 			}
 		elif self.topology.train.init_coord == "init":
 			out = {}
-			for k in ["final_atom_positions", "final_atom_mask", "asym_id"]:
+			for k in ["final_atom_positions", "final_atom_mask", "asym_id", "plddt"]:
 				out[k] = copy.copy( self.init_pred_dict[k] )
 			# out = copy.deepcopy( self.init_pred_dict )
 		else:
@@ -348,19 +352,24 @@ class FitToData():
 			print( f"\n\033[1mFrame: {frame} \033[0m" + "-"*20 )
 
 			# Skip pose sampling if specified.
-			if self.topology.train.skip_pose_sampling:
-				# self.seed_worker()
-				if self.topology.train.fill_none:
-					out["final_atom_positions"] = None
-				self.add_to_device( out )
+			# Skip pose sampling for 0th frame.
+			if not self.topology.train.skip_pose_sampling:
+				if frame == 0 and self.topology.train.init_coord == "zero":
+					print( f"init_coord = {self.topology.train.init_coord}. Skip pose sampling for frame 0..." )
+					self.add_to_device( out )
+				else:
+					rng_state = torch.random.get_rng_state()
+					out = self.predict_pose(
+						out = out,
+						prev_frame_coord = prev_frame_coord )
+					torch.random.set_rng_state( rng_state )
+					# self.seed_worker()
 
 			else:
-				rng_state = torch.random.get_rng_state()
-				out = self.predict_pose(
-					out = out,
-					prev_frame_coord = prev_frame_coord )
-				torch.random.set_rng_state( rng_state )
 				# self.seed_worker()
+				# if self.topology.train.fill_none:
+					# out["final_atom_positions"] = None
+				self.add_to_device( out )
 
 			# this will happen only if pose sampling is enabled.
 			# if not self.topology.train.skip_pose_sampling or self.topology.model.struct_noising.enabled:
