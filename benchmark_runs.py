@@ -46,11 +46,13 @@ class BenchmarkModeling():
 		# Inject predicted structure via the recycling embedder.
 		self.recycle_pose = True
 		# Initialize final_atom_positions to 0 or initial predicted structure.
-		self.init_coord = "init"
-		# If true, initialize final_atom_positions again else use from previous epoch.
-		self.reinit_frame = False
+		self.init_coord = "zero"
+		# Initialize the MSA and Pair representations.
+		self.init_rep = ["zero", "zero"]
+		# "init": Initialize final_atom_positions again; "prev_frame": use from previous epoch.
+		self.reinit_frame = "prev_frame"
 		# Reuse the final_atom_positions form previous epoch/ previous pose or initialize again.
-		self.reinit_step = "none"
+		self.reinit_step = "prev_step"
 		# Reinitializes final_atom_positions for the 0th sub-epoch too.
 		# self.reinit_step0 = False
 		# # Use all 0's for final_atom_positions.
@@ -104,6 +106,15 @@ class BenchmarkModeling():
 			"enabled": True,
 			"params": {
 			"mask_frac": [0.3],
+			}
+		}
+		# Configs for structure noising.
+		self.struct_noising = {
+			"enabled": False,
+			"params": {
+			"noise_struct": True,
+			"mu": [0.0],
+			"sigma": [1.0],
 			}
 		}
 		# mask the cross-linked residues in MSA.
@@ -228,6 +239,7 @@ class BenchmarkModeling():
 			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
 			topo_dict.train.recycle_pose = self.recycle_pose
 			topo_dict.train.init_coord = self.init_coord
+			topo_dict.train.init_rep = self.init_rep
 			topo_dict.train.reinit_frame = self.reinit_frame
 			topo_dict.train.reinit_step = self.reinit_step
 			# topo_dict.train.reinit_step0 = self.reinit_step0
@@ -244,6 +256,8 @@ class BenchmarkModeling():
 			topo_dict.model.subsampling = self.subsampling
 			# MSA column masking configs.
 			topo_dict.model.column_masking = self.column_masking
+			# Structure noising
+			topo_dict.model.struct_noising = self.struct_noising
 			topo_dict.model.msa_xl_res_mask = self.msa_xl_res_mask
 
 			# Violation loss settings.
@@ -1134,6 +1148,7 @@ class BenchmarkModeling():
 				"recycle_pose": self.recycle_pose,
 				"skip_pose_sampling": self.skip_pose_sampling,
 				"init_coord": self.init_coord,
+				"init_rep": self.init_rep,
 				"reinit_frame": self.reinit_frame,
 				"reinit_step": self.reinit_step,
 				"reinit_step0": self.reinit_step,
@@ -1151,6 +1166,8 @@ class BenchmarkModeling():
 				"xlr": self.xlr,
 				"subsampling": self.subsampling,
 				"column_maksing": self.column_masking,
+				"struct_noising": self.struct_noising,
+				"msa_xl_res_mask": self.msa_xl_res_mask,
 				"base_dir": self.base_dir,
 				"meta_dir": self.meta_dir,
 				"modeling_dir_name": self.modeling_dir_name,
