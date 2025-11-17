@@ -548,7 +548,7 @@ class FitToData():
 				last_step = True
 			else:
 				last_step = False
-			metrics_dict = self.metrics_fn.forward(
+			metrics_dict = self.metrics_fn_pose.forward(
 				out = out, last_epoch = last_step )
 			self.update_data_metric_dict(
 				metrics_dict = metrics_dict, update_pose_metrics = True )
@@ -632,6 +632,10 @@ class FitToData():
 		cluster_deletion_mean -> [1, S, N]
 		cluster_profile -> [1, S, N, 23]
 		"""
+		# Preserve the PRNG state.
+		np_rng_state = np.random.get_state()
+		torch_rng_state = torch.random.get_rng_state()
+
 		params = dict( self.topology.model.subsampling.params )
 		neff_list = params["neff"]
 		neff = np.random.choice( neff_list, 1, replace = False )[0]
@@ -654,6 +658,9 @@ class FitToData():
 
 		print( f"Subsampled MSA indices = {subsampled_idx}" )
 
+		np.random.set_rng_state( np_rng_state )
+		torch.random.set_rng_state( torch_rng_state )
+
 		# Select subsampled MSA.
 		batch["msa"] = batch["msa"][:,subsampled_idx,:].to( self.device )
 		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
@@ -669,6 +676,10 @@ class FitToData():
 		"""
 		Apply MSA column masking.
 		"""
+		# Preserve the PRNG state.
+		np_rng_state = np.random.get_state()
+		torch_rng_state = torch.random.get_rng_state()
+
 		params = dict( self.topology.model.column_masking.params )
 		mask_frac_list = params["mask_frac"]
 		mask_frac = np.random.choice( mask_frac_list, 1, replace = False )[0]
@@ -688,6 +699,8 @@ class FitToData():
 		else:
 			self.stats_dict["col_mask"]["mask_frac"].append( params["mask_frac"] )
 			self.stats_dict["col_mask"]["masked_idx"].append( masked_idx )
+		np.random.set_rng_state( np_rng_state )
+		torch.random.set_rng_state( torch_rng_state )
 		return batch
 
 	################################################################################
@@ -795,6 +808,7 @@ class FitToData():
 	def store_metrics_metadata( self ):
 		"""
 		Store metadata for all metrics into the stats_dict.
+		Not storing metadata for pose sampling.
 		"""
 		metadata = self.metrics_fn.metric_metadata_dict
 		self.stats_dict["metadata"] = metadata
