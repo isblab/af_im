@@ -49,6 +49,7 @@ def plot_per_epoch_xl_satisfcation( metric_dict: Dict, file_name: str ):
 	ax.plot( epochs, xlr_metric, label = "XL" )
 	ax.set_xlabel( "Epochs", fontsize = 16 )
 	ax.set_ylabel( "XL satisfaction", fontsize = 16 )
+	ax.set_ylim( -0.05, 1.05 )
 	ax.xaxis.set_tick_params( labelsize = 14, length = 8, width = 1 )
 	ax.yaxis.set_tick_params( labelsize = 14, length = 8, width = 1 )
 
