@@ -216,37 +216,68 @@ class SelectGoodModels():
 		quantiles = self.config.method.quant_filter.quantiles
 		assessment_metrics = self.assessment_metrics
 
-		data_sat = []
-		for i, metric in enumerate( assessment_metrics ):
+		data_sat, viols = [], []
+		for metric in assessment_metrics:
 			category, name = metric.split( "-" )
-			if category != "metrics":
-				continue
-			data = data_dict[name]
-			q = np.quantile( data, quantiles[name] )
-			# # If q == 1.0, select data_sat == 0.
-			# if q == 1.0:
-			# 	data_sat.append( data == q )
-			# elif q == 0.0:
-			# 	data_sat.append( data >= q )
-			# else:
-			# data_satisfaction >= the quantile.
-			data_sat.append( data >= q )
+			if category == "metrics":
+				data = data_dict[name]
+				q = np.quantile( data, quantiles[name] )
+				data_sat.append( data >= q )
+			elif category == "loss":
+				pass
+			else:
+				raise ValueError( "Incorrect category for the assessment metric specified..." )
 
 		data_sat = np.column_stack( data_sat )
 		# Selecting models that satisfy all data types.
 		data_sat_mask = np.prod( data_sat, axis = 1 )
 		data_sat_idx = np.where( data_sat_mask == 1 )
 
-		violations = data_dict["violation"]
-		# Select those that have fewer violations.
-		q = np.quantile( violations[data_sat_idx], quantiles["violation"] )
-		viol_mask = violations <= q
+		for metric in assessment_metrics:
+			category, name = metric.split( "-" )
+			if category == "metrics":
+				pass
+			elif category == "loss":
+				v = data_dict[name]
+				q = np.quantile( v[data_sat_idx], quantiles[name] )
+				viols.append( v <= q )
+			else:
+				raise ValueError( "Incorrect category for the assessment metric specified..." )
 
+		viols = np.column_stack( viols )
+		viol_mask = np.prod( viols, axis = 1 )
+
+		# Mask for models with high data satisfaction and low violations.
 		mask = data_sat_mask.reshape( -1, 1 ) & viol_mask.reshape( -1, 1 )
 
 		# Return indices for good-scoring models.
 		good_models_index = np.where( mask == 1 )[0]
 		return good_models_index
+
+		# data_sat = []
+		# for i, metric in enumerate( assessment_metrics ):
+		# 	category, name = metric.split( "-" )
+		# 	if category != "metrics":
+		# 		continue
+		# 	data = data_dict[name]
+		# 	q = np.quantile( data, quantiles[name] )
+		# 	data_sat.append( data >= q )
+
+		# data_sat = np.column_stack( data_sat )
+		# # Selecting models that satisfy all data types.
+		# data_sat_mask = np.prod( data_sat, axis = 1 )
+		# data_sat_idx = np.where( data_sat_mask == 1 )
+
+		# violations = data_dict["violation"]
+		# # Select those that have fewer violations.
+		# q = np.quantile( violations[data_sat_idx], quantiles["violation"] )
+		# viol_mask = violations <= q
+
+		# mask = data_sat_mask.reshape( -1, 1 ) & viol_mask.reshape( -1, 1 )
+
+		# # Return indices for good-scoring models.
+		# good_models_index = np.where( mask == 1 )[0]
+		# return good_models_index
 
 
 	def nondominant_sorting( self, objectives: np.array ):
