@@ -10,13 +10,12 @@ Contains module to obtain metadat for benchmark dataset creation.
 	Simulated
 		XLs -> JWalk
 """
-from typing import List, Tuple, Dict
+from typing import List
 import os, glob, copy, time, warnings
 import numpy as np
 import pandas as pd
 
-from utils.utils import ( run_subprocess,
-							open_file_handler,
+from utils.utils import ( open_file_handler,
 							read_json, write_json )
 from api_data_modules import( DownloadPdbStructure,
 								SeqResDict )
@@ -29,7 +28,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "xlmerged"  # "xlsim", "abag", "rigid", "xlmerged"
+		self.benchmark_name = "pinderS"  # "xlsim", "abag", "rigid", "xlmerged"/ pinderS
 
 		self.dataset_configs = {
 			"global": {
@@ -95,6 +94,8 @@ class Metadata():
 		self.foldbench_prot_prot_input_file = os.path.join( "../raw/interface_protein_protein.csv" )
 		# FoldBench protein-protein dataset.
 		self.foldbench_prot_pep_input_file = os.path.join( "../raw/interface_protein_peptide.csv" )
+		# PINDER_S dataset.
+		self.pinderS_input_file = os.path.join( "../raw/pinder_s.txt" )
 
 		# Base directory for all benchmarks.
 		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
@@ -168,8 +169,12 @@ class Metadata():
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
 		elif self.benchmark_name == "xlmerged":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_merged_benchmark()
+		elif self.benchmark_name == "pinderS":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_pinderS_benchmark()
 		elif self.benchmark_name == "rigid":
 			self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
+		elif self.benchmark_name == "experiment":
+			self.benchmark_pdb_ids_list = ["4rhz", "7xvo", "8wtd", "7r3z", "8sbb"]
 		else:
 			raise ValueError( "Unsupported benchmark specified..." )
 
@@ -207,7 +212,6 @@ class Metadata():
 			["foldbench"]*( len( fb_prot_pep ) + len( fb_prot_prot ) ) +
 			["abag"]*( len( sabdab ) + len( fb_ab_ag ) )
 		)
-		print( benchmark_names )
 		pdb_benchmark_map = dict( zip( pdb_ids, benchmark_names ) )
 		write_json( pdb_benchmark_map, self.pdb_benchmark_map_file )
 
@@ -222,14 +226,21 @@ class Metadata():
 		"""
 		afu = self.parse_pdb_afu_benchmark()
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
-		# fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
-		# print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
-		# fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
-		# print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
-
-		# Remove duplicate PDB IDs.
-		# pdb_ids = sorted( list( set( afu + fb_prot_prot + fb_prot_pep ) ) )
 		pdb_ids = sorted( list( set( afu ) ) )
+
+		return pdb_ids
+
+	def get_pdb_ids_for_pinderS_benchmark( self ) -> List:
+		"""
+		Get the PDB IDs from the PINDER-S dataset.
+		Remove those overlapping with the merged benchmark.
+		"""
+		pinderS = self.parse_pinderS_benchmark()
+		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
+		xlmerged = self.get_pdb_ids_for_merged_benchmark()
+
+		pdb_ids = sorted( list( set( pinderS ) - set( xlmerged ) ) )
+		print( f"PDB IDs from PINDER-S non-redundant with xlmerged benchmark: {len( pdb_ids )}" )
 
 		return pdb_ids
 
@@ -309,6 +320,17 @@ class Metadata():
 
 		return pdb_ids
 
+
+	def parse_pinderS_benchmark( self ) -> List:
+		"""
+		PINDER-S dataset was obtained from the PINDER package as
+			specified in #Issue41.
+			(https://github.com/pinder-org/pinder)
+		Parse the PINDER-S dataset and return the PDB IDs.
+		"""
+		f = open_file_handler( self.pinderS_input_file, "r" )
+		pdb_ids = f.readlines()[0].split( "," )
+		return pdb_ids
 
 	##------------------------------------------------------------##
 	##------------------------------------------------------------##
