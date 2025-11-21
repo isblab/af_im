@@ -25,8 +25,10 @@ class Recycler():
 	def __init__( self,
 			ofold_config: mlc.ConfigDict,
 			jax_param_path: str,
-			 device: str ):
+			num_iters: int,
+			device: str ):
 		self.ofold_config = ofold_config
+		self.num_iters = num_iters
 		self.device = device
 
 		for path in jax_param_path.split( "," ):
@@ -58,9 +60,9 @@ class Recycler():
 		is_grad_enabled = torch.is_grad_enabled()
 
 		# Main recycling loop
-		num_iters = 1 # batch["aatype"].shape[-1]
-		#early_stop = False
-		#num_recycles = 0
+		# num_iters = 1 # batch["aatype"].shape[-1]
+		early_stop = False
+		num_recycles = 0
 		#for cycle_no in range(num_iters):
 		# Select the features for the current recycling cycle.
 		# fetch_cur_batch = lambda t: t[..., 0]
@@ -68,27 +70,34 @@ class Recycler():
 		feats = batch
 		del batch
 
-		# Enable grad iff we're training and it's the final recycling layer
-		is_final_iter = True
-		with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
-			if is_final_iter:
-				# Sidestep AMP bug (PyTorch issue #65766)
-				if torch.is_autocast_enabled():
-					torch.clear_autocast_cache()
+		self.alphafold = self.alphafold.to( self.device )
 
-			self.alphafold = self.alphafold.to( self.device )
-			# Run the next iteration of the model
-			outputs, _, _, _, _ = self.alphafold.iteration(
+		for cycle_no in range( self.num_iters ):
+			# Enable grad iff we're training and it's the final recycling layer
+			is_final_iter = cycle_no == ( self.num_iters - 1 ) or early_stop
+			with torch.set_grad_enabled( is_grad_enabled and is_final_iter ):
+				if is_final_iter:
+					# Sidestep AMP bug (PyTorch issue #65766)
+					if torch.is_autocast_enabled():
+						torch.clear_autocast_cache()
+
+			outputs, m_1_prev, z_prev, x_prev, early_stop = self.alphafold.iteration(
 				feats,
 				prevs )
-				#_recycle = ( num_iters > 1 ) ) # not used inside iteration()
 
-		outputs["num_recycles"] = torch.tensor( [1] )
-		#outputs["num_recycles"] = torch.tensor(num_recycles, device=feats["aatype"].device)
+			num_recycles += 1
+
+			if not is_final_iter:
+				del outputs
+				prevs = [m_1_prev, z_prev, x_prev]
+				del m_1_prev, z_prev, x_prev
+			else:
+				break
+
+		outputs["num_recycles"] = torch.tensor( [num_recycles] )
+		print( f"Num recycles = {num_recycles}..." )
 
 		outputs["asym_id"] = feats["asym_id"]
-		#if "asym_id" in batch:
-		#	outputs["asym_id"] = feats["asym_id"]
 
 		# Run auxiliary heads
 		outputs.update( self.alphafold.aux_heads( outputs ) )
@@ -96,4 +105,33 @@ class Recycler():
 		self.alphafold = self.alphafold.to( "cpu" )
 
 		return outputs
+
+
+		# # Enable grad iff we're training and it's the final recycling layer
+		# is_final_iter = True
+		# with torch.set_grad_enabled(is_grad_enabled and is_final_iter):
+		# 	if is_final_iter:
+		# 		# Sidestep AMP bug (PyTorch issue #65766)
+		# 		if torch.is_autocast_enabled():
+		# 			torch.clear_autocast_cache()
+
+		# 	self.alphafold = self.alphafold.to( self.device )
+		# 	# Run the next iteration of the model
+		# 	outputs, _, _, _, _ = self.alphafold.iteration(
+		# 		feats,
+		# 		prevs )
+
+		# outputs["num_recycles"] = torch.tensor( [1] )
+		# #outputs["num_recycles"] = torch.tensor(num_recycles, device=feats["aatype"].device)
+
+		# outputs["asym_id"] = feats["asym_id"]
+		# #if "asym_id" in batch:
+		# #	outputs["asym_id"] = feats["asym_id"]
+
+		# # Run auxiliary heads
+		# outputs.update( self.alphafold.aux_heads( outputs ) )
+
+		# self.alphafold = self.alphafold.to( "cpu" )
+
+		# return outputs
 
