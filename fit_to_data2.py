@@ -319,6 +319,7 @@ class FitToData():
 		recycler_model = Recycler(
 			ofold_config = self.ofold_config,
 			jax_param_path = self.jax_params_path,
+			num_iters = self.topology.model.num_iters,
 			device = self.device )
 
 		batch = {}
@@ -658,7 +659,7 @@ class FitToData():
 
 		print( f"Subsampled MSA indices = {subsampled_idx}" )
 
-		np.random.set_rng_state( np_rng_state )
+		np.random.set_state( np_rng_state )
 		torch.random.set_rng_state( torch_rng_state )
 
 		# Select subsampled MSA.
@@ -699,7 +700,7 @@ class FitToData():
 		else:
 			self.stats_dict["col_mask"]["mask_frac"].append( params["mask_frac"] )
 			self.stats_dict["col_mask"]["masked_idx"].append( masked_idx )
-		np.random.set_rng_state( np_rng_state )
+		np.random.set_state( np_rng_state )
 		torch.random.set_rng_state( torch_rng_state )
 		return batch
 
@@ -765,15 +766,16 @@ class FitToData():
 	def update_confidence_metrics( self, out: torch.Tensor ):
 		"""
 		Save the per frame confidence metrics in the stats_dict.
+		Also save the num_recycles.
 		"""
 		if "confidence" not in self.stats_dict:
 			self.stats_dict["confidence"].update( 
-				{k: [] for k in ["plddt", "pae", "ptm", "iptm"]} )
+				{k: [] for k in ["plddt", "pae", "ptm", "iptm", "num_recycles"]} )
 
 		str_ = ""
 		for k1, k2 in zip(
 			["plddt", "pae", "ptm", "iptm"],
-			["plddt", "predicted_aligned_error", "ptm_score", "iptm_score"] ):
+			["plddt", "predicted_aligned_error", "ptm_score", "iptm_score", "num_recycles"] ):
 			v = out[k2]
 			if k1 in ["ptm", "iptm"]:
 				self.stats_dict["confidence"][k1].append( v.item() )

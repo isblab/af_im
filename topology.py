@@ -9,6 +9,7 @@ db_dir = "/data/alpha-fold-db/"
 tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 long_sequence_inference = False
 use_deepspeed_evoformer_attention = False
+ofold_config_preset = "model_1_multimer_v3"
 
 # For loss functions.
 length_scale = 10.0
@@ -31,13 +32,13 @@ config = mlc.ConfigDict(
 		"init_model_prefix": "_relaxed",
 		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
 		"ofold_script": os.path.abspath( "./openfold/run_pretrained_openfold.py" ),
-		"config_preset": "model_1_multimer_v3",
-		"ofold_params": os.path.join(
-							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
-						),
+		"config_preset": ofold_config_preset,
+		# "ofold_params": os.path.join(
+		# 					f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
+		# 				),
 		"model_checkpoint": None,
 		"jax_params_path": os.path.join(
-							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
+							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_{ofold_config_preset}.npz"
 						),
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
@@ -62,6 +63,8 @@ config = mlc.ConfigDict(
 			"bfd_database_path": os.path.join( db_dir,"bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" ),
 			"jackhmmer_binary_path": os.path.join( tool_base, "jackhmmer" ),
 			"hhblits_binary_path": os.path.join( tool_base, "hhblits" ),
+			"hmmbuild_binary_path": os.path.join( tool_base, "hmmbuild" ),
+			"hmmsearch_binary_path": os.path.join( tool_base, "hmmsearch" ),
 			"hhsearch_binary_path": os.path.join( tool_base, "hhsearch" ),
 			"kalign_binary_path": os.path.join( tool_base, "kalign" )
 		}
@@ -91,6 +94,7 @@ config = mlc.ConfigDict(
 		"long_sequence_inference": long_sequence_inference,
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"rigid_type": "chains",
+		"num_iters": 1,  # no. of recycling iterations for OpenFold.
 		"subsampling": {
 			"enabled": True,
 			"type": "sequential",  # random/sequential
@@ -130,23 +134,6 @@ config = mlc.ConfigDict(
 			"weight": 1.0,
 			"eps": eps
 		},
-		# "violation":{
-		# 	"enabled": True,
-		# 	"add_penalty": True,
-		# 	"ev": {
-		# 		"intra_chain_dist": 1.5,
-		# 		"inter_chain_dist": 1.5,
-		# 		"weight": 1.0
-		# 	},
-		# 	"sc": {
-		# 		"inter_res_dist": 4.0,
-		# 		"tolerance_sigma": 0.5,
-		# 		"weight": 1.0
-		# 	},
-		# 	"weight": 1.0,
-		# 	"length_scale": length_scale,
-		# 	"eps": eps
-		# },
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
@@ -231,11 +218,11 @@ config = mlc.ConfigDict(
 		"use_as_templates": False,  # Inject pose sampled structure via template embedder.
 		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
 		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
-		"skip_pose_sampling": True,
+		"skip_pose_sampling": False,
 		"init_coord": "zero",  # zero/ init
-		"init_rep": ["zero", "init"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
+		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
-		"reinit_step": "prev_step",  # prev_frame/prev_step/init for all but 0th step
+		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
 		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.
 		"num_steps": 20, # max epochs for pose sampling.
