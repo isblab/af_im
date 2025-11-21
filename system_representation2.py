@@ -3,7 +3,7 @@ Craete input features for running OpenFold.
 Obtain initial prediction.
 """
 from typing import Tuple, Dict, Any
-import os, glob, pickle as pkl
+import os, pathlib, shutil, pickle as pkl
 import numpy as np
 import ml_collections as mlc
 
@@ -11,13 +11,14 @@ import torch
 
 from openfold.config import model_config
 from openfold.data import templates, feature_pipeline, data_pipeline
+from openfold.data.tools import hhsearch, hmmsearch
 from openfold.np import protein
 from openfold.utils.script_utils import (load_models_from_command_line, parse_fasta, run_model,
                                          prep_output, relax_protein)
 from openfold.utils.tensor_utils import tensor_tree_map
 from mod_openfold import parse, process_mmcif, np_example_to_features
 
-from utils.utils import open_file_handler, parse_nested_dict
+from utils.utils import open_file_handler, parse_nested_dict, run_subprocess
 from utils.pdb_utils import prep_output
 
 
@@ -37,8 +38,6 @@ class SystemRepresentation():
 		):
 		self.sys_name = sys_name
 		self.is_multimer = sys_rep_config.is_multimer
-		self.openfold_dir = sys_rep_config.ofold_dir  # deprecated
-		self.script = sys_rep_config.ofold_script  # deprecated
 		self.db_dir = sys_rep_config.db_dir
 		self.config_preset = sys_rep_config.config_preset
 		self.db_preset = sys_rep_config.db_preset
@@ -49,7 +48,6 @@ class SystemRepresentation():
 		self.init_model_prefix = sys_rep_config.init_model_prefix
 		self.ofold_seed = sys_rep_config.seed
 		self.cpu_cores = sys_rep_config.cpu_cores
-		self.is_multimer = sys_rep_config.is_multimer
 		self.max_template_date = sys_rep_config.max_template_date
 		self.subtract_plddt = sys_rep_config.subtract_plddt
 		self.long_sequence_inference = sys_rep_config.long_sequence_inference
@@ -209,6 +207,90 @@ class SystemRepresentation():
 
 	################################################################################
 	################################################################################
+	def get_alignment( self,
+		tmp_fasta_path: str,
+		local_alignment_dir: str
+	):
+		"""
+		Perform alignment for the query sequence.
+		"""
+		if self.is_multimer:
+			template_searcher = hmmsearch.Hmmsearch(
+				binary_path = self.databases_n_tools.hmmsearch_binary_path,
+				hmmbuild_binary_path = self.databases_n_tools.hmmbuild_binary_path,
+				database_path = self.databases_n_tools.pdb_seqres_database_path,
+			)
+		else:
+			template_searcher = hhsearch.HHSearch(
+				binary_path = self.databases_n_tools.hhsearch_binary_path,
+				databases = [self.databases_n_tools.pdb70_database_path],
+			)
+
+		alignment_runner = data_pipeline.AlignmentRunner(
+			jackhmmer_binary_path = self.databases_n_tools.jackhmmer_binary_path,
+			hhblits_binary_path = self.databases_n_tools.hhblits_binary_path,
+			uniref90_database_path = self.databases_n_tools.uniref90_database_path,
+			mgnify_database_path = self.databases_n_tools.mgnify_database_path,
+			bfd_database_path = self.databases_n_tools.bfd_database_path,
+			uniref30_database_path = self.databases_n_tools.uniref30_database_path,
+			uniclust30_database_path = self.databases_n_tools.uniclust30_database_path,
+			uniprot_database_path = self.databases_n_tools.uniprot_database_path,
+			template_searcher = template_searcher,
+			use_small_bfd = self.databases_n_tools.bfd_database_path is None,
+			no_cpus = self.cpu_cores
+		)
+
+		alignment_runner.run(
+			tmp_fasta_path, local_alignment_dir
+		)
+
+
+	def precompute_alignments( self, tags, seqs, ):
+		"""
+		Taken from run_pretrained_openfold.py.
+		OpenFold inference runs alignment for all copies in case of a homomeric input.
+			We reuse the alignment for homomers.
+		"""
+		# Keep track of the tag and the associated seq.
+		tmp_dict = {}
+		for tag, seq in zip(tags, seqs):
+			tmp_fasta_path = os.path.join(
+				self.ofold_output_dir, f"tmp_{os.getpid()}.fasta" )
+			w = open_file_handler( tmp_fasta_path, "w" )
+			w.write( f">{tag}\n{seq}" )
+			w.close()
+
+			local_alignment_dir = os.path.join( self.alignment_dir, tag )
+
+			# if args.use_precomputed_alignments is None:
+			if not os.path.exists( local_alignment_dir ):
+				print( f"Generating alignments for {tag}..." )
+
+				os.makedirs( local_alignment_dir, exist_ok = True )
+				# For identical sequences reuse the alignments.
+				if seq in tmp_dict:
+					prev_local_alignment_dir = tmp_dict[seq]["local_alignment_dir"]
+					src = pathlib.Path( prev_local_alignment_dir )
+					dst = pathlib.Path( local_alignment_dir )
+					for p in src.iterdir():
+						shutil.move( str( p ), str( dst ) )
+					print( f"Reusing alignments for {tag} from {tmp_dict[seq]['tag']}..." )
+				else:
+					self.get_alignment(
+						tmp_fasta_path = tmp_fasta_path,
+						local_alignment_dir = local_alignment_dir
+					)
+					tmp_dict[seq] = {
+						"tag": tag,
+						"local_alignment_dir": local_alignment_dir
+					}
+			else:
+				print( f"Using precomputed alignments for {tag} at {local_alignment_dir}..." )
+
+			# Remove temporary FASTA file
+			os.remove( tmp_fasta_path )
+
+
 	def generate_feature_dict(
 			self,
 			tags,
@@ -276,7 +358,7 @@ class SystemRepresentation():
 		)
 
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
-
+		
 		tag_list = []
 		seq_list = []
 		for fasta_file in list_files_with_extensions( self.fasta_dir, (".fasta", ".fa") ):
@@ -309,6 +391,9 @@ class SystemRepresentation():
 			print( sorted_targets )
 			raise ValueError( f"Multiple fasta files ({len( sorted_targets )}) detected for {self.sys_name}..." )
 		( tag, tags ), seqs = sorted_targets[0]
+
+		# Precompute aignments.
+		self.precompute_alignments( tags = tags, seqs = seqs )
 
 		feature_dict = self.generate_feature_dict(
 			tags,
