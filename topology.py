@@ -24,7 +24,7 @@ def topology_dict() -> mlc.ConfigDict:
 
 config = mlc.ConfigDict(
 	{
-	"objective": "7xvo: testing structure noising. " +
+	"objective": "4rhz: " +
 		"",
 	"system": {},
 	# Change the paths according to the system.
@@ -61,7 +61,7 @@ config = mlc.ConfigDict(
 			"uniref30_database_path": os.path.join( db_dir, "uniref30/UniRef30_2021_03" ),
 			"uniprot_database_path": os.path.join( db_dir, "uniprot/uniprot.fasta" ),
 			"bfd_database_path": os.path.join( db_dir,"bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" ),
-			"jackhmmer_binary_path": os.path.join( tool_base, "jackhmmer" ),
+			"jackhmmer_bin": os.path.join( tool_base, "jackhmmer" ),
 			"hhblits_binary_path": os.path.join( tool_base, "hhblits" ),
 			"hmmbuild_binary_path": os.path.join( tool_base, "hmmbuild" ),
 			"hmmsearch_binary_path": os.path.join( tool_base, "hmmsearch" ),
@@ -106,7 +106,7 @@ config = mlc.ConfigDict(
 			}
 		},
 		"column_masking": {
-			"enabled": True,
+			"enabled": False,
 			"params": {
 			# Randomly choses a mask fraction from the provided list (Max 0.3).
 			"mask_frac": [0.3]
@@ -174,7 +174,7 @@ config = mlc.ConfigDict(
 				},
 				"quant_filter": {
 					"enabled": True,
-					"quantiles": {"xlr": 0.75, "violation": 0.25}
+					"quantiles": {"xlr": 0.9, "violation": 1.0}
 				},
 				"nds": {
 					"enabled": False,
@@ -183,11 +183,12 @@ config = mlc.ConfigDict(
 			"scale_data": False
 		},
 		"structural_similarity": {
+			"tool": "usalign",  # usalign/mdanalysis
 			"usalign_script": "USalign",
 			"prot": "prot",
 			"mm": 1,
 			"ter": 1,
-			"similarity_cutoff": 1.0,
+			"similarity_cutoff": 4.0, # Choice for 4 A cutoff (doi: 10.1002/prot.26818)
 			"clean_up": True
 		},
 		"relax":{
@@ -226,6 +227,7 @@ config = mlc.ConfigDict(
 		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.
 		"num_steps": 20, # max epochs for pose sampling.
+		"select_pose": "last",  # last: select pose from last step; max: select pose with max data satisfaction.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"device": "cuda:0" # CUDA device to be used.
 	}

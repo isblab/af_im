@@ -347,6 +347,9 @@ class FitToData():
 		out = self.init_coords()
 		prev_frame_coord = out["final_atom_positions"]
 
+		# pose_dict = self.predict_pose(
+		# 	out = out,
+		# 	prev_frame_coord = prev_frame_coord )
 		for frame in range( self.topology.train.num_frames ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
@@ -364,12 +367,7 @@ class FitToData():
 						out = out,
 						prev_frame_coord = prev_frame_coord )
 					torch.random.set_rng_state( rng_state )
-					# self.seed_worker()
-
 			else:
-				# self.seed_worker()
-				# if self.topology.train.fill_none:
-					# out["final_atom_positions"] = None
 				self.add_to_device( out )
 
 			# this will happen only if pose sampling is enabled.
@@ -526,7 +524,9 @@ class FitToData():
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
-	
+		pose_dict = {}
+
+		track_metric = []
 		for step in range( self.topology.train.num_steps ):
 			print( f"\nPose sampling step: {step} --------------------------" )
 
@@ -553,6 +553,7 @@ class FitToData():
 				out = out, last_epoch = last_step )
 			self.update_data_metric_dict(
 				metrics_dict = metrics_dict, update_pose_metrics = True )
+			track_metric.append( metrics_dict["xlr"].item())
 
 			# Remove computed violations.
 			if "violation" in out:
@@ -562,9 +563,46 @@ class FitToData():
 			cum_loss.backward()
 			optimizer.step()
 			self.remove_from_device( out )
-
+		# self.add_to_device( out )
+		# return out
+			pose_dict[step] = {
+				"final_atom_positions": out["final_atom_positions"],
+				"final_atom_mask": out["final_atom_mask"],
+				"asym_id": out["asym_id"],
+				"plddt": out["plddt"],
+				"msa": out["msa"],
+				"pair": out["pair"]
+			}
+		if self.topology.train.select_pose == "max":
+			print( "Selecting the pose with max data satisfaction...")
+			print( track_metric )
+			max_idx = np.argmax( track_metric )
+			print( max_idx, "  ", track_metric[max_idx] )
+			out = pose_dict[max_idx]
+		elif self.topology.train.select_pose == "last":
+			print( "Selecting the pose from last step..." )
+			last_step = self.topology.train.num_steps-1
+			out = pose_dict[last_step]
+		else:
+			raise ValueError( f"Incorrect value for the hyperparameters - last_step - specified. Use last/max..." )
 		self.add_to_device( out )
 		return out
+
+		# xl_metric = self.stats_dict_pose["metrics"]["xlr"]
+		# q = np.quantile( xl_metric, 0.75 )
+		# to_remove = np.where( xl_metric < q )
+		# keys = list( pose_dict.keys() )
+		# for k in keys:
+		# 	if k in to_remove[0]:
+		# 		pose_dict.pop( k )
+
+		# print( pose_dict.keys() )
+		# idx = np.array( [k for k in pose_dict.keys()] )
+		# print( idx )
+		# print( self.metrics_fn_pose.metric_metadata_dict["xlr"]["xl_satisfaction_array"][idx] )
+
+		# exit()
+		# return pose_dict
 
 	################################################################################
 	################################################################################
