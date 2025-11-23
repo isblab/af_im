@@ -32,10 +32,14 @@ class BenchmarkModeling():
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
+		# No. of recyling iters for OpenFold.
+		self.num_iters = 1
 		# Maximum no. of epochs for fine-tuning.
 		self.num_frames = 50
 		# Max epochs for pose sampling.
 		self.num_steps = 20
+		# Select pose to be injected into OpenFold.
+		self.select_pose = "last"
 		# Disable template embeddings.
 		self.no_templates = False
 		self.skip_pose_sampling = False
@@ -53,14 +57,6 @@ class BenchmarkModeling():
 		self.reinit_frame = "prev_frame"
 		# Reuse the final_atom_positions form previous epoch/ previous pose or initialize again.
 		self.reinit_step = "prev_step"
-		# Reinitializes final_atom_positions for the 0th sub-epoch too.
-		# self.reinit_step0 = False
-		# # Use all 0's for final_atom_positions.
-		# self.init_zero = False
-		# # Reuse predicted structure per epoch for pose sampling in next epoch.
-		# self.reuse_prediction = False
-		# # If True, reinitializes the final_atom_positions every pose sampling iter.
-		# self.reinit_per_pose_iter = False
 		# If skipping pose sampling, use final_atom_positions=None.
 		self.fill_none = False
 		# Precision of the float values in the results.
@@ -91,6 +87,13 @@ class BenchmarkModeling():
 		# 	"ev": {"intra_chain_dist": 2.0, "inter_chain_dist": 2.0, "weight": 1.0}
 		# }
 		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
+		# For analysis
+		self.model_selection = {
+			"quant_filter": {
+				"enabled": True,
+				"quantiles": {"xlr": 0.75, "violation": 0.25}
+			}
+		}
 		# Configs for MSA subsampling.
 		self.subsampling = {
 			"enabled": True,
@@ -232,6 +235,7 @@ class BenchmarkModeling():
 			topo_dict.analysis.enabled = self.enable_analysis
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
+			topo_dict.model.num_iters = self.num_iters
 			topo_dict.train.num_frames = self.num_frames
 			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
@@ -242,10 +246,7 @@ class BenchmarkModeling():
 			topo_dict.train.init_rep = self.init_rep
 			topo_dict.train.reinit_frame = self.reinit_frame
 			topo_dict.train.reinit_step = self.reinit_step
-			# topo_dict.train.reinit_step0 = self.reinit_step0
-			# topo_dict.train.init_zero = self.init_zero
-			# topo_dict.train.reuse_prediction = self.reuse_prediction
-			# topo_dict.train.reinit_per_pose_iter = self.reinit_per_pose_iter
+			topo_dict.train.select_pose = self.self.select_pose
 			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
 
@@ -269,6 +270,9 @@ class BenchmarkModeling():
 			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
 			topo_dict.loss.xlr.add_penalty = self.xlr["add_penalty"]
 			topo_dict.loss.xlr.weight = self.xlr["weight"]
+
+			# Model selection.
+			topo_dict.analysis.model_selection.method.quant_filter = self.model_selection["quant_filter"]
 		else:
 			topo_dict = self.topo_dict
 
@@ -354,27 +358,41 @@ class BenchmarkModeling():
 			auth_asym_ids = auth_asym_ids.split( "," )
 			sys_chains = self.get_sys_chains( auth_asym_ids = auth_asym_ids )
 
-			per_model_fp_sat = []
+			# Get the FP XLs.
+			fp_xls = self.get_fp_XLs( sys_name = sys_name )
+			# Get the modeled residues for all entities.
+			modeled_res_dict = self.get_modeled_residues( sys_name = sys_name )
+
+			if len( analysis_dict["selected_good_models"] ) == 0:
+				raise ValueError( "No selected good models found..." )
+
+			# per_model_fp_sat = []
+			aggregated_fp_sat = None
 			for model_id in analysis_dict["selected_good_models"]:
-				# Get the FP XLs.
-				fp_xls = self.get_fp_XLs( sys_name = sys_name )
-				# Get the modeled residues for all entities.
-				modeled_res_dict = self.get_modeled_residues( sys_name = sys_name )
 				fp_satisfaction = self.check_fp_xl_satisfaction(
 						sys_name = sys_name,
 						model_id = model_id,
 						sys_chains = sys_chains,
 						modeled_res_dict = modeled_res_dict,
 						fp_xls = fp_xls )
-				if len( per_model_fp_sat ) == 0:
-					per_model_fp_sat = fp_satisfaction
+				if aggregated_fp_sat is None:
+					aggregated_fp_sat = fp_satisfaction.astype( int )
 				else:
-					per_model_fp_sat = fp_satisfaction
-			per_model_fp_sat = np.where( per_model_fp_sat > 0, 1, 0 )
+					aggregated_fp_sat = np.maximum( aggregated_fp_sat, fp_satisfaction.astype( int ) )
+				# if len( per_model_fp_sat ) == 0:
+				# 	per_model_fp_sat = fp_satisfaction
+				# else:
+				# 	per_model_fp_sat += fp_satisfaction
+			if aggregated_fp_sat is None:
+				aggregated_fp_sat = np.zeros( fp_xls.shape[0], dtype = int )
+
+			# per_model_fp_sat = np.where( per_model_fp_sat > 0, 1, 0 )
+			satisfied_count = int( np.count_nonzero( aggregated_fp_sat ) )
+			per_model_fp_sat = np.where( aggregated_fp_sat > 0, 1, 0 )
 			fp_sat_dict["complexes"].append( sys_name )
-			fp_sat_dict["fp_satisfied"].append( np.count_nonzero( fp_satisfaction ) )
+			fp_sat_dict["fp_satisfied"].append( satisfied_count )
 			fp_sat_dict["total_fp"].append( fp_xls.shape[0] )
-			print( sys_name, " --> ", np.count_nonzero( fp_satisfaction ), "  ", fp_satisfaction.shape )
+			print( sys_name, " --> ", satisfied_count, "  ", fp_satisfaction.shape )
 		return fp_sat_dict
 
 
@@ -411,7 +429,7 @@ class BenchmarkModeling():
 	def get_modeled_residues( self, sys_name: str ) -> Dict[int, np.array]:
 		"""
 		Parse the start-end residue positions for the modeled sequence.
-		Return dict contaiing residue positions form start to
+		Return dict contaiing residue positions from start to
 			end for all entity_ids.
 		"""
 		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
@@ -558,7 +576,7 @@ class BenchmarkModeling():
 			distance = np.linalg.norm( res1_xyz - res2_xyz )
 
 			satisfied.append( distance <= xl_max_bound )
-		return all( satisfied )
+		return any( satisfied )
 
 	################################################################################
 	################################################################################
@@ -765,7 +783,7 @@ class BenchmarkModeling():
 			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
 
 			ax[0].set_ylim( -0.1, 1.1 )
-			ax[1].set_ylim( -0.1 )
+			ax[1].set_ylim( -0.05 )
 			ax[0].set_xticks( complex_idx, complexes_list )
 			ax[1].set_xticks( complex_idx, complexes_list )
 			# Plot global XL satisfaction as a triangle.
@@ -810,13 +828,13 @@ class BenchmarkModeling():
 		for i, label in enumerate( total_fp ):
 			x = i + 1 + x_offset
 			y = frac_fp_sat[i] + y_offset
-			ax.text( x, y, str( label ), fontsize = 10 )
+			ax.text( x, y, str( label ), fontsize = 16 )
 
 		ax.set_xlabel( "Complexs", fontsize = 20 )
 		ax.set_ylabel( "Fraction of FP XLs satisfied", fontsize = 20 )
 		ax.set_ylim( -0.1, 1.1 )
 		ax.set_xticks( complex_idx, complexes )
-		ax.tick_params( axis = "both" , labelsize = 10, length = 10, width = 3 )
+		ax.tick_params( axis = "both" , labelsize = 16, length = 10, width = 3 )
 
 		plt.tight_layout()
 		plt.savefig( self.fp_satisfaction_plot_file, dpi = 300 )
@@ -1185,3 +1203,4 @@ class BenchmarkModeling():
 
 if __name__ == "__main__":
 	BenchmarkModeling().forward()
+
