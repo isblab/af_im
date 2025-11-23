@@ -8,9 +8,10 @@ from MDAnalysis.analysis import rms, align
 from MDAnalysis.core.universe import Universe
 from MDAnalysis.core.groups import AtomGroup
 
+from utils.utils import run_subprocess
 
 ################################################################################
-# ------------------------------> RMSD and RMSF <----------------------------- #
+# -------------------------------> MDAnalysis <------------------------------- #
 ################################################################################
 def load_ensemble( ensemble_file: str ):
 	"""
@@ -145,3 +146,65 @@ def compute_rmsd_post_align( ensemble_file: str ) -> np.ndarray:
 	rmsd = compute_rmsd( to_align = u, ref = u )
 
 	return rmsd
+
+
+################################################################################
+# ---------------------------------> USalign <-------------------------------- #
+################################################################################
+def usalign( self, model_id1: int, model_id2: int ):
+	"""
+	Use USalign for computing the TM-score
+		and RMSD for the given models.
+	Assuming model_id1 to be the reference.
+
+	mol --> molecule type [auto, prot, RNA.
+	mm --> multimeric laignment option.
+		0: alignment of two monomeric structures.
+		1: alignment of two multi-chain oligomeric structures.
+		2: alignment of individual chains to an oligomeric structure.
+		Look at USalign -h option for more details.
+	ter --> #chains to align.
+		0: align all chains from all models.
+		1: align all chains of the first model.
+		2: only align the first chain.
+
+	USalign model1.pdb model2.pdb -ter 0 -mm 1 -mol prot
+	"""
+	model1 = self.get_struct_file( model_id = model_id1 )
+	model2 = self.get_struct_file( model_id = model_id2 )
+
+	stdout_file = os.path.join( self.tmp_dir, f"model_{model_id1}_{model_id2}.txt" )
+	stderr_file = os.path.join( self.tmp_dir, f"error_{model_id1}_{model_id2}.txt" )
+
+	cmd = [f"./{self.rmsd_config.usalign_script}", 
+			f"{model1}",
+			f"{model2}",
+			"-mol", "prot",
+			"-mm", f"{self.rmsd_config.mm}",
+			"-ter", f"{self.rmsd_config.ter}"]
+
+	run_subprocess(
+		command = cmd,
+		stdout_file = stdout_file,
+		stderr_file = stderr_file
+	)
+	return stdout_file
+
+
+def get_alignment_score( self, stdout_file: str ):
+	"""
+	Return the TM-score and RMSD.
+	Read the MMalign/USalign output stored in a txt file.
+		Line14: Aligned length= 572, RMSD=   0.76, Seq_ID=n_identical/n_aligned= 1.000
+		Line15: TM-score= 0.XXXXX (if normalized by length of Chain_1, i.e., LN=XX, d0=X.XX)
+		Line16: TM-score= 0.XXXXX (if normalized by length of Chain_2, i.e., LN=XXX, d0=X.XX)
+	"""
+	with open( stdout_file, "r" ) as f:
+		output = f.readlines()
+
+	rmsd_line = output[14]
+	tm_line = output[15]
+
+	rmsd = float( rmsd_line.split( "," )[1].split( "RMSD=" )[1] )
+	tm = float( tm_line.split( " " )[1] )
+	return rmsd, tm
