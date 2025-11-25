@@ -1,7 +1,7 @@
 """
 Contains tools to aid in analysis.
 """
-import warnings
+import warnings, os
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.analysis import rms, align
@@ -151,7 +151,16 @@ def compute_rmsd_post_align( ensemble_file: str ) -> np.ndarray:
 ################################################################################
 # ---------------------------------> USalign <-------------------------------- #
 ################################################################################
-def usalign( self, model_id1: int, model_id2: int ):
+def usalign(
+	usalign_script: str,
+	model_id1: int,
+	model1_file: str,
+	model2_file: str,
+	model_id2: int,
+	tmp_dir: str,
+	mol: str = "prot",
+	mm: int = 1,
+	ter: int = 1 ):
 	"""
 	Use USalign for computing the TM-score
 		and RMSD for the given models.
@@ -170,18 +179,18 @@ def usalign( self, model_id1: int, model_id2: int ):
 
 	USalign model1.pdb model2.pdb -ter 0 -mm 1 -mol prot
 	"""
-	model1 = self.get_struct_file( model_id = model_id1 )
-	model2 = self.get_struct_file( model_id = model_id2 )
+	# model1 = get_struct_file( model_id = model_id1 )
+	# model2 = get_struct_file( model_id = model_id2 )
 
-	stdout_file = os.path.join( self.tmp_dir, f"model_{model_id1}_{model_id2}.txt" )
-	stderr_file = os.path.join( self.tmp_dir, f"error_{model_id1}_{model_id2}.txt" )
+	stdout_file = os.path.join( tmp_dir, f"model_{model_id1}_{model_id2}.txt" )
+	stderr_file = os.path.join( tmp_dir, f"error_{model_id1}_{model_id2}.txt" )
 
-	cmd = [f"./{self.rmsd_config.usalign_script}", 
-			f"{model1}",
-			f"{model2}",
-			"-mol", "prot",
-			"-mm", f"{self.rmsd_config.mm}",
-			"-ter", f"{self.rmsd_config.ter}"]
+	cmd = [f"./{usalign_script}", 
+			f"{model1_file}",
+			f"{model2_file}",
+			"-mol", f"{mol}",
+			"-mm", f"{mm}",
+			"-ter", f"{ter}"]
 
 	run_subprocess(
 		command = cmd,
@@ -191,7 +200,7 @@ def usalign( self, model_id1: int, model_id2: int ):
 	return stdout_file
 
 
-def get_alignment_score( self, stdout_file: str ):
+def get_alignment_score( stdout_file: str ):
 	"""
 	Return the TM-score and RMSD.
 	Read the MMalign/USalign output stored in a txt file.
