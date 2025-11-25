@@ -190,7 +190,8 @@ def get_relaxed_model_file(
 	sys_name: str,
 	modeling_version: int, model_id: int ):
 	"""
-	Get the file to the unrelaxed model (saved during fine-tuning).
+	Get the file to the relaxed model (saved during fine-tuning).
+	Only good-scoring models are relaxed and saved.
 	"""
 	analysis_dir_path = get_analysis_dir_path(
 		base_dir = base_dir,
@@ -243,3 +244,38 @@ def get_relaxed_ensemble_file(
 		f"{sys_name}_relaxed_ensemble.{struct_format}" )
 	return ensemble_file
 
+
+def get_native_struct_file(
+	base_dir: str,
+	benchmark_name: str,
+	sys_name: str
+):
+	"""
+	Return the path to the native structure file for the given system.
+	"""
+	data_dir = get_sys_data_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		sys_name = sys_name
+	)
+	native_struct_file = os.path.join( data_dir, f"{sys_name}.cif" )
+	return native_struct_file
+
+
+def get_init_struct_file(
+	base_dir: str,
+	benchmark_name: str,
+	sys_name: str
+):
+	"""
+	Return the path to the initial OpenFold predicted structure for the given system.
+	"""
+	data_dir = get_sys_data_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		sys_name = sys_name
+	)
+	init_struct_file = os.path.join(
+		data_dir,
+		f"{sys_name}_output/predictions/{sys_name}_init_pred_relaxed.cif" )
+	return init_struct_file
