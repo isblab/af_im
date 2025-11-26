@@ -1,9 +1,8 @@
 """
-Run the IntegrativeLearning module on the entire benchmark.
-Update the topology file with the configs for the simulation.
-Check the distribution of violation loss, ccom loss, xl_restraint.
-Compute DockQ wrt experimental structure.
-Compare experimental structure resolution with MolProbity score.
+Wrapper class for running the IntegrativeLearning module on a benchmark.
+	Update the topology file with the configs for the simulation.
+Also creates analysis plots for the benchmark.
+Allows limited utility to specify hyperparameters in the topology file.
 """
 from typing import List, Dict
 import os, glob, time, subprocess, traceback, warnings
@@ -20,6 +19,16 @@ from openfold_wrapper import IntegrativeLearning
 from topology import topology_dict
 from utils.utils import ( open_file_handler, read_json, write_json, run_subprocess )
 from utils.pdb_utils import Parser, get_chain_id
+from utils.paths import (
+	get_sys_modeling_path,
+	get_sys_data_dir_path,
+	get_sys_config_path,
+	get_unrelaxed_model_file,
+	get_relaxed_model_file,
+	get_native_struct_file,
+	get_init_struct_file )
+from utils.tools import usalign, get_alignment_score
+from experiment_hparams import experiment_hyperparameters
 
 
 class BenchmarkModeling():
@@ -34,6 +43,10 @@ class BenchmarkModeling():
 		self.sys_conf_suff = ""
 		# No. of recyling iters for OpenFold.
 		self.num_iters = 1
+		# OpenFold inference mode - train/eval.
+		self.inference_mode = "eval"  # train/eval
+		# Selectively activate dropouts for evoformer/structure_module.
+		self.activate_dropouts = "none" # evoformer/structure_module/none
 		# Maximum no. of epochs for fine-tuning.
 		self.num_frames = 50
 		# Max epochs for pose sampling.
@@ -67,6 +80,8 @@ class BenchmarkModeling():
 		self.db_preset = "full_dbs"
 		# If True, skip re-running modeling if output files already exist.
 		self.skip_rerun = True
+		# USalign script.
+		self.usalign_script = "USalign"
 		# Enable analysis.
 		self.enable_analysis = True
 		# If True run AMBER relaxation and MolProbity validation.
@@ -96,7 +111,7 @@ class BenchmarkModeling():
 		}
 		# Configs for MSA subsampling.
 		self.subsampling = {
-			"enabled": True,
+			"enabled": False,
 			"type": "sequential",  # random/sequential
 			"params": {
 			"neff": [25],
@@ -106,7 +121,7 @@ class BenchmarkModeling():
 		}
 		# Configs for MSA column masking.
 		self.column_masking = {
-			"enabled": True,
+			"enabled": False,
 			"params": {
 			"mask_frac": [0.3],
 			}
@@ -126,6 +141,7 @@ class BenchmarkModeling():
 		self.topo_dict = topo_dict
 
 		self.dockq_dict = {}
+		self.tm_dict = {}
 
 
 	def forward( self ):
@@ -236,6 +252,8 @@ class BenchmarkModeling():
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
 			topo_dict.model.num_iters = self.num_iters
+			topo_dict.model.inference_mode = self.inference_mode
+			topo_dict.model.activate_dropouts = self.activate_dropouts
 			topo_dict.train.num_frames = self.num_frames
 			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
@@ -246,7 +264,7 @@ class BenchmarkModeling():
 			topo_dict.train.init_rep = self.init_rep
 			topo_dict.train.reinit_frame = self.reinit_frame
 			topo_dict.train.reinit_step = self.reinit_step
-			topo_dict.train.select_pose = self.self.select_pose
+			topo_dict.train.select_pose = self.select_pose
 			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
 
@@ -323,7 +341,12 @@ class BenchmarkModeling():
 		Empty the CUDA cache after each run.
 		"""
 		# Directory containing input data for the modeled system.
-		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		data_dir = get_sys_data_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name
+		)
 
 		topo_dict = self.modify_topology( sys_name = sys_name )
 
@@ -647,6 +670,147 @@ class BenchmarkModeling():
 
 	################################################################################
 	################################################################################
+	def compute_tm_score( self ):
+		"""
+		Compute TM-score wrt the ground truth structure across the entire benchmark for:
+			All sampled models
+			Good-scoring models
+		"""
+		print( "\n" + "-"*70 +
+			"\n\t\033[1m--> Computing TM-score wrt the ground truth structure <--\033[0m\n" +
+			"-"*70 )
+		if os.path.exists( self.tm_dict_file ):
+			self.tm_dict = read_json( self.tm_dict_file )
+
+		for sys_name in self.benchmark["PDB ID"]:
+			if sys_name in self.tm_dict:
+				continue
+			else:
+				all_sampled_tm = self.compute_tm_all_sampled_models( sys_name = sys_name )
+				good_models_tm = self.compute_tm_good_scoring_models( sys_name = sys_name )
+				init_tm = self.compute_tm_init_struct( sys_name = sys_name )
+				self.tm_dict[sys_name] = {
+					"init_struct": init_tm,
+					"all_sampled": all_sampled_tm,
+					"good_scoring": good_models_tm
+					}
+				print( f"{sys_name}: {init_tm}\n{good_models_tm}\n" )
+
+			write_json( self.tm_dict, self.tm_dict_file )
+
+
+	def create_tmp_dir( self ):
+		"""
+		Create a temporary dir for storing intermediate
+			files for rmsd computation.
+		"""
+		self.tmp_dir = os.path.join( self.benchmark_modeling_dir, "tm_tmp" )
+		os.makedirs( self.tmp_dir, exist_ok = True )
+
+
+	def remove_tmp_dir( self ):
+		cmd = ["rm", "-r", f"{self.tmp_dir}"]
+		run_subprocess( cmd )
+
+
+	def run_usalign( self,
+		sys_name: str,
+		model_id2: int,
+		model2_file: str
+		):
+		native_file = get_native_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		stdout_file = usalign(
+			usalign_script = self.usalign_script,
+			model_id1 = 00,  # Arbitrary model_id for the native struct.
+			model1_file = native_file,
+			model_id2 = model_id2,  # Arbitrary model_id for the init struct.
+			model2_file = model2_file,
+			tmp_dir = self.tmp_dir,
+			mol = "prot",
+			mm = 1,
+			ter = 1
+			)
+		_, tm = get_alignment_score( stdout_file )
+		return tm
+
+
+	def compute_tm_init_struct( self, sys_name: str ):
+		"""
+		Compute TM-score for the initial OpenFold predicted structure.
+		"""
+		self.create_tmp_dir()
+		init_struct_file = get_init_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		tm = self.run_usalign(
+			sys_name = sys_name,
+			model_id2 = 00,
+			model2_file = init_struct_file
+		)
+		self.remove_tmp_dir()
+		return tm
+
+
+	def compute_tm_all_sampled_models( self, sys_name: str ):
+		"""
+		Compute TM-score for all sampled models in the given system.
+		"""
+		self.create_tmp_dir()
+		stats_dict = self.load_stat_file( sys_name = sys_name )
+
+		all_sampled_tm = []
+		for model_id in stats_dict["model_id"]:
+			model_file = get_unrelaxed_model_file(
+				base_dir = self.base_dir,
+				modeling_dir_name = self.modeling_dir_name,
+				sys_name = sys_name,
+				modeling_version = self.modeling_version,
+				model_id = model_id
+			)
+			tm = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			all_sampled_tm.append( tm )
+		self.remove_tmp_dir()
+		return all_sampled_tm
+
+
+	def compute_tm_good_scoring_models( self, sys_name: str ):
+		"""
+		Compute TM-score for good-scoring models in the given system.
+		Using the structure post-relaxation.
+		"""
+		self.create_tmp_dir()
+		analysis_dict = self.load_analysis_dict( sys_name = sys_name )
+
+		good_models_tm = []
+		for model_id in analysis_dict["selected_good_models"]:
+			model_file = get_relaxed_model_file(
+				base_dir = self.base_dir,
+				modeling_dir_name = self.modeling_dir_name,
+				sys_name = sys_name,
+				modeling_version = self.modeling_version,
+				model_id = model_id
+			)
+			tm = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			good_models_tm.append( tm )
+		self.remove_tmp_dir()
+		return good_models_tm
+
+	################################################################################
+	################################################################################
 	def plot_modeling_results( self ):
 		"""
 		For violation loss, and XL satisfaction,
@@ -658,6 +822,7 @@ class BenchmarkModeling():
 		if self.enable_relax_validate:
 			if self.sys_conf_suff:
 				self.plot_fpxl_ssatisfaction()
+				self.plot_tm_score_distribution()
 			# self.plot_dockq_score()
 			self.plot_molrobity_scores()
 		# self.plot_avg_distribution()
@@ -765,7 +930,6 @@ class BenchmarkModeling():
 		"""
 		all_sampled = self.get_input_for_per_epoch_plots( source = "all_sampled" )
 		good_scoring = self.get_input_for_per_epoch_plots( source = "good_scoring" )
-		color = ["lightblue", "orange"]
 
 		# i = 0
 		for name, out in zip( ["all_sampled", "good_scoring"], [all_sampled, good_scoring] ):
@@ -800,6 +964,51 @@ class BenchmarkModeling():
 			plt.tight_layout()
 			plt.savefig( path, dpi = 300 )
 			complex_idx = np.arange( 1, len( complexes_list ) + 1 )
+		plt.close()
+
+
+	################################################################################
+	def plot_tm_score_distribution( self ):
+		"""
+		Plot the distribution of TM-score wrt the ground truth structure for:
+			All sampled models
+			Good scoring models
+			Initial predicted structure
+		"""
+		# Compute the TM-score.
+		self.compute_tm_score()
+
+		all_sampled_list, good_scoring_list, init_list = [], [], []
+		for sys_name in self.tm_dict:
+			all_sampled_list.append( self.tm_dict[sys_name]["all_sampled"] )
+			good_scoring_list.append( self.tm_dict[sys_name]["good_scoring"] )
+			init_list.append( self.tm_dict[sys_name]["init_struct"] )
+
+		plt.rcParams["font.family"] = "sans"
+		_, ax = plt.subplots( 2, 1, figsize = ( 30, 20 ) )
+
+		complexes_list = list( self.tm_dict.keys() )
+		complex_idx = np.arange( 1, len( complexes_list ) + 1 )
+
+		self.create_violin( data = all_sampled_list, ax = ax, r = 0,
+							color = "tab:blue", ylabel = "TM score" )
+		self.create_violin( data = good_scoring_list, ax = ax, r = 1,
+							color = "tab:blue", ylabel = "TM score" )
+		# Plot the TM-score for the initial predicted structure.
+		ax[0].scatter( complex_idx, init_list,
+					c = "red", alpha = 1, linewidth = 2 )
+		ax[1].scatter( complex_idx, init_list,
+					c = "red", alpha = 1, linewidth = 2 )
+
+		ax[0].set_title( "TM-score for all sampled models", fontsize = 25 )
+		ax[0].set_ylim( -0.05, 1.05 )
+		ax[0].set_xticks( complex_idx, complexes_list )
+		ax[1].set_title( "TM-score for good scoring models", fontsize = 25 )
+		ax[1].set_ylim( -0.05, 1.05 )
+		ax[1].set_xticks( complex_idx, complexes_list )
+
+		plt.tight_layout()
+		plt.savefig( self.tm_plot_file, dpi = 300 )
 		plt.close()
 
 
@@ -928,33 +1137,45 @@ class BenchmarkModeling():
 	def write_results_to_csv( self ):
 		"""
 		Write the following for each complex to a .csv file:
-			XL satisfaction at epoch 0
-			Avg. XL satisfaction for good-scoring models
-			Global XL satisfaction for good-scoring models
-			Violations at epoch 0
-			Avg. Violations for good-scoring models
-			Avg. MolProbity score for good-scoring models
+			No. of good scoring models
+			Init XL satisfaction
+			Max XL satisfaction (all sampled)
+			Max XL satisfaction (good scoring)
+			Global XL satisfaction (all sampled)
+			Global XL satisfaction (good scoring)
+			Avg. MolProbity score for good scoring models
 		"""
 		flat_dict = {"metrics": []}
 		flat_dict["metrics"].extend( [k for k in [
-			"num_models", "epoch0_xl", "avg_xl", "global_xl",
-			"epoch0_viol", "avg_viol", "avg_molprob_score_unrelax",
+			"num_models", "init_xl_sat", "max_xl_as", "max_xl_gs",
+			"global_xl_as", "global_xl_gs",
+			"avg_molprob_score_unrelax",
 			"avg_molprob_score_relax"]] )
 
 		flat_dict.update( {k:[] for k in self.benchmark["PDB ID"]} )
 
-		for sys_name in self.benchmark["PDB ID"]:
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			stats_dict = self.load_stat_file( sys_name = sys_name )
 			analysis_dict = self.load_analysis_dict( sys_name = sys_name )
 
-			flat_dict[sys_name].append( len( analysis_dict["selected_good_models"] ) )
-			flat_dict[sys_name].append( stats_dict["metrics"]["xlr"][0] )
-			flat_dict[sys_name].append( np.round( np.mean( analysis_dict["per_model_xl_sat"] ), self.prec ) )
-			flat_dict[sys_name].append( np.round( analysis_dict["global_data_satisfaction"], self.prec ) )
-
-			flat_dict[sys_name].append( stats_dict["loss"]["violation"][0] )
-			flat_dict[sys_name].append( np.round( np.mean( analysis_dict["per_model_viol"] ), self.prec ) )
-
+			# No. of good scoring models.
+			flat_dict[sys_name].append(
+				len( analysis_dict["selected_good_models"] ) )
+			# Initial XL satisfaction.
+			flat_dict[sys_name].append(
+				self.benchmark.loc[i, "xl_satisfaction"] )
+			# Max Xl satisfaction for all sampled models.
+			flat_dict[sys_name].append(
+				np.round( np.max( stats_dict["metrics"]["xlr"] ), self.prec ) )
+			# Max Xl satisfaction for good scoring models.
+			flat_dict[sys_name].append(
+				np.round( np.max( analysis_dict["per_model_xl_sat"] ), self.prec ) )
+			# Global Xl satisfaction for all sampled models.
+			flat_dict[sys_name].append(
+				np.round( stats_dict["metadata"]["xlr"]["global_satisfaction"], self.prec ) )
+			# Global Xl satisfaction for good scoring models.
+			flat_dict[sys_name].append(
+				np.round( analysis_dict["global_data_satisfaction"], self.prec ) )
 			if self.enable_relax_validate:
 				unrelax_avg, relax_avg = [], []
 				molprob_dict = analysis_dict["molprob"]
@@ -970,8 +1191,6 @@ class BenchmarkModeling():
 				flat_dict[sys_name].append( 0 )
 
 		df = pd.DataFrame( flat_dict )
-		# median = df.iloc[:, 1:].median( axis = 1 )
-		# df.insert( 1, "median", median )
 		df.to_csv( self.results_file, index = False )
 
 
@@ -989,7 +1208,7 @@ class BenchmarkModeling():
 		# Output dir for storing each benchmark run results.
 		self.benchmark_output_dir = os.path.join(
 												self.base_dir,
-												f"{self.benchmark_name}_benchmark_results" )
+												f"{self.benchmark_name}_benchmark_analysis" )
 		self.benchmark_modeling_dir = os.path.join( self.benchmark_output_dir,
 												f"version_{self.modeling_version}" )
 		self.benchmark_csv_file = os.path.join( self.meta_dir,
@@ -998,10 +1217,13 @@ class BenchmarkModeling():
 		self.resolution_dict_file = os.path.join( self.meta_dir, "resolution_dict.json" )
 		# File to store DOckQ.
 		self.dockq_dict_file = os.path.join( self.benchmark_modeling_dir, f"dockq_dict.json" )
+		# File to store TM-score.
+		self.tm_dict_file = os.path.join( self.benchmark_modeling_dir, f"tm_dict.json" )
 		# File to write benchmark results to a csv file.
 		self.results_file = os.path.join( self.benchmark_modeling_dir, f"Results_v{self.modeling_version}.csv" )
 		self.fp_satisfaction_plot_file = os.path.join( self.benchmark_modeling_dir, f"fp_xl_satisfaction.png" )
 		self.dockq_plot_file = os.path.join( self.benchmark_modeling_dir, f"dockq_plot.png" )
+		self.tm_plot_file = os.path.join( self.benchmark_modeling_dir, f"tm_score_dist.png" )
 		self.molprob_plot_file = os.path.join( self.benchmark_modeling_dir, f"molprob_plot.png" )
 
 		# File to store time and memory used per system.
@@ -1066,11 +1288,17 @@ class BenchmarkModeling():
 		"""
 		Return the sys_config dict.
 		"""
-		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
-		sys_config = read_json(
-			os.path.join(
-				data_dir,
-				f"sys_config_{sys_name}{self.sys_conf_suff}.json" )
+		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		sys_config_path = get_sys_config_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+			sys_conf_suff = self.sys_conf_suff
+		)
+		sys_config = read_json( sys_config_path
+			# os.path.join(
+			# 	data_dir,
+			# 	f"sys_config_{sys_name}{self.sys_conf_suff}.json" )
 			)
 		return sys_config
 
@@ -1079,8 +1307,13 @@ class BenchmarkModeling():
 		"""
 		Return the path to the system modeling version dir.
 		"""
-		sys_path = self.get_sys_path( sys_name )
-		ver_path = os.path.join( sys_path,
+		# sys_path = self.get_sys_path( sys_name )
+		sys_modeling_path = get_sys_modeling_path(
+			base_dir = self.base_dir,
+			modeling_dir_name = self.modeling_dir_name,
+			sys_name = sys_name
+		)
+		ver_path = os.path.join( sys_modeling_path,
 							f"version_{self.modeling_version}"
 							)
 		return ver_path
@@ -1161,6 +1394,9 @@ class BenchmarkModeling():
 				"version": str( self.modeling_version ),
 				"num_frames": str( self.num_frames ),
 				"num_steps": str( self.num_steps ),
+				"num_iters": str( self.num_iters ),
+				"inference_mode": self.inference_mode,
+				"activate_dropouts": self.activate_dropouts,
 				"use_as_templates": self.use_as_templates,
 				"add_to_existing_templates": self.add_to_existing_templates,
 				"recycle_pose": self.recycle_pose,
@@ -1202,5 +1438,15 @@ class BenchmarkModeling():
 
 
 if __name__ == "__main__":
-	BenchmarkModeling().forward()
+	# BenchmarkModeling().forward()
 
+	for v in [28.3, 31.1]:
+	# for v in [30, 30.1, 31]:
+		if f"experiment_{v}" in experiment_hyperparameters:
+			obj = BenchmarkModeling()
+			for k, v in experiment_hyperparameters[f"experiment_{v}"].items():
+				setattr( obj, k, v )
+			obj.forward()
+			del obj
+		else:
+			raise ValueError( f"version {v} not present in hyperparameters dict..." )
