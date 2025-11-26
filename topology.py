@@ -61,7 +61,7 @@ config = mlc.ConfigDict(
 			"uniref30_database_path": os.path.join( db_dir, "uniref30/UniRef30_2021_03" ),
 			"uniprot_database_path": os.path.join( db_dir, "uniprot/uniprot.fasta" ),
 			"bfd_database_path": os.path.join( db_dir,"bfd/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt" ),
-			"jackhmmer_bin": os.path.join( tool_base, "jackhmmer" ),
+			"jackhmmer_binary_path": os.path.join( tool_base, "jackhmmer" ),
 			"hhblits_binary_path": os.path.join( tool_base, "hhblits" ),
 			"hmmbuild_binary_path": os.path.join( tool_base, "hmmbuild" ),
 			"hmmsearch_binary_path": os.path.join( tool_base, "hmmsearch" ),
@@ -94,9 +94,13 @@ config = mlc.ConfigDict(
 		"long_sequence_inference": long_sequence_inference,
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"rigid_type": "chains",
-		"num_iters": 1,  # no. of recycling iterations for OpenFold.
+		"num_recycles": 1,  # no. of recycling iterations for OpenFold.
+		"inference_mode": "eval",  # Run OpenFold inference in train or eval mode.
+		# Selectively activate dropouts for either the evoformer or structure_module only.
+		# 	this option is ignored when inference_mode = train.
+		"activate_dropouts": "none",  # evoformer/structure_module/none
 		"subsampling": {
-			"enabled": True,
+			"enabled": False,
 			"type": "sequential",  # random/sequential
 			"params": {
 			# Randomly choses a neff value from the provided list.
@@ -185,7 +189,7 @@ config = mlc.ConfigDict(
 		"structural_similarity": {
 			"tool": "usalign",  # usalign/mdanalysis
 			"usalign_script": "USalign",
-			"prot": "prot",
+			"mol": "prot",
 			"mm": 1,
 			"ter": 1,
 			"similarity_cutoff": 4.0, # Choice for 4 A cutoff (doi: 10.1002/prot.26818)
@@ -224,7 +228,7 @@ config = mlc.ConfigDict(
 		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
 		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
-		"fill_none": False,  # If skipping pose sampling, replace final_atom_positions with None.
+		"fill_none": False,  # (deprecated) If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.
 		"num_steps": 20, # max epochs for pose sampling.
 		"select_pose": "last",  # last: select pose from last step; max: select pose with max data satisfaction.
