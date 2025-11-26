@@ -319,7 +319,9 @@ class FitToData():
 		recycler_model = Recycler(
 			ofold_config = self.ofold_config,
 			jax_param_path = self.jax_params_path,
-			num_iters = self.topology.model.num_iters,
+			num_iters = self.topology.model.num_recycles,
+			inference_mode = self.topology.model.inference_mode,
+			activate_dropouts = self.topology.model.activate_dropouts,
 			device = self.device )
 
 		batch = {}
@@ -386,9 +388,11 @@ class FitToData():
 			with torch.no_grad():
 				out, batch = self.af_sampling( out = out, batch = batch )
 
+				torch_rng_state = torch.random.get_rng_state() # Ensure reproducibility when using in train mode.
 				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
+				torch.random.set_rng_state( torch_rng_state )
 				out = copy.deepcopy( outputs )
 				del outputs
 				# Just compute loss but don't backpropagate.
