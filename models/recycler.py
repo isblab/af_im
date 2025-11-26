@@ -26,16 +26,41 @@ class Recycler():
 			ofold_config: mlc.ConfigDict,
 			jax_param_path: str,
 			num_iters: int,
+			inference_mode: str,
+			activate_dropouts: str,
 			device: str ):
 		self.ofold_config = ofold_config
 		self.num_iters = num_iters
 		self.device = device
 
+		# When using train mode, tune_chunk_size is expected to be False.
+		if inference_mode == "train" or activate_dropouts in ["evoformer", "structure_module"]:
+			self.ofold_config.model.template.template_pair_stack.tune_chunk_size = False
 		for path in jax_param_path.split( "," ):
 			model_basename = get_model_basename(path)
 			model_version = "_".join(model_basename.split("_")[1:])
 			self.alphafold = AlphaFold( self.ofold_config )
-			self.alphafold = self.alphafold.eval()
+			if inference_mode == "eval":
+				print( f"OpenFold inference in eval mode..." )
+				self.alphafold = self.alphafold.eval()
+
+				if activate_dropouts == "none":
+					pass
+				elif activate_dropouts == "evoformer":
+					print( "Switched ON Evoformer dropouts..." )
+					self.alphafold.evoformer.train()
+				elif activate_dropouts == "structure_module":
+					print( "Switched ON StructureModule dropouts..." )
+					self.alphafold.structure_module.train()
+				else:
+					raise ValueError(
+						f"Incorrect vaue specified for activate_dropouts - {activate_dropouts}." +
+						" use evoformer/structure_module/none..." )
+			elif inference_mode == "train":
+				print( f"OpenFold inference in train mode..." )
+				self.alphafold = self.alphafold.train()
+			else:
+				raise ValueError( f"Incorrect inference mode - {inference_mode} - specified. Use train/eval..." )
 			import_jax_weights_(
 				self.alphafold, path, version = model_version )
 
