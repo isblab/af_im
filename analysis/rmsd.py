@@ -39,7 +39,12 @@ class StructuralSimilarity():
 		"""
 		self.struct_models_exist()
 		self.create_tmp_dir()
-		models = self.rmsd_pipeline_mdanalysis()
+		if self.rmsd_config.tool == "mdanalysis":
+			models = self.rmsd_pipeline_mdanalysis()
+		elif self.rmsd_config.tool == "usalign":
+			models = self.rmsd_pipeline_usalign()
+		else:
+			raise ValueError( f"Incorrect tool specified - {self.rmsd_config.tool} - for RMSd computation..." )
 		self.selected_model_index = models
 
 		if self.rmsd_config.clean_up:
@@ -156,8 +161,9 @@ class StructuralSimilarity():
 					if model_id1 == model_id2 or model_id2 in ignore_models:
 						continue
 					
-					stdout_file = usalign( model_id1 = model_id1, model_id2 = model_id2 )
-					rmsd, tm = get_alignment_score( stdout_file )
+					rmsd, tm = self.get_tm_from_usalign(
+						model_id1 = model_id1,
+						model_id2 = model_id2 )
 
 					if rmsd <= self.rmsd_config.similarity_cutoff:
 						ignore_models.append( model_id2 )
@@ -169,6 +175,24 @@ class StructuralSimilarity():
 					selected_model_index.append( i )
 		return np.array( selected_model_index )
 
+
+	def get_tm_from_usalign( self, model_id1: int, model_id2: int ):
+		"""
+		Run USalign and return the RMSD and TM-score.
+		"""
+		stdout_file = usalign(
+			usalign_script = self.rmsd_config.usalign_script,
+			model_id1 = model_id1,
+			model1_file = self.get_struct_file( model_id = model_id1 ),
+			model_id2 = model_id2,
+			model2_file = self.get_struct_file( model_id = model_id2 ),
+			tmp_dir = self.tmp_dir,
+			mol = self.rmsd_config.mol,
+			mm = self.rmsd_config.mm,
+			ter = self.rmsd_config.ter,
+			)
+		rmsd, tm = get_alignment_score( stdout_file )
+		return rmsd, tm
 
 	# def usalign( self, model_id1: int, model_id2: int ):
 	# 	"""
