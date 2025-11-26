@@ -1,5 +1,5 @@
 from typing import List, Tuple, Dict, Any
-import os, time, copy
+import os, time, copy, random
 from collections import ( defaultdict )
 import pickle as pkl
 import numpy as np
@@ -315,6 +315,11 @@ class FitToData():
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 
+		# Ensure reproducibility when pose sampling and column masking are used especially when using dropouts.
+		preserve_rng_state_at_inference = (
+			( not self.topology.train.skip_pose_sampling or self.topology.model.column_masking.enabled ) and
+			( self.topology.model.inference_mode == "train" or self.topology.model.activate_dropouts != "none" )
+			)
 		# Initialize the OpenFold model predict structures biased by the pose sampled conformation.
 		recycler_model = Recycler(
 			ofold_config = self.ofold_config,
@@ -349,9 +354,6 @@ class FitToData():
 		out = self.init_coords()
 		prev_frame_coord = out["final_atom_positions"]
 
-		# pose_dict = self.predict_pose(
-		# 	out = out,
-		# 	prev_frame_coord = prev_frame_coord )
 		for frame in range( self.topology.train.num_frames ):
 			# Note time for full run (pose sampling+recycling).
 			t_s = time.perf_counter()
@@ -372,8 +374,6 @@ class FitToData():
 			else:
 				self.add_to_device( out )
 
-			# this will happen only if pose sampling is enabled.
-			# if not self.topology.train.skip_pose_sampling or self.topology.model.struct_noising.enabled:
 			out, batch = self.prepare_pose_for_injection(
 				out = out,
 				batch = batch,
@@ -388,11 +388,15 @@ class FitToData():
 			with torch.no_grad():
 				out, batch = self.af_sampling( out = out, batch = batch )
 
-				torch_rng_state = torch.random.get_rng_state() # Ensure reproducibility when using in train mode.
+				if preserve_rng_state_at_inference:
+					print( "Preserving RNG state for OpenFold inference..." )
+					torch_rng_state = torch.random.get_rng_state()
 				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
-				torch.random.set_rng_state( torch_rng_state )
+				if preserve_rng_state_at_inference:
+					torch.random.set_rng_state( torch_rng_state )
+
 				out = copy.deepcopy( outputs )
 				del outputs
 				# Just compute loss but don't backpropagate.
@@ -675,15 +679,14 @@ class FitToData():
 		cluster_deletion_mean -> [1, S, N]
 		cluster_profile -> [1, S, N, 23]
 		"""
-		# Preserve the PRNG state.
-		np_rng_state = np.random.get_state()
-		torch_rng_state = torch.random.get_rng_state()
-
 		params = dict( self.topology.model.subsampling.params )
 		neff_list = params["neff"]
-		neff = np.random.choice( neff_list, 1, replace = False )[0]
+		neff = random.sample( neff_list, 1 )[0]
 		params["neff"] = int( neff )
 		print( f"Using neff = {params['neff']}..." )
+
+		# Preserve the PRNG state.
+		# np_rng_state = np.random.get_state()
 
 		subsampled_idx = msa_subsampler(
 			msa = batch["msa"].cpu(),
@@ -701,9 +704,6 @@ class FitToData():
 
 		print( f"Subsampled MSA indices = {subsampled_idx}" )
 
-		np.random.set_state( np_rng_state )
-		torch.random.set_rng_state( torch_rng_state )
-
 		# Select subsampled MSA.
 		batch["msa"] = batch["msa"][:,subsampled_idx,:].to( self.device )
 		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
@@ -719,13 +719,9 @@ class FitToData():
 		"""
 		Apply MSA column masking.
 		"""
-		# Preserve the PRNG state.
-		np_rng_state = np.random.get_state()
-		torch_rng_state = torch.random.get_rng_state()
-
 		params = dict( self.topology.model.column_masking.params )
 		mask_frac_list = params["mask_frac"]
-		mask_frac = np.random.choice( mask_frac_list, 1, replace = False )[0]
+		mask_frac = random.sample( mask_frac_list, 1 )[0]
 		params["mask_frac"] = mask_frac
 		print( f"Using column mask fraction = {params['mask_frac']}..." )
 
@@ -742,8 +738,6 @@ class FitToData():
 		else:
 			self.stats_dict["col_mask"]["mask_frac"].append( params["mask_frac"] )
 			self.stats_dict["col_mask"]["masked_idx"].append( masked_idx )
-		np.random.set_state( np_rng_state )
-		torch.random.set_rng_state( torch_rng_state )
 		return batch
 
 	################################################################################
