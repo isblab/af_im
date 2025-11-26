@@ -2,14 +2,13 @@
 Funstions to create paths for the system or benchmark directories and files.
 """
 import os
-from utils.utils import read_json
 
 
-def get_sys_path(
+def get_sys_modeling_path(
 	base_dir: str,
 	modeling_dir_name: str, sys_name: str ) -> str:
 	"""
-	Return thr path for the given system.
+	Return thr path to the modeling dir for given system.
 	"""
 	sys_path = os.path.join( 
 				os.path.abspath(
@@ -50,7 +49,7 @@ def get_sys_modeling_version_path(
 	"""
 	Return the path to the system modeling version dir.
 	"""
-	sys_path = get_sys_path(
+	sys_path = get_sys_modeling_path(
 		base_dir = base_dir,
 		modeling_dir_name = modeling_dir_name,
 		sys_name = sys_name )
