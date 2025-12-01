@@ -172,7 +172,7 @@ class StructuralSimilarity():
 							"rmsd": rmsd, "tm": tm}
 
 				if model_id1 not in selected_model_index:
-					selected_model_index.append( i )
+					selected_model_index.append( model_id1 )
 		return np.array( selected_model_index )
 
 
