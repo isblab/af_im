@@ -77,7 +77,8 @@ class FitToData():
 			long_sequence_inference = self.topology.system_representation.long_sequence_inference,
 			use_deepspeed_evoformer_attention = self.topology.system_representation.use_deepspeed_evoformer_attention,
 			)
-		self.is_multimer = self.ofold_config.globals.is_multimer
+		self.is_multimer = self.topology.system_representation.is_multimer
+		self.ofold_config.globals.is_multimer = self.is_multimer
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 
 		self.fit()
@@ -230,6 +231,36 @@ class FitToData():
 		return out
 
 
+	def reinit_rep( self,
+		prev_frame_msa: torch.Tensor,
+		prev_frame_pair: torch.Tensor ) -> Dict[str, torch.Tensor]:
+		"""
+		Every frame, one can reuse the MSA and Pair representtaions in the following ways:
+			Use representations from the previous frame.
+			Initialize again as specified in init_rep.
+		"""
+		if "init" in self.topology.train.reinit_rep:
+			rep = self.init_representations()
+		reinit_msa, reinit_pair = self.topology.train.reinit_rep
+
+		if reinit_msa == "init":
+			msa = rep["msa"]
+		elif reinit_msa == "prev_frame":
+			print( f"Reusing MSA rep from previous frame..." )
+			msa = prev_frame_msa
+		else:
+			raise ValueError( f"Incorrect value specified for reinit_rep -> msa - {reinit_msa}..." )
+
+		if reinit_pair == "init":
+			pair = rep["pair"]
+		elif reinit_pair == "prev_frame":
+			print( f"Reusing Pair rep from previous frame..." )
+			pair = prev_frame_pair
+		else:
+			raise ValueError( f"Incorrect value specified for reinit_rep -> pair - {reinit_pair}..." )
+		return {"msa": msa, "pair": pair}
+
+
 	def reinit_coords( self,
 		out: torch.tensor,
 		prev_frame_coord: torch.tensor,
@@ -239,11 +270,11 @@ class FitToData():
 		Every frame, one can reuse the prediction in the following ways,
 			At every frame,
 				previous frame.
-				initialize again.
+				initialize again as specified by init_coord.
 			At every pose sampling iteration (step), one can reuse prediction from,
 				previous frame.
 				previous pose sampling iteration (step).
-				initialize again.
+				initialize again as specified by init_coord.
 		
 		Inputs:
 		----------
@@ -353,6 +384,8 @@ class FitToData():
 		# out = self.get_final_atom_positions()
 		out = self.init_coords()
 		prev_frame_coord = out["final_atom_positions"]
+		prev_frame_msa = out["msa"]
+		prev_frame_pair = out["pair"]
 
 		for frame in range( self.topology.train.num_frames ):
 			# Note time for full run (pose sampling+recycling).
@@ -438,22 +471,31 @@ class FitToData():
 							model_id = frame )
 
 			# Ignore this is if structure noising is enabled.
-			if self.topology.model.struct_noising.enabled:
-				pass
-			else:
-				# Current frame coordinates for use in the nest frame if specified.
-				prev_frame_coord = out["final_atom_positions"].to( self.device )
-				# Reinitialize out as specified in topology.
-				out = self.reinit_coords(
-					out = out,
-					prev_frame_coord = prev_frame_coord,
-					pose_iter = False )
+			# if self.topology.model.struct_noising.enabled:
+			# 	pass
+			# else:
+			# Current frame coordinates for use in the nest frame if specified.
+			prev_frame_coord = out["final_atom_positions"].to( self.device )
+			prev_frame_msa = out["msa"].to( self.device )
+			prev_frame_pair = out["pair"].to( self.device )
+			# Reinitialize out as specified in topology.
+			out = self.reinit_coords(
+				out = out,
+				prev_frame_coord = prev_frame_coord,
+				pose_iter = False )
+			out.update( self.reinit_rep(
+					prev_frame_msa = prev_frame_msa,
+					prev_frame_pair = prev_frame_pair )
+				)
 
 			# using frame as the model_id.
 			self.stats_dict["model_id"].append( frame )
 
 			# Removed the modified MSA features.
 			for k in ["msa", "msa_feat", "msa_mask", "deletion_matrix", "cluster_deletion_mean", "cluster_profile"]:
+				batch[k] = self.processed_feature_dict[k].to( self.device )
+			# Remove the modified extra MSA features.
+			for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
 				batch[k] = self.processed_feature_dict[k].to( self.device )
 			if self.topology.train.add_to_existing_templates:
 				for k in ["template_aatype", "template_all_atom_positions", "template_all_atom_mask"]:
@@ -499,7 +541,7 @@ class FitToData():
 				sys_config = self.topology.system,
 				add_to_existing_templates = self.topology.train.add_to_existing_templates,
 				device = self.device )
-			print( f"New template feat dim: {batch['all_atom_positions'].shape}..." )
+			print( f"New template feat dim: {batch['template_all_atom_positions'].shape}..." )
 
 		if self.topology.train.recycle_pose:
 			print( "Using the recycling embedder..." )
@@ -583,7 +625,6 @@ class FitToData():
 			}
 		if self.topology.train.select_pose == "max":
 			print( "Selecting the pose with max data satisfaction...")
-			print( track_metric )
 			max_idx = np.argmax( track_metric )
 			print( max_idx, "  ", track_metric[max_idx] )
 			out = pose_dict[max_idx]
@@ -621,6 +662,7 @@ class FitToData():
 		"""
 		Apply the specified AF sampling technique:
 			MSA subsampling
+			Extra MSA subsampling
 			MSA column amsking
 			Masking MSA for cross-linked residues
 		If using multiple, MSA subsampling will be done first.
@@ -632,6 +674,14 @@ class FitToData():
 				f"\tSubsampled msa_feat = {batch['msa_feat'].shape}.." )
 		else:
 			print( "MSA subsampling switched off..." )
+
+		if self.topology.model.extra_msa_subsampling.enabled:
+			orig_shape = batch["extra_msa"].shape
+			batch = self.extra_msa_subsampling( batch = batch )
+			print( f"Full extra_msa = {orig_shape}" +
+				f"\tSubsampled extra_msa = {batch['extra_msa'].shape}.." )
+		else:
+			print( "Extra MSA subsampling switched off..." )
 
 		if self.topology.model.column_masking.enabled:
 			batch = self.column_masking( batch = batch )
@@ -647,24 +697,24 @@ class FitToData():
 		else:
 			print( "MSA masking for XL residues switched off..." )
 
-		if self.topology.model.struct_noising.enabled:
-			if not self.topology.train.skip_pose_sampling:
-				raise ValueError( "Structure noising not compatible with Pose sampling..." )
-			if not self.topology.train.recycle_pose:
-				raise ValueError( "Recycling must be allowed for structure noising..." )
-			print( "Using structure noising..." )
-			params = dict( self.topology.model.struct_noising.params )
-			mu_list = params["mu"]
-			sigma_list = params["sigma"]
-			mu = np.random.choice( mu_list, 1, replace = False )[0]
-			sigma = np.random.choice( sigma_list, 1, replace = False )[0]
-			params["mu"] = mu
-			params["sigma"] = sigma
-			print( f"Using mu = {params['mu']} and sigma = {params['sigma']}..." )
-			out = noised_structure( out = out, params = params )
-			out["final_atom_positions"] = out["final_atom_positions"].to( self.device )
-		else:
-			print( "Structure noising switched off..." )
+		# if self.topology.model.struct_noising.enabled:
+		# 	if not self.topology.train.skip_pose_sampling:
+		# 		raise ValueError( "Structure noising not compatible with Pose sampling..." )
+		# 	if not self.topology.train.recycle_pose:
+		# 		raise ValueError( "Recycling must be allowed for structure noising..." )
+		# 	print( "Using structure noising..." )
+		# 	params = dict( self.topology.model.struct_noising.params )
+		# 	mu_list = params["mu"]
+		# 	sigma_list = params["sigma"]
+		# 	mu = np.random.choice( mu_list, 1, replace = False )[0]
+		# 	sigma = np.random.choice( sigma_list, 1, replace = False )[0]
+		# 	params["mu"] = mu
+		# 	params["sigma"] = sigma
+		# 	print( f"Using mu = {params['mu']} and sigma = {params['sigma']}..." )
+		# 	out = noised_structure( out = out, params = params )
+		# 	out["final_atom_positions"] = out["final_atom_positions"].to( self.device )
+		# else:
+		# 	print( "Structure noising switched off..." )
 		print( "\n" )
 
 		return out, batch
@@ -711,6 +761,42 @@ class FitToData():
 		batch["deletion_matrix"] = batch["deletion_matrix"][:,subsampled_idx,:].to( self.device )
 		batch['cluster_deletion_mean'] = batch["cluster_deletion_mean"][:,subsampled_idx,:].to( self.device )
 		batch["cluster_profile"] = batch["cluster_profile"][:,subsampled_idx,:, :].to( self.device )
+		return batch
+
+
+	def extra_msa_subsampling( self,
+			batch: Dict[str, torch.Tensor] ) -> Dict[str, torch.Tensor]:
+		"""
+		Subsample the extra MSA. The following features must be modified:
+			extra_msa -> [1, S, N]
+			extra_deletion_matrix -> [1, S, N]
+			extra_msa_mask -> [1, S, N]
+		Will just randomly sample indices for subsampling extra MSA.
+		"""
+		params = dict( self.topology.model.extra_msa_subsampling.params )
+		neff_list = params["neff"]
+		neff = random.sample( neff_list, 1 )[0]
+		params["neff"] = int( neff )
+		print( f"Using neff = {params['neff']}..." )
+
+		# Preserve the PRNG state.
+		# np_rng_state = np.random.get_state()
+
+		indices = list( np.arange( 0, batch["extra_msa"].shape[1], 1 ) )
+		subsampled_idx = random.sample( indices, neff )
+
+		if "extra_msa_subsample" not in self.stats_dict:
+			self.stats_dict["extra_subsample"] = {
+				"neff": [params["neff"]],
+				"subsampled_indices": [subsampled_idx]
+			}
+		else:
+			self.stats_dict["extra_msa_subsample"]["neff"].append( params["neff"] )
+			self.stats_dict["extra_msa_subsample"]["subsampled_indices"].append( subsampled_idx )
+
+		# Select subsampled MSA.
+		for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
+			batch[k] = batch[k][:,subsampled_idx,:].to( self.device )
 		return batch
 
 
@@ -862,7 +948,6 @@ class FitToData():
 		"""
 		# save_model_obj.add_to_modelcif( unrelaxed_protein, frame )
 		save_model_obj.add_model( prot = unrelaxed_protein, model_id = model_id )
-
 
 
 	def save_model( self, save_model: SaveModels ) -> None:

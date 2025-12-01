@@ -99,6 +99,7 @@ config = mlc.ConfigDict(
 		# Selectively activate dropouts for either the evoformer or structure_module only.
 		# 	this option is ignored when inference_mode = train.
 		"activate_dropouts": "none",  # evoformer/structure_module/none
+		# Subsample MSA feats
 		"subsampling": {
 			"enabled": False,
 			"type": "sequential",  # random/sequential
@@ -109,6 +110,11 @@ config = mlc.ConfigDict(
 			"cap_msa": True
 			}
 		},
+		# Subsample extra-MSA.
+		"extra_msa_subsampling": {
+			"enabled": False,
+			"params": {"neff": [25]}
+		},
 		"column_masking": {
 			"enabled": False,
 			"params": {
@@ -116,14 +122,14 @@ config = mlc.ConfigDict(
 			"mask_frac": [0.3]
 			}
 		},
-		"struct_noising": {
-			"enabled": False,
-			"params": {
-				"noise_struct": True,
-				"mu": [0.0],
-				"sigma": [1.0]
-			}
-		},
+		# "struct_noising": {
+		# 	"enabled": False,
+		# 	"params": {
+		# 		"noise_struct": True,
+		# 		"mu": [0.0],
+		# 		"sigma": [1.0]
+		# 	}
+		# },
 		"msa_xl_res_mask": False,
 		"no_templates": False # deprecated
 	},
@@ -192,7 +198,7 @@ config = mlc.ConfigDict(
 			"mol": "prot",
 			"mm": 1,
 			"ter": 1,
-			"similarity_cutoff": 4.0, # Choice for 4 A cutoff (doi: 10.1002/prot.26818)
+			"similarity_cutoff": 3.0, # 4 A as per this cutoff (doi: 10.1002/prot.26818)
 			"clean_up": True
 		},
 		"relax":{
@@ -226,6 +232,7 @@ config = mlc.ConfigDict(
 		"skip_pose_sampling": False,
 		"init_coord": "zero",  # zero/ init
 		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
+		"reinit_rep": ["init", "init"],  # prev_frame: reuses MSA/Pair rep from previous frame; init: initialize as in init_rep.
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
 		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
 		"fill_none": False,  # (deprecated) If skipping pose sampling, replace final_atom_positions with None.
