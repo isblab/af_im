@@ -524,6 +524,7 @@ class Metadata():
 			to the corresponding seq_id.
 		Columns: Protein1, Residue1, Protein1, Residue1
 		"""
+		drop_pdb = []
 		for pdb_id in self.xls_dict:
 			for xl_type in ["tp_xls", "fp_xls"]:
 				df = self.xls_dict[pdb_id][xl_type]
@@ -543,13 +544,19 @@ class Metadata():
 						drop_index.append( i )
 						continue
 					if res2 not in chain2_map:
-						drop_index.append( 2 )
+						drop_index.append( i )
 						continue
 
 					df.iloc[i, 1] = chain1_map[res1]
 					df.iloc[i, 3] = chain2_map[res2]
 				df = df.drop( drop_index )
+				if len( df ) == 0:
+					drop_pdb.append( pdb_id )
+					break
 				df = df.reset_index( drop = True )
+		# Remove PDB IDs for which no inter-protein XL was obtained for the selected chains.
+		for pdb_id in drop_pdb:
+			del self.xls_dict[pdb_id]
 
 
 	def save_dataset_configs( self ):
