@@ -27,7 +27,7 @@ from utils.utils import parse_nested_dict
 
 class InitPrediction():
 	def __init__( self ):
-		self.benchmark_name = "xlmerged"  # xlsim/abag/oreilly/xlmerged
+		self.benchmark_name = "pinderS"  # xlsim/abag/oreilly/xlmerged
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
 		self.modeling_dir_name = "xlmerged_modeling"
@@ -175,27 +175,39 @@ class InitPrediction():
 		"""
 		if os.path.exists( self.init_pred_metrics_file ):
 			self.init_pred_metrics = read_json( self.init_pred_metrics_file )
-		else:
-			for sys_name in self.benchmark["PDB ID"]:
-				print( f"\n----------- \033[1m{sys_name}\033[0m" )
-				if sys_name in self.logs["errored"]:
-					print( f"{sys_name} errored in a previous run..." )
+		# else:
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			if sys_name in ["1kcs", "1f58", "2b1h", "5dmi", "1uj3",
+					"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
+					"3sge", "4m1d", "5dmi", "5u3j", "6db7",
+					"6u6u", "6jep", "6q18", "7n4j", "7tp3",
+					"8x0t", "8fdo", "6xq0", "8yor"]:
 					continue
-				try:
-					tic = time.perf_counter()
-					violation, xl_metric = self.run_per_system_prediction( sys_name = sys_name )
-					self.init_pred_metrics[sys_name] = {
-						"violation": violation.item(),
-						"xl_satisfaction": xl_metric.item() }
-					toc = time.perf_counter()
-					if not sys_name in self.logs["time"]:
-						self.logs["time"][sys_name] = toc-tic
-						write_json( self.logs, self.logs_file )
-					write_json( self.init_pred_metrics, self.init_pred_metrics_file )
-				except:
-					self.log_error( sys_name = sys_name )
+			# Some error in map_residue_to_index.
+			if sys_name in ["6m4v"]:
+				continue
+			print( f"\n----------- \033[1m {i}. {sys_name}\033[0m" )
+			if sys_name in self.logs["errored"]:
+				print( f"{sys_name} errored in a previous run..." )
+				continue
+			elif sys_name in self.init_pred_metrics:
+				print( f"Already completed for {sys_name}..." )
+				continue
+			# try:
+			tic = time.perf_counter()
+			violation, xl_metric = self.run_per_system_prediction( sys_name = sys_name )
+			self.init_pred_metrics[sys_name] = {
+				"violation": violation.item(),
+				"xl_satisfaction": xl_metric.item() }
+			toc = time.perf_counter()
+			if not sys_name in self.logs["time"]:
+				self.logs["time"][sys_name] = toc-tic
+				write_json( self.logs, self.logs_file )
+			write_json( self.init_pred_metrics, self.init_pred_metrics_file )
+			# except:
+				# self.log_error( sys_name = sys_name )
 
-				torch.cuda.empty_cache()		
+			torch.cuda.empty_cache()		
 
 
 	def run_per_system_prediction( self, sys_name: str ):
@@ -205,7 +217,7 @@ class InitPrediction():
 		Obtain an initial prediction.
 		Compute the violation loss and XL metric.
 		"""
-		sys_conf_suff = "_tpfp"
+		sys_conf_suff = ""
 		# Initialize the topology dict.
 		topo_dict = topology_dict()
 
@@ -314,8 +326,10 @@ class InitPrediction():
 			"TP XLs": self.benchmark.loc[idx, "Selected TP XLs"].tolist()[0],
 			"FP XLs": self.benchmark.loc[idx, "Selected FP XLs"].tolist()[0],
 			"Auth Asym ID": self.benchmark.loc[idx, "Auth Asym ID"].tolist()[0],
-			"benchmark": self.pdb_benchmark_map[sys_name]
+			# "benchmark": self.pdb_benchmark_map[sys_name]
 		}
+		if self.benchmark_name == "xlmerged":
+			sys_dict.update( {"benchmark": self.pdb_benchmark_map[sys_name]} )
 
 		return sys_dict
 
