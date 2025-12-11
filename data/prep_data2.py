@@ -34,6 +34,7 @@ class Metadata():
 			"global": {
 				"benchmark_name": self.benchmark_name,
 				"struct_format": "both",
+				"download_assembly": True,
 				"max_sys_length": 1400,
 				"frac_coverage": 0.99,
 				"cores": 50,
@@ -379,6 +380,7 @@ class Metadata():
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_struct_dir = self.pdb_struct_dir,
 				struct_format = self.dataset_configs["global"]["struct_format"],
+				download_assembly = self.dataset_configs["global"]["download_assembly"],
 				cores = self.dataset_configs["global"]["cores"],
 				max_trials = self.dataset_configs["global"]["max_trials"],
 				wait_time = self.dataset_configs["global"]["wait_time"]
@@ -535,6 +537,12 @@ class Metadata():
 					chain2 = df.iloc[i, 2]
 					res2 = int( df.iloc[i, 3] )
 
+					if chain1 not in self.pdb_num_seq_id_map[pdb_id]:
+						drop_index.append( i )
+						continue
+					if chain2 not in self.pdb_num_seq_id_map[pdb_id]:
+						drop_index.append( i )
+						continue
 					chain1_map = self.pdb_num_seq_id_map[pdb_id][chain1]
 					chain2_map = self.pdb_num_seq_id_map[pdb_id][chain2]
 
