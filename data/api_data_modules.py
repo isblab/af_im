@@ -664,12 +664,14 @@ class DownloadPdbStructure():
 	def __init__ (self, pdb_ids_list: List[str],
 					pdb_struct_dir: str,
 					struct_format: str,
+					download_assembly: bool,
 					cores: int,
 					max_trials: int,
 					wait_time: int ):
 		self.pdb_ids_list = pdb_ids_list
 		self.pdb_struct_dir = pdb_struct_dir
 		self.struct_format = struct_format
+		self.download_assembly = download_assembly
 
 		self.cores = cores
 		self.max_trials = max_trials
@@ -711,7 +713,7 @@ class DownloadPdbStructure():
 
 
 	def dwmld_struct_for_entry_id( self, entry_id: str
-									) -> [Dict[str, str]]:
+									) -> Dict[str, str]:
 		"""
 		Download the structure for the given entry_id (PDB ID)
 			in the specified file format.
@@ -725,9 +727,10 @@ class DownloadPdbStructure():
 			if os.path.exists( struct_file_path ):
 				success.append( True )
 			else:
-				result = download_pdb( entry_id,
-										ext,
-										struct_file_path )
+				result = download_pdb( pdb_id = entry_id,
+										ext = ext,
+										file_name = struct_file_path,
+										download_assembly = self.download_assembly )
 				if not result:
 					success.append( False )
 				else:

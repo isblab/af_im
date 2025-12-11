@@ -1,18 +1,18 @@
 """
 This script contains functions for handling API requests, downloading files.
 """
-import os
-import time
+from typing import List, Tuple, Dict, Optional
+import os,  time, gzip
 import xml.etree.ElementTree as ET
 from io import StringIO
 import warnings
 import requests
-from typing import List, Tuple, Dict, Optional
 from Bio import SeqIO
 from Bio.PDB import PDBParser, MMCIFParser
 from Bio.PDB.PDBExceptions import PDBConstructionException
 
-from utils.utils import ( read_json,
+from utils.utils import (open_file_handler,
+						read_json,
 						write_to_file,
 						run_subprocess )
 from utils.pdb_utils import aa_3_to_1
@@ -158,6 +158,7 @@ def pdb_valid( file_name: str, ext: str ):
 
 def download_pdb( pdb_id: str, ext: str, file_name: str, 
 					max_trials: int = 5, wait_time: int = 5,
+					download_assembly: bool = False,
 					return_id: bool = True ):
 	"""
 	Download the PDB entry in the specified format.
@@ -177,10 +178,16 @@ def download_pdb( pdb_id: str, ext: str, file_name: str,
 	pdb_id = pdb_id.lower()
 
 	if ext =="cif":
-		url = f"https://files.rcsb.org/download/{pdb_id}.cif"
+		if download_assembly:
+			url = f"https://files.rcsb.org/download/{pdb_id}-assembly1.cif.gz"
+		else:
+			url = f"https://files.rcsb.org/download/{pdb_id}.cif"
 
 	elif ext == "pdb":
-		url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
+		if download_assembly:
+			url = f"https://files.rcsb.org/download/{pdb_id}.pdb1.gz"
+		else:
+			url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
 
 	else:
 		raise ValueError( "Incorrect file format (Choose .pdb/,cif)..." )
@@ -190,8 +197,18 @@ def download_pdb( pdb_id: str, ext: str, file_name: str,
 	if response not in ["not_found", "bad_request"]:
 		success = True
 
-		# file_name = f"./{pdb_id}.{ext}"
-		write_to_file( response, file_name, "w" )
+		if download_assembly:
+			gz_file = file_name + ".gz"
+			w = open_file_handler( gz_file, "wb" )
+			w.write( response.content )
+			w.close
+
+			with gzip.open( gz_file, "rb" ) as f, open( file_name, "wb" ) as w:
+				w.write( f.read() )
+
+		else:
+			# file_name = f"./{pdb_id}.{ext}"
+			write_to_file( response, file_name, "w" )
 
 	else:
 		print( f"HTTP response - {response}" )
