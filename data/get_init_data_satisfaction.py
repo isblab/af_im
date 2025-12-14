@@ -30,7 +30,7 @@ class InitPrediction():
 		self.benchmark_name = "pinderS"  # xlsim/abag/oreilly/xlmerged
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
-		self.modeling_dir_name = "xlmerged_modeling"
+		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
 		self.modeling_version = 0
 		self.device = "cuda:0"
 		self.data_sat_cutoff = 1.0 if self.benchmark_name == "oreilly" else 0.75
@@ -181,7 +181,7 @@ class InitPrediction():
 					"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
 					"3sge", "4m1d", "5dmi", "5u3j", "6db7",
 					"6u6u", "6jep", "6q18", "7n4j", "7tp3",
-					"8x0t", "8fdo", "6xq0", "8yor"]:
+					"8x0t", "8fdo", "6xq0", "8yor", "3qa3"]:
 					continue
 			# Some error in map_residue_to_index.
 			if sys_name in ["6m4v"]:
@@ -205,9 +205,9 @@ class InitPrediction():
 				write_json( self.logs, self.logs_file )
 			write_json( self.init_pred_metrics, self.init_pred_metrics_file )
 			# except:
-				# self.log_error( sys_name = sys_name )
+			# 	self.log_error( sys_name = sys_name )
 
-			torch.cuda.empty_cache()		
+			torch.cuda.empty_cache()
 
 
 	def run_per_system_prediction( self, sys_name: str ):
@@ -217,9 +217,12 @@ class InitPrediction():
 		Obtain an initial prediction.
 		Compute the violation loss and XL metric.
 		"""
+		# Only TP XLs.
 		sys_conf_suff = ""
 		# Initialize the topology dict.
 		topo_dict = topology_dict()
+		# Not using XL tolerance while computing metric.
+		topo_dict.metrics.xlr.allow_xl_tolerance = False
 
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
