@@ -150,6 +150,7 @@ config = mlc.ConfigDict(
 			"type": "ub_harmonic", # ub_harmonic/pseudo_huber
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
+			"allow_xl_tolerance": False,
 			"length_scale": length_scale,
 			"weight": 1.0,
 			"eps": eps
@@ -158,6 +159,7 @@ config = mlc.ConfigDict(
 	"metrics": {
 		"xlr": {
 			"enabled": True,
+			"allow_xl_tolerance": True,
 			"length_scale": length_scale,
 			"eps": eps
 		}

@@ -20,7 +20,11 @@ class XlMetrics():
 		self.name = "xlr"
 		self.length_scale = config.length_scale
 		self.eps = config.eps
-		self.xl_max_bound = restraint_features["xl_max_bound"]/ self.length_scale
+		xl_max_bound = restraint_features["xl_max_bound"]
+		if config.allow_xl_tolerance:			
+			xl_sat_tolerance = restraint_features["xl_sat_tolerance"]
+			xl_max_bound = xl_max_bound+xl_sat_tolerance
+		self.xl_max_bound = xl_max_bound/ self.length_scale
 		# A dict containing all ambiguous pairs for each cross-linked residue pair.
 		self.xl_res_dict = restraint_features["xl_res_dict"]
 		# Total XL pairs.
@@ -145,7 +149,6 @@ class Metrics():
 		"global_satisfaction": metric_instance.compute_global_xl_satisfaction(),
 		"xl_satisfaction_array": metric_instance.xl_satisfaction_array
 		}
-		print("Here")
 
 
 

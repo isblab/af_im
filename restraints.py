@@ -10,20 +10,26 @@ class XlRestraint():
 	def __init__( self, config ):
 		self.name = "xlr"
 		self.config = config
+		self.allow_xl_tolerance = config.allow_xl_tolerance
 		self.length_scale = config.length_scale
 		self.eps = config.eps
 
 
 	def get( self, out, restraint_feature ):
+		if self.allow_xl_tolerance:
+			xl_sat_tolerance = restraint_feature["xl_sat_tolerance"]
+			xl_max_bound = restraint_feature["xl_max_bound"] + xl_sat_tolerance
+		else:
+			xl_max_bound = restraint_feature["xl_max_bound"]
 		if self.config.type == "ub_harmonic":
 			print( "Using an upper bound harmonic as XL restraint." )
 			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
-													restraint_feature["xl_max_bound"],
+													xl_max_bound,
 													restraint_feature["total_xls"] )
 		elif self.config.type == "pseudo_huber":
 			print( "Using pseudo huber as XL restraint." )
 			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
-													restraint_feature["xl_max_bound"],
+													xl_max_bound,
 													restraint_feature["total_xls"] )
 		elif self.config.type == "disto_xlr":
 			return lambda: self.disto_xl_restraint( out, **restraint_feature )
