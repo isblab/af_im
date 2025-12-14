@@ -16,7 +16,7 @@ class CreateBenchmark():
 	Create input files for modeling.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "xlmerged"   # xlsim, abag, xlmerged
+		self.benchmark_name = "pinderS"   # xlsim, abag, xlmerged
 
 		self.chain_entity_map = {}
 		self.selected_xls = {}
@@ -124,9 +124,17 @@ class CreateBenchmark():
 		e.g. For a system contaiing chains A-B,C:
 			A -> Protein_1; B -> Protein_1; C -> Protein_2
 		"""
-		for i in range( xl_df.shape[0] ):
+		drop_rows = []
+		for i in xl_df.index:
 			chain1 = xl_df.loc[i, "prot1"]
 			chain2 = xl_df.loc[i, "prot2"]
+
+			if chain1 not in self.chain_entity_map[sys_name]:
+				drop_rows.append( i )
+				continue
+			if chain2 not in self.chain_entity_map[sys_name]:
+				drop_rows.append( i )
+				continue
 
 			entity_id1 = self.chain_entity_map[sys_name][chain1]
 			prot1 = f"{sys_name}_{entity_id1}"
@@ -135,6 +143,9 @@ class CreateBenchmark():
 
 			xl_df.iloc[i, 0] = prot1
 			xl_df.iloc[i, 2] = prot2
+		xl_df = xl_df.drop( drop_rows )
+		xl_df.reset_index( drop = True )
+		return xl_df
 
 
 	##------------------------------------------------------------##
@@ -195,13 +206,16 @@ class CreateBenchmark():
 					}
 			}
 		"""
+		xl_max_bound = self.dataset_configs["jwalk"]["xl_max_bound"]
+		xl_sat_tol = self.dataset_configs["jwalk"]["xl_satisfaction_tolerance"]
 		sys_dict = {
 		f"System_{sys_name}": {
 				"name": sys_name,
 				"entity": entities,
 				"data_gathering": {
 					"xl_restraint": {
-						"xl_max_bound": self.dataset_configs["jwalk"]["xl_max_bound"],
+						"xl_max_bound": xl_max_bound,
+						"xl_sat_tolerance": xl_sat_tol,
 						"file_name": xl_file,
 					}
 				}
@@ -312,10 +326,10 @@ class CreateBenchmark():
 
 		xls_file = os.path.join( sys_dir, xl_file )
 		# tp_xls = self.xls_dict[sys_name]["tp_xls"]
-		xls_df = self.xl_mixer( sys_name = sys_name )
-		self.map_xl_chain_to_entity( sys_name = sys_name,
-										xl_df = xls_df )
-		xls_df.to_csv( xls_file, index = False )
+		xl_df = self.xl_mixer( sys_name = sys_name )
+		xl_df = self.map_xl_chain_to_entity( sys_name = sys_name,
+										xl_df = xl_df )
+		xl_df.to_csv( xls_file, index = False )
 
 
 
@@ -369,7 +383,7 @@ class CreateBenchmark():
 			total_length = 0
 			for entity_id in entity_ids:
 				aa_ids = list( self.seqres_dict[sys_name][entity_id].keys() )
-				auth_asym_ids.append( "-".join( aa_ids ) )
+				auth_asym_ids.append( ":".join( aa_ids ) )
 				stoichiometry.append( f"{len( aa_ids )}" )
 				start = self.seqres_dict[sys_name][entity_id][aa_ids[0]]["start_seq_id"]
 				end = self.seqres_dict[sys_name][entity_id][aa_ids[0]]["end_seq_id"]

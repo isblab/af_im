@@ -43,7 +43,8 @@ class Metadata():
 			},
 			"jwalk": {
 				"enabled": True,
-				"xl_max_bound": 30,
+				"xl_max_bound": 25.0,
+				"xl_satisfaction_tolerance": 5.0,
 				"min_inter_xls": 5,
 				"max_allowed": 80,
 				"add_fp": False,
