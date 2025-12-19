@@ -20,7 +20,11 @@ from topology import topology_dict
 from utils.utils import ( open_file_handler, read_json, write_json, run_subprocess )
 from utils.pdb_utils import Parser, get_chain_id
 from utils.paths import (
+	get_meta_dir_path,
 	get_sys_modeling_path,
+	get_benchmark_analysis_dir_path,
+	get_benchmark_analysis_version_dir_path,
+	get_benchmark_csv_file,
 	get_sys_data_dir_path,
 	get_sys_config_path,
 	get_unrelaxed_model_file,
@@ -29,6 +33,9 @@ from utils.paths import (
 	get_init_struct_file )
 from utils.tools import usalign, get_alignment_score
 from experiment_hparams import experiment_hyperparameters
+from xlmerged_hparams import xlmerged_hyperparameters
+from pinderS_hparams import pinderS_hyperparameters
+from badBatch_hparams import badBatch_hyperparameters
 
 
 class BenchmarkModeling():
@@ -42,7 +49,7 @@ class BenchmarkModeling():
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
 		# No. of recyling iters for OpenFold.
-		self.num_iters = 1
+		self.num_recycles = 1
 		# OpenFold inference mode - train/eval.
 		self.inference_mode = "eval"  # train/eval
 		# Selectively activate dropouts for evoformer/structure_module.
@@ -66,6 +73,8 @@ class BenchmarkModeling():
 		self.init_coord = "zero"
 		# Initialize the MSA and Pair representations.
 		self.init_rep = ["zero", "zero"]
+		# Reinitialize MSA/Pair representations every frame.
+		self.reinit_rep = ["init", "init"]
 		# "init": Initialize final_atom_positions again; "prev_frame": use from previous epoch.
 		self.reinit_frame = "prev_frame"
 		# Reuse the final_atom_positions form previous epoch/ previous pose or initialize again.
@@ -119,6 +128,11 @@ class BenchmarkModeling():
 			"cap_msa": True
 			}
 		}
+		# Configs for extra MSA subsampling.
+		self.extra_msa_subsampling = {
+			"enabled": False,
+			"params": {"neff": [25]}
+		}
 		# Configs for MSA column masking.
 		self.column_masking = {
 			"enabled": False,
@@ -127,14 +141,14 @@ class BenchmarkModeling():
 			}
 		}
 		# Configs for structure noising.
-		self.struct_noising = {
-			"enabled": False,
-			"params": {
-			"noise_struct": True,
-			"mu": [0.0],
-			"sigma": [1.0],
-			}
-		}
+		# self.struct_noising = {
+		# 	"enabled": False,
+		# 	"params": {
+		# 	"noise_struct": True,
+		# 	"mu": [0.0],
+		# 	"sigma": [1.0],
+		# 	}
+		# }
 		# mask the cross-linked residues in MSA.
 		self.msa_xl_res_mask = False
 
@@ -251,7 +265,7 @@ class BenchmarkModeling():
 			topo_dict.analysis.enabled = self.enable_analysis
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
-			topo_dict.model.num_iters = self.num_iters
+			topo_dict.model.num_recycles = self.num_recycles
 			topo_dict.model.inference_mode = self.inference_mode
 			topo_dict.model.activate_dropouts = self.activate_dropouts
 			topo_dict.train.num_frames = self.num_frames
@@ -262,6 +276,7 @@ class BenchmarkModeling():
 			topo_dict.train.recycle_pose = self.recycle_pose
 			topo_dict.train.init_coord = self.init_coord
 			topo_dict.train.init_rep = self.init_rep
+			topo_dict.train.reinit_rep = self.reinit_rep
 			topo_dict.train.reinit_frame = self.reinit_frame
 			topo_dict.train.reinit_step = self.reinit_step
 			topo_dict.train.select_pose = self.select_pose
@@ -273,10 +288,12 @@ class BenchmarkModeling():
 
 			# MSA subsampling configs.
 			topo_dict.model.subsampling = self.subsampling
+			# Extra MSA subsampling configs.
+			topo_dict.model.extra_msa_subsampling = self.extra_msa_subsampling
 			# MSA column masking configs.
 			topo_dict.model.column_masking = self.column_masking
 			# Structure noising
-			topo_dict.model.struct_noising = self.struct_noising
+			# topo_dict.model.struct_noising = self.struct_noising
 			topo_dict.model.msa_xl_res_mask = self.msa_xl_res_mask
 
 			# Violation loss settings.
@@ -1201,18 +1218,34 @@ class BenchmarkModeling():
 		Create the required file paths.
 		"""
 		self.base_dir = os.path.join( os.path.abspath( "./benchmark" ) )
-		self.meta_dir = os.path.join( self.base_dir,
-									f"{self.benchmark_name}_metadata" )
-		# Name for the dir to store modeling output for all systems.
+		# self.meta_dir = os.path.join( self.base_dir,
+		# 							f"{self.benchmark_name}_metadata" )
+		self.meta_dir = get_meta_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name )
+		# Name for the modleing dir.
 		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
-		# Output dir for storing each benchmark run results.
-		self.benchmark_output_dir = os.path.join(
-												self.base_dir,
-												f"{self.benchmark_name}_benchmark_analysis" )
-		self.benchmark_modeling_dir = os.path.join( self.benchmark_output_dir,
-												f"version_{self.modeling_version}" )
-		self.benchmark_csv_file = os.path.join( self.meta_dir,
-												f"selected_{self.benchmark_name}_benchmark.csv" )
+
+		# Output dir for storing the benchmark analysis results for all versions.
+		self.benchmark_output_dir = get_benchmark_analysis_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name )
+		# Output dir for storing version-specific benchmark analsyis results.
+		self.benchmark_modeling_dir = get_benchmark_analysis_version_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			modeling_version = self.modeling_version )
+		# selected complexes in the benchmark.
+		self.benchmark_csv_file = get_benchmark_csv_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name )
+		# self.benchmark_output_dir = os.path.join(
+		# 										self.base_dir,
+		# 										f"{self.benchmark_name}_benchmark_analysis" )
+		# self.benchmark_modeling_dir = os.path.join( self.benchmark_output_dir,
+		# 										f"version_{self.modeling_version}" )
+		# self.benchmark_csv_file = os.path.join( self.meta_dir,
+		# 										f"selected_{self.benchmark_name}_benchmark.csv" )
 		# Dict containing the resolution of the experimental structure.
 		self.resolution_dict_file = os.path.join( self.meta_dir, "resolution_dict.json" )
 		# File to store DOckQ.
@@ -1394,7 +1427,7 @@ class BenchmarkModeling():
 				"version": str( self.modeling_version ),
 				"num_frames": str( self.num_frames ),
 				"num_steps": str( self.num_steps ),
-				"num_iters": str( self.num_iters ),
+				"num_recycles": str( self.num_recycles ),
 				"inference_mode": self.inference_mode,
 				"activate_dropouts": self.activate_dropouts,
 				"use_as_templates": self.use_as_templates,
@@ -1403,6 +1436,7 @@ class BenchmarkModeling():
 				"skip_pose_sampling": self.skip_pose_sampling,
 				"init_coord": self.init_coord,
 				"init_rep": self.init_rep,
+				"reinit_rep": self.reinit_rep,
 				"reinit_frame": self.reinit_frame,
 				"reinit_step": self.reinit_step,
 				"reinit_step0": self.reinit_step,
@@ -1419,8 +1453,9 @@ class BenchmarkModeling():
 				"violation": self.violation,
 				"xlr": self.xlr,
 				"subsampling": self.subsampling,
+				"extra_msa_subsampling": self.extra_msa_subsampling,
 				"column_maksing": self.column_masking,
-				"struct_noising": self.struct_noising,
+				# "struct_noising": self.struct_noising,
 				"msa_xl_res_mask": self.msa_xl_res_mask,
 				"base_dir": self.base_dir,
 				"meta_dir": self.meta_dir,
@@ -1440,11 +1475,14 @@ class BenchmarkModeling():
 if __name__ == "__main__":
 	# BenchmarkModeling().forward()
 
-	for v in [28.3, 31.1]:
-	# for v in [30, 30.1, 31]:
-		if f"experiment_{v}" in experiment_hyperparameters:
+	# hyperparameters = xlmerged_hyperparameters
+	# hyperparameters = pinderS_hyperparameters
+	hyperparameters = experiment_hyperparameters
+	# hyperparameters = badBatch_hyperparameters
+	for v in [40, 41, 41.1]:
+		if f"experiment_{v}" in hyperparameters:
 			obj = BenchmarkModeling()
-			for k, v in experiment_hyperparameters[f"experiment_{v}"].items():
+			for k, v in hyperparameters[f"experiment_{v}"].items():
 				setattr( obj, k, v )
 			obj.forward()
 			del obj
