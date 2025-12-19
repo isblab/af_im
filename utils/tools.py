@@ -13,11 +13,15 @@ from utils.utils import run_subprocess
 ################################################################################
 # -------------------------------> MDAnalysis <------------------------------- #
 ################################################################################
-def load_ensemble( ensemble_file: str ):
+def load_ensemble( struct_file: str ) -> Universe:
 	"""
 	Load the ensemble file on memory.
+
+	Input:
+	----------
+	struct_file -> path to the structure file (may contain one or more  structures).
 	"""
-	u = mda.Universe( ensemble_file )
+	u = mda.Universe( struct_file )
 	return u
 
 

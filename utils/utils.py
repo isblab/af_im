@@ -142,7 +142,7 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict,
 
 def write_to_file( content: str, file_name: str, mode: str ) -> None:
 	"""
-	Given a Response object, write to a file.
+	Given a Response.context attribute, write to a file.
 
 	Input:
 	----------
