@@ -28,7 +28,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "pinderS"  # "xlsim", "abag", "rigid", "xlmerged"/ pinderS
+		self.benchmark_name = "afmb"  # "xlmerged", pinderS, "afmb"
 
 		self.dataset_configs = {
 			"global": {
@@ -98,6 +98,8 @@ class Metadata():
 		self.foldbench_prot_pep_input_file = os.path.join( "../raw/interface_protein_peptide.csv" )
 		# PINDER_S dataset.
 		self.pinderS_input_file = os.path.join( "../raw/pinder_s.txt" )
+		# AFM benchmark dir.
+		self.afmb_input_dir = os.path.join( "../raw/afm_benchmark/" )
 
 		# Base directory for all benchmarks.
 		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
@@ -156,32 +158,25 @@ class Metadata():
 		"""
 		Obtain the PDB IDs from the input files of the required benchmark.
 		"""
-		# if self.benchmark_name == "afu":
-		# 	print( "Using PDB benchmark from AFUnmasked..." )
-		# 	self.benchmark_pdb_ids_list = self.parse_pdb_afu_benchmark()
-		# elif self.benchmark_name == "sabdab":
-		# 	print( "Using Antigen-Antibody complexes from SAbDab..." )
-		# 	self.benchmark_pdb_ids_list = self.parse_sabdab_benchmark()
-		# elif self.benchmark_name in ["fbabag", "fbpp"]:
-		# 	print( "Using Foldbench benchmark..." )
-		# 	self.benchmark_pdb_ids_list = self.parse_foldbench_benchmark()
-		if self.benchmark_name == "xlsim":
-			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
-		elif self.benchmark_name == "abag":
-			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
-		elif self.benchmark_name == "xlmerged":
+		# if self.benchmark_name == "xlsim":
+		# 	self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
+		# elif self.benchmark_name == "abag":
+		# 	self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
+		if self.benchmark_name == "xlmerged":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_merged_benchmark()
 		elif self.benchmark_name == "pinderS":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_pinderS_benchmark()
-		elif self.benchmark_name == "rigid":
-			self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
+		elif self.benchmark_name == "afmb":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_afmb_benchmark()
+		# elif self.benchmark_name == "rigid":
+		# 	self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
 		elif self.benchmark_name == "experiment":
 			self.benchmark_pdb_ids_list = ["4rhz", "7xvo", "8wtd", "7r3z", "8sbb"]
 		else:
 			raise ValueError( "Unsupported benchmark specified..." )
 
 
-	def get_pdb_ids_for_merged_benchmark( self ) -> List:
+	def get_pdb_ids_for_merged_benchmark( self ) -> List[str]:
 		"""
 		For the merged simulated XL benchmark, obtain PDB IDs from:
 			PDB benchmark from AFUnmasked
@@ -220,7 +215,7 @@ class Metadata():
 		return pdb_ids
 
 
-	def get_pdb_ids_for_xl_benchmark( self ) -> List:
+	def get_pdb_ids_for_xl_benchmark( self ) -> List[str]:
 		"""
 		For the simulated XL benchmark, obtain PDB IDs from:
 			PDB benchmark from AFUnmasked
@@ -232,10 +227,10 @@ class Metadata():
 
 		return pdb_ids
 
-	def get_pdb_ids_for_pinderS_benchmark( self ) -> List:
+	def get_pdb_ids_for_pinderS_benchmark( self ) -> List[str]:
 		"""
 		Get the PDB IDs from the PINDER-S dataset.
-		Remove those overlapping with the merged benchmark.
+		Remove those overlapping with the xlmerged benchmark.
 		"""
 		pinderS = self.parse_pinderS_benchmark()
 		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
@@ -247,7 +242,24 @@ class Metadata():
 		return pdb_ids
 
 
-	def get_pdb_ids_for_abag_benchmark( self ) -> List:
+	def get_pdb_ids_for_afmb_benchmark( self ) -> List[str]:
+		"""
+		Get the PDB IDs from the AFM benchmark.
+		Remove those overlapping with the xlmerged and pinderS benchmark.
+		"""
+		pinderS = self.parse_pinderS_benchmark()
+		xlmerged = self.get_pdb_ids_for_merged_benchmark()
+
+		afmb = self.parse_afmb_benchmark()
+		print( f"PDB IDs from AFM benchmark: {len( afmb )}" )
+
+		pdb_ids = sorted( list( set( afmb ) - set( xlmerged + pinderS ) ) )
+		print( f"PDB IDs from AFM benchmark non-redundant with xlmerged benchmark and PINDER-S: {len( pdb_ids )}" )
+
+		return pdb_ids
+
+
+	def get_pdb_ids_for_abag_benchmark( self ) -> List[str]:
 		"""
 		For the simulated antigen-antibody XL benchmark, obtain PDB IDs from:
 			SAbDab database
@@ -265,7 +277,7 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_pdb_afu_benchmark( self ) -> List:
+	def parse_pdb_afu_benchmark( self ) -> List[str]:
 		"""
 		Using the PDB benchmark provided in the AF Unmasked paper.
 		"""
@@ -277,7 +289,7 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_sabdab_benchmark( self ) -> List:
+	def parse_sabdab_benchmark( self ) -> List[str]:
 		"""
 		A .tsv file was download from SAbDab database
 			(https://opig.stats.ox.ac.uk/webapps/sabdab-sabpred/sabdab)
@@ -301,7 +313,7 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_foldbench_benchmark( self, target: str ) -> List:
+	def parse_foldbench_benchmark( self, target: str ) -> List[str]:
 		"""
 		.csv file was obtained from https://github.com/BEAM-Labs/FoldBench.git
 		Will parse the following as specified:
@@ -323,7 +335,7 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_pinderS_benchmark( self ) -> List:
+	def parse_pinderS_benchmark( self ) -> List[str]:
 		"""
 		PINDER-S dataset was obtained from the PINDER package as
 			specified in #Issue41.
@@ -332,6 +344,24 @@ class Metadata():
 		"""
 		f = open_file_handler( self.pinderS_input_file, "r" )
 		pdb_ids = f.readlines()[0].split( "," )
+		return pdb_ids
+
+
+	def parse_afmb_benchmark( self ) -> List[str]:
+		"""
+		afmb --> AFM benchmark was obtained from the following repository:
+		https://gitlab.com/ElofssonLab/afm-benchmark.git
+		We parse all the heter- and homo-mer complexes in the benchmark.
+		Each file contains entries separated by a '\n' character.
+		"""
+		pdb_ids = []
+		for complex_type in ["homo", "hete"]:
+			for stoic in [2, 3, 4, 5, 6]:
+				file_name = f"ID_{stoic}mer_{complex_type}.csv"
+				file_path = os.path.join( self.afmb_input_dir, file_name )
+		f = open_file_handler( file_path, "r" )
+		for line in f.readlines():
+			pdb_ids.append( line.strip().lower() )
 		return pdb_ids
 
 	##------------------------------------------------------------##
