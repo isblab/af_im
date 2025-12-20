@@ -1,7 +1,7 @@
 """
 Create input for the benchmark dataset for modeling.
 """
-from typing import List, Dict
+from typing import List, Dict, Any
 import os, math
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class CreateBenchmark():
 	Create input files for modeling.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "pinderS"   # xlsim, abag, xlmerged
+		self.benchmark_name = "pinderS"   # xlmerged, pinderS, afmb
 
 		self.chain_entity_map = {}
 		self.selected_xls = {}
@@ -192,7 +192,7 @@ class CreateBenchmark():
 	def create_sys_dict( self,
 						sys_name: str,
 						entities: Dict,
-						xl_file: str ) -> Dict:
+						xl_file: str ) -> Dict[str, Any]:
 		"""
 		Create a config dict containing:
 			"system_{index}": {
@@ -248,7 +248,7 @@ class CreateBenchmark():
 		run_subprocess( cmd )
 
 
-	def xl_mixer( self, sys_name: str ):
+	def xl_mixer( self, sys_name: str ) -> pd.DataFrame:
 		"""
 		Obtain the set of XLs to be used for modeling.
 		For TP XLs, we use a max of 50 XLs.
@@ -303,10 +303,10 @@ class CreateBenchmark():
 
 
 	def save_tp_sys_dict_to_sys_dir( self,
-									sys_name: str,
-									sys_dir: str,
-									entities: List[Dict]
-									):
+			sys_name: str,
+			sys_dir: str,
+			entities: List[Dict]
+			):
 		"""
 		For all TP xls, create sys config dict and get the Jwalk XLs.
 		Save both in sys_dir.
