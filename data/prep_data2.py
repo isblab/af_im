@@ -28,7 +28,7 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "afmb"  # "xlmerged", pinderS, "afmb"
+		self.benchmark_name = "xlmerged"  # "xlmerged", pinderS, "afmb"
 
 		self.dataset_configs = {
 			"global": {
@@ -43,7 +43,7 @@ class Metadata():
 			},
 			"jwalk": {
 				"enabled": True,
-				"xl_max_bound": 25.0,
+				"xl_max_bound": 30.0,
 				"xl_satisfaction_tolerance": 5.0,
 				"min_inter_xls": 5,
 				"max_allowed": 80,
@@ -183,6 +183,8 @@ class Metadata():
 			Protein-protein and protein-peptide benchmark from FoldBench
 			SAbDab database
 			Antigen-Antibody benchmark from FoldBench
+			PINDER-S
+			AFM benchmark
 		"""
 		afu = self.parse_pdb_afu_benchmark()
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
@@ -194,23 +196,31 @@ class Metadata():
 		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
 		fb_ab_ag = self.parse_foldbench_benchmark( "ab_ag" )
 		print( f"PDB IDs from FoldBench Ab-Ag benchmark: {len( fb_ab_ag )}" )
+		pinderS = self.parse_pinderS_benchmark()
+		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
+		afmb = self.parse_afmb_benchmark()
+		print( f"PDB IDs from AFM benchmark: {len( afmb )}" )
 
 		# Remove duplicate PDB IDs.
-		pdb_ids = sorted(
-			list(
-				set( afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag )
-			)
-		)
+		pdb_ids = afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag + pinderS + afmb
 
 		# Create a mapping between the PDB DI and the benchmark it belongs to.
 		benchmark_names = []
 		benchmark_names.extend(
 			["afu"]*len( afu ) +
 			["foldbench"]*( len( fb_prot_pep ) + len( fb_prot_prot ) ) +
-			["abag"]*( len( sabdab ) + len( fb_ab_ag ) )
+			["abag"]*( len( sabdab ) + len( fb_ab_ag ) ) +
+			["pinderS"]*len( pinderS ) +
+			["afmb"]*len( afmb )
 		)
 		pdb_benchmark_map = dict( zip( pdb_ids, benchmark_names ) )
 		write_json( pdb_benchmark_map, self.pdb_benchmark_map_file )
+
+		pdb_ids = sorted(
+			list(
+				set( afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag + pinderS + afmb )
+			)
+		)
 
 		return pdb_ids
 
@@ -373,7 +383,7 @@ class Metadata():
 		Get data - simulated or real.
 		"""
 		print( "\n" + "".join( ["-" for i in range( 40 )] ) )
-		print(  "---------- Download PDB Structures ----------" )
+		print(  "-------- Download PDB Structures --------" )
 		print( "".join( ["-" for i in range( 40 )] ) + "\n" )
 		self.run_download_pdb_structure_module()
 
