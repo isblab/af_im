@@ -44,6 +44,8 @@ class SystemRepresentation():
 		self.tool_base = sys_rep_config.tool_base
 		self.openfold_checkpoint_path = sys_rep_config.model_checkpoint
 		self.jax_params_path = sys_rep_config.jax_params_path
+		self.save_feature_dicts = sys_rep_config.save_feature_dicts
+		self.create_restraint_feats = sys_rep_config.create_restraint_feats
 
 		self.init_model_prefix = sys_rep_config.init_model_prefix
 		self.ofold_seed = sys_rep_config.seed
@@ -93,13 +95,14 @@ class SystemRepresentation():
 			print( "Creating processed feature dict..." )
 			self.feature_dict, self.processed_feature_dict, tag = self.prepare_input()
 
-			w = open_file_handler( self.file_paths["feature_dict"], "wb" )
-			pkl.dump( self.feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
-			w.close()
+			if self.save_feature_dicts:
+				w = open_file_handler( self.file_paths["feature_dict"], "wb" )
+				pkl.dump( self.feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
+				w.close()
 
-			w = open_file_handler( self.file_paths["processed_feature_dict"], "wb" )
-			pkl.dump( self.processed_feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
-			w.close()
+				w = open_file_handler( self.file_paths["processed_feature_dict"], "wb" )
+				pkl.dump( self.processed_feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
+				w.close()
 
 			print( self.processed_feature_dict.keys() )
 
@@ -123,13 +126,16 @@ class SystemRepresentation():
 				out = self.init_pred_dict,
 				output_directory = output_directory )
 		else:
-			f = open_file_handler( self.file_paths["feature_dict"], "rb" )
-			self.feature_dict = pkl.load( f )
-			f.close()
+			if not self.save_feature_dicts:
+				self.feature_dict, self.processed_feature_dict, tag = self.prepare_input()
+			else:
+				f = open_file_handler( self.file_paths["feature_dict"], "rb" )
+				self.feature_dict = pkl.load( f )
+				f.close()
 
-			f = open_file_handler( self.file_paths["processed_feature_dict"], "rb" )
-			self.processed_feature_dict = pkl.load( f )
-			f.close()
+				f = open_file_handler( self.file_paths["processed_feature_dict"], "rb" )
+				self.processed_feature_dict = pkl.load( f )
+				f.close()
 
 			print( self.processed_feature_dict.keys() )
 
@@ -145,15 +151,16 @@ class SystemRepresentation():
 		fetch_cur_batch = lambda t: t[..., cycle_no]
 		self.processed_feature_dict = tensor_tree_map( fetch_cur_batch, self.processed_feature_dict )
 
-		# Add masks for excluded volume and sequence connectivity.
-		intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
-		connectivity_mask = self.get_sequence_connectivity_feats()
+		if self.create_restraint_feats:
+			# Add masks for excluded volume and sequence connectivity.
+			intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
+			connectivity_mask = self.get_sequence_connectivity_feats()
 
-		# Get the gt_features
-		self.gt_feature_dict = self.get_feature_from_init_struct()
-		self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
-		self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
-		self.gt_feature_dict["connectivity_mask"] = connectivity_mask
+			# Get the gt_features
+			self.gt_feature_dict = self.get_feature_from_init_struct()
+			self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
+			self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
+			self.gt_feature_dict["connectivity_mask"] = connectivity_mask
 
 
 	################################################################################
@@ -337,25 +344,35 @@ class SystemRepresentation():
 			cluster_profile, cluster_deletion_mean, msa_feat, use_clamped_fape
 		The shapes of all features can be found in openfold config.py.
 		"""
-		template_featurizer = templates.HmmsearchHitFeaturizer(
-			mmcif_dir = self.databases_n_tools.template_mmcif_dir,
-			max_template_date = self.max_template_date,
-			max_hits = self.ofold_config.data.predict.max_templates,
-			kalign_binary_path = self.databases_n_tools.kalign_binary_path,
-			# path to a file with a mapping from PDB IDs to their release dates.
-			#	 Thanks to this we don't have to redundantly parse mmCIF files to get that information.
-			release_dates_path = None,
-			# contains a mapping from obsolete PDB IDs to the PDB IDs of their replacements.
-			obsolete_pdbs_path = None
-		)
-
+		if self.is_multimer:
+			template_featurizer = templates.HmmsearchHitFeaturizer(
+				mmcif_dir = self.databases_n_tools.template_mmcif_dir,
+				max_template_date = self.max_template_date,
+				max_hits = self.ofold_config.data.predict.max_templates,
+				kalign_binary_path = self.databases_n_tools.kalign_binary_path,
+				# path to a file with a mapping from PDB IDs to their release dates.
+				#	 Thanks to this we don't have to redundantly parse mmCIF files to get that information.
+				release_dates_path = None,
+				# contains a mapping from obsolete PDB IDs to the PDB IDs of their replacements.
+				obsolete_pdbs_path = None
+			)
+		else:
+			template_featurizer = templates.HhsearchHitFeaturizer(
+				mmcif_dir = self.databases_n_tools.template_mmcif_dir,
+				max_template_date = self.max_template_date,
+				max_hits = self.ofold_config.data.predict.max_templates,
+				kalign_binary_path=self.databases_n_tools.kalign_binary_path,
+				release_dates_path = None,
+				obsolete_pdbs_path = None
+			)
 		data_processor = data_pipeline.DataPipeline(
 			template_featurizer = template_featurizer,
 		)
-		# For multimer.
-		data_processor = data_pipeline.DataPipelineMultimer(
-			monomer_data_pipeline = data_processor,
-		)
+		if self.is_multimer:
+			# For multimer.
+			data_processor = data_pipeline.DataPipelineMultimer(
+				monomer_data_pipeline = data_processor,
+			)
 
 		self.feature_processor = feature_pipeline.FeaturePipeline( self.ofold_config.data )
 		
