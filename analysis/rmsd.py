@@ -109,7 +109,7 @@ class StructuralSimilarity():
 				if model_id1 in ignore_models:
 					continue
 				u1 = load_ensemble(
-					ensemble_file = os.path.join( self.ensemble_dir, f"model_{model_id1}.pdb" )
+					struct_file = os.path.join( self.ensemble_dir, f"model_{model_id1}.pdb" )
 					)
 				for j in range( i, len( self.model_ids ) ):
 					model_id2 = self.model_ids[j]
@@ -117,7 +117,7 @@ class StructuralSimilarity():
 						continue
 
 					u2 = load_ensemble(
-						ensemble_file = os.path.join( self.ensemble_dir, f"model_{model_id2}.pdb" )
+						struct_file = os.path.join( self.ensemble_dir, f"model_{model_id2}.pdb" )
 						)
 
 					rmsd = compute_rmsd( to_align = u2, ref = u1, ref_frame = 0 )
