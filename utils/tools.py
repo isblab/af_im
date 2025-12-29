@@ -1,6 +1,7 @@
 """
 Contains tools to aid in analysis.
 """
+from typing import List
 import warnings, os
 import numpy as np
 import MDAnalysis as mda
@@ -9,6 +10,50 @@ from MDAnalysis.core.universe import Universe
 from MDAnalysis.core.groups import AtomGroup
 
 from utils.utils import run_subprocess
+
+################################################################################
+# ----------------------------------> EMAN2 <------------------------------- --#
+################################################################################
+def eman2_pdb2density(
+	modeL_file: str,
+	density_file: str,
+	apix: float,
+	res: float,
+	box: List[float] ):
+	"""
+	Using EMAN2 for converting a structure to density map.
+	EMAN2 is install in a separate conda environment.
+		Run density map creation.
+			e2pdb2mrc.py input_file output_file apix res
+			apix -> angstrom per voxel.
+			res -> required resolution of the density map.
+				Note: res >= apix
+	There is a potential (but harmless) bug in e2pdb2mrc.py script.
+		When given an input XYZ coordinates of the bounding box,
+			it selects the max of the XYZ coordinates.
+	"""
+	if res < apix:
+		raise ValueError( f"res ({res}) <= apix ({apix}). " +
+					"Generally res should be 2x apix or more" )
+
+	# If the density file exists, EMAN2 appends to the header.
+	if os.path.exists( density_file ):
+		cmd = ["rm", f"{density_file}"]
+		run_subprocess( cmd )
+
+	box = list( map( str, box ) )
+	cmd = [
+		"conda",
+		"run", "-n", "eman2",
+		"e2pdb2mrc.py",
+		f"{modeL_file}", f"{density_file}",
+		"--apix", f"{apix}",
+		"--res", f"{res}",
+		"--box", f"{','.join( box )}",
+		"--quiet"
+		]
+
+	run_subprocess( cmd )
 
 ################################################################################
 # -------------------------------> MDAnalysis <------------------------------- #
