@@ -412,9 +412,7 @@ class Parser():
 		self.pdb_file = pdb_file
 
 		# Biopython Structure object.
-		self.structure = self.get_structure(
-									self.get_parser()
-									 )
+		self.structure = self.get_structure()
 
 
 	def get_model_ids( self ) -> List:
@@ -440,12 +438,13 @@ class Parser():
 		return parser
 
 
-	def get_structure( self, parser: Bio.PDB.PDBParser ) -> Structure.Structure:
+	def get_structure( self ) -> Structure.Structure:
 		"""
-		Return the Biopython Structure object for the input file.
+		Return the Biopython Structure object.
 		"""
 		basename = os.path.basename( self.pdb_file )
-		structure = parser.get_structure( basename, self.pdb_file )
+		p = self.get_parser()
+		structure = p.get_structure( basename, self.pdb_file )
 
 		return structure
 
