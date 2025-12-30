@@ -9,17 +9,33 @@ db_dir = "/data/alpha-fold-db/"
 tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 long_sequence_inference = False
 use_deepspeed_evoformer_attention = False
-ofold_config_preset = "model_1_multimer_v3"
+is_multimer = True
+if is_multimer:
+	ofold_config_preset = "model_1_multimer_v3"
+else:
+	ofold_config_preset = "model_1_ptm"
 
 # For loss functions.
-length_scale = 10.0
+length_scale = 10.0  # angstorm to nm conversion.
 eps = 1e-8
 
-def topology_dict() -> mlc.ConfigDict:
+def topology_dict(
+	db_dir = "/data/alpha-fold-db/",
+	tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/",
+	long_sequence_inference = False,
+	use_deepspeed_evoformer_attention = False,
+	is_multimer = True
+	) -> mlc.ConfigDict:
 	"""
 	returns a config dictionary as an mlc.ConfigDict.
 	"""
+	if is_multimer:
+		ofold_config_preset = "model_1_multimer_v3"
+	else:
+		ofold_config_preset = "model_1_ptm"
+
 	c = copy.deepcopy( config )
+
 	return c
 
 config = mlc.ConfigDict(
@@ -30,6 +46,8 @@ config = mlc.ConfigDict(
 	# Change the paths according to the system.
 	"system_representation": {
 		"init_model_prefix": "_relaxed",
+		"save_feature_dicts": True,
+		"create_restraint_feats": True,
 		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
 		"ofold_script": os.path.abspath( "./openfold/run_pretrained_openfold.py" ),
 		"config_preset": ofold_config_preset,
@@ -43,7 +61,7 @@ config = mlc.ConfigDict(
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
 		"db_preset": "full_dbs", # Use full or reduced database (full_dbs/ reduced_dbs).
-		"is_multimer": True,
+		"is_multimer": is_multimer,
 		"max_template_date": "2023-01-01",
 		"seed": 1,  # seed for PRNGs.
 		"cpu_cores": 16,  # CPU cores to be used for OpenFold run.
@@ -159,7 +177,7 @@ config = mlc.ConfigDict(
 	"metrics": {
 		"xlr": {
 			"enabled": True,
-			"allow_xl_tolerance": True,
+			"allow_xl_tolerance": False,
 			"length_scale": length_scale,
 			"eps": eps
 		}
@@ -223,6 +241,12 @@ config = mlc.ConfigDict(
 			},
 		"molprobity":{
 			"clean_up": True # remove all temporary file upon completion.
+			},
+		"localization_density":{
+			"cpu_cores": 10,
+			"apix": 1.0,         # angstrom per voxel
+			"target_prob": 0.9,  # Probability mass to define the contour for ld visulaization.
+			"clean_up": True     # remove all temporary file upon completion.
 			}
 	},
 	"train": {
@@ -232,15 +256,16 @@ config = mlc.ConfigDict(
 		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
 		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
 		"skip_pose_sampling": False,
+		"sample_random_pose": False,
 		"init_coord": "zero",  # zero/ init
 		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
-		"reinit_rep": ["init", "init"],  # prev_frame: reuses MSA/Pair rep from previous frame; init: initialize as in init_rep.
+		"reinit_rep": ["zero", "zero"],  # prev_frame: reuses MSA/Pair rep from previous frame; init: initialize as in init_rep.
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
 		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
 		"fill_none": False,  # (deprecated) If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.
 		"num_steps": 20, # max epochs for pose sampling.
-		"select_pose": "last",  # last: select pose from last step; max: select pose with max data satisfaction.
+		"select_pose": "max",  # last: select pose from last step; max: select pose with max data satisfaction.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"device": "cuda:0" # CUDA device to be used.
 	}
