@@ -99,8 +99,11 @@ class PoseSampling( Model ):
 				device: str ):
 		Model.__init__( self )
 		self.model_config = model_config
+		self.device = device
 
 		self.rigid = RigidTransformation( n_coords = 3, c_hidden = 32, device = device )
+
+		self.transformations = {k:[] for k in ["rotation", "translation"]}
 
 
 	#def predict( self, rigid_bodies: List[torch.Tensor],
@@ -113,6 +116,7 @@ class PoseSampling( Model ):
 		# with torch.no_grad():
 		# 	if final_atom_positions is None:
 		# 		final_atom_positions = torch.zeros( [out["asym_id"].shape[1], 37, 3] )
+		final_atom_positions = final_atom_positions.to( self.device )
 		rigid_bodies, init_mean_coords = get_rigid_body(
 			final_atom_positions = final_atom_positions,
 			asym_id = out["asym_id"],
@@ -133,7 +137,12 @@ class PoseSampling( Model ):
 			transformed_positions.append( Rt_rb )
 		transformed_positions = torch.cat( transformed_positions, dim = 1 )
 
-		out["final_atom_positions"] = transformed_positions*out["final_atom_mask"].unsqueeze( -1 )
+		out["final_atom_positions"] = transformed_positions*out["final_atom_mask"].unsqueeze( -1 ).to( self.device )
+
+		# Keep track of rigid transformations.
+		with torch.no_grad():
+			self.transformations["rotation"].append( quat.detach().cpu() )
+			self.transformations["translation"].append( trans.detach().cpu() )
 
 		return out
 
@@ -143,3 +152,88 @@ class PoseSampling( Model ):
 		Return a list of models for the optimizer.
 		"""
 		return [self.rigid]
+
+
+class RandomPoseSampling():
+	"""
+	Randomly sample a rigid transformation - quaternion and translation.
+	Apply a rigid transformation to sample conformations of the
+		system that satisfy the data.
+	"""
+	def __init__( self, 
+				model_config: mlc.ConfigDict,
+				device: str ):
+		# Model.__init__( self )
+		self.model_config = model_config
+		self.device = device
+
+		self.transformations = {k:[] for k in ["rotation", "translation"]}
+
+
+	def random_quaternion( self, batch_size: int ):
+		"""
+		Taken from:
+			https://stackoverflow.com/questions/31600717/how-to-generate-a-random-quaternion-quickly
+		This yields a normalized quaternion uniformly distributed over the 3-sphere.
+		"""
+		u1 = torch.rand( batch_size, device = self.device )
+		u2 = torch.rand( batch_size, device = self.device )
+		u3 = torch.rand( batch_size, device = self.device )
+
+		quat = torch.stack(
+			[
+			torch.sqrt( 1 - u1 )*torch.sin( 2*torch.pi*u2 ),
+			torch.sqrt( 1 - u1 )*torch.cos( 2*torch.pi*u2 ),
+			torch.sqrt( u1 )*torch.sin( 2*torch.pi*u3 ),
+			torch.sqrt( u1 )*torch.cos( 2*torch.pi*u3 ),
+			], dim = -1 )
+		return quat
+
+
+	def random_translation( self, batch_size: int ):
+		"""
+		Randomly sample a translation vector from a uniform distribution U(0, 1).
+		"""
+		trans = torch.rand( batch_size, 3, device = self.device )
+		return trans
+
+
+	def predict( self, out: Dict[str, torch.Tensor] ):
+		"""
+		Update the current positions by applying a Rigid Transformation.
+		"""
+		final_atom_positions = out.pop( "final_atom_positions" )
+		final_atom_positions = final_atom_positions.to( self.device )
+		# with torch.no_grad():
+		# 	if final_atom_positions is None:
+		# 		final_atom_positions = torch.zeros( [out["asym_id"].shape[1], 37, 3] )
+		rigid_bodies, init_mean_coords = get_rigid_body(
+			final_atom_positions = final_atom_positions,
+			asym_id = out["asym_id"],
+			rigid_type = self.model_config.rigid_type
+		)
+
+		# [B, 4] and [B, 3]
+		quat = self.random_quaternion( batch_size = len( rigid_bodies ) )
+		trans = self.random_translation( batch_size = len( rigid_bodies ) )
+
+		transformed_positions = []
+		for rb, q, t in zip( rigid_bodies, quat, trans ):
+			R = quat_to_rotmat( quat = q )
+
+			Rt_rb = apply_transform(
+				coords = rb.to( R.device ),
+				R = R,
+				trans = t )
+			transformed_positions.append( Rt_rb )
+		transformed_positions = torch.cat( transformed_positions, dim = 1 )
+
+		out["final_atom_positions"] = transformed_positions*out["final_atom_mask"].unsqueeze( -1 ).to( self.device )
+
+		# Keep track of rigid transformations.
+		with torch.no_grad():
+			self.transformations["rotation"].append( quat.detach().cpu() )
+			self.transformations["translation"].append( trans.detach().cpu() )
+
+		return out
+
