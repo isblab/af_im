@@ -11,7 +11,7 @@ from openfold.config import model_config
 from openfold.data import feature_pipeline
 from openfold.np import protein
 
-from models.rigid_sampler import PoseSampling
+from models.rigid_sampler import PoseSampling, RandomPoseSampling
 from models.recycler import Recycler
 from models.af_sampling import (
 	msa_subsampler, msa_column_masking,
@@ -142,7 +142,7 @@ class FitToData():
 				else:
 					# For sm output, 0th dim is the SM recycling dim.
 					for m in self.init_pred_dict["sm"]:
-						self.init_pred_dict[k][m] = self.init_pred_dict[k][m].unsqueeze( 1 )
+						self.init_pred_dict["sm"][m] = self.init_pred_dict["sm"][m].unsqueeze( 1 )
 
 
 	def add_to_device( self, dict_: Dict ):
@@ -184,14 +184,14 @@ class FitToData():
 			for i, init_ in enumerate( self.topology.train.init_rep ):
 				if init_ == "init":
 					if i == 0:
-						msa = copy.copy( self.init_pred_dict["msa"] )
+						msa = self.init_pred_dict["msa"].clone().to( self.device )
 					else:
-						pair = copy.copy( self.init_pred_dict["pair"] )
+						pair = self.init_pred_dict["pair"].clone().to( self.device )
 				elif init_ == "zero":
 					if i == 0:
-						msa = torch.zeros( [1, s, n, c_m] )
+						msa = torch.zeros( [1, s, n, c_m] ).to( self.device )
 					else:
-						pair = torch.zeros( [1, n, n, c_z] )
+						pair = torch.zeros( [1, n, n, c_z] ).to( self.device )
 				else:
 					raise ValueError( f"Incorrect value for init_rep. Allowed init/zero/none..." )
 
@@ -212,22 +212,23 @@ class FitToData():
 			final_atom_positions = torch.zeros( [1, n, 37, 3] )
 			plddt = torch.zeros( [1, n] )
 			out = {
-				"final_atom_positions": final_atom_positions,
+				"final_atom_positions": final_atom_positions.to( self.device ),
+				# These two are already on device.
 				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
 				"asym_id": self.processed_feature_dict["asym_id"],
-				"plddt": plddt
+				"plddt": plddt.to( self.device )
 			}
 		elif self.topology.train.init_coord == "init":
 			out = {}
 			for k in ["final_atom_positions", "final_atom_mask", "asym_id", "plddt"]:
-				out[k] = copy.copy( self.init_pred_dict[k] )
+				out[k] = self.init_pred_dict[k].clone().to( self.device )
 			# out = copy.deepcopy( self.init_pred_dict )
 		else:
 			raise ValueError( f"Incorrect value for init_coord. Allowed zero/init..." )
 		# Add the initialized MSA and Pair representations.
 		out.update( self.init_representations() )
 
-		self.add_to_device( out )
+		# self.add_to_device( out )
 		return out
 
 
@@ -290,6 +291,7 @@ class FitToData():
 		if pose_iter:
 			print( f"Reinitializing final_atom-positions: reinit_pose = {self.topology.train.reinit_step}..." )
 			if self.topology.train.reinit_step == "prev_frame":
+				del out["final_atom_positions"]
 				out["final_atom_positions"] = prev_frame_coord
 			elif self.topology.train.reinit_step == "prev_step":
 				# Return the existing final_atom_positions to be used in the next step.
@@ -301,6 +303,7 @@ class FitToData():
 		else:
 			print( f"Reinitializing final_atom-positions: reinit_frame = {self.topology.train.reinit_frame}..." )
 			if self.topology.train.reinit_frame == "init":
+				del out
 				out = self.init_coords()
 			elif self.topology.train.reinit_frame == "prev_frame":
 				# Return the existing final_atom_positions to be used in the next frame.
@@ -360,19 +363,22 @@ class FitToData():
 			activate_dropouts = self.topology.model.activate_dropouts,
 			device = self.device )
 
+		self.add_to_device( self.processed_feature_dict )
+		restraint_features = self.processed_feature_dict.pop( "restraint_features" )
+		self.add_to_device( restraint_features )
+		# Add gt_features to device.
+		self.add_to_device( self.gt_feature_dict )
+
+		# Create a clone that can be modified every frame as specified.
 		batch = {}
 		for k in self.processed_feature_dict:
-			if k == "restraint_features":
-				continue
+			# if k == "restraint_features":
+			# 	continue
 			v = self.processed_feature_dict[k]
-			batch[k] = v
+			batch[k] = v.clone()
 			if torch.is_tensor( v ) and torch.is_floating_point( v ):
 			# if isinstance( self.processed_feature_dict[k].dtype, float ):
 				batch[k] = batch[k].to( dtype = torch.float32 )
-
-		# Add batch and gt_features to device.
-		self.add_to_device( batch )
-		self.add_to_device( self.gt_feature_dict )
 
 		t_start = time.perf_counter()
 
@@ -381,31 +387,36 @@ class FitToData():
 		# Note the time per frame.
 		self.stats_dict["time_per_frame"] = []
 
-		# out = self.get_final_atom_positions()
 		out = self.init_coords()
 		prev_frame_coord = out["final_atom_positions"]
 		prev_frame_msa = out["msa"]
 		prev_frame_pair = out["pair"]
 
 		for frame in range( self.topology.train.num_frames ):
-			# Note time for full run (pose sampling+recycling).
+			# Note time for a frame (pose sampling+recycling).
 			t_s = time.perf_counter()
 			print( f"\n\033[1mFrame: {frame} \033[0m" + "-"*20 )
 
 			# Skip pose sampling if specified.
-			# Skip pose sampling for 0th frame.
 			if not self.topology.train.skip_pose_sampling:
+				# Skip pose sampling for 0th frame.
 				if frame == 0 and self.topology.train.init_coord == "zero":
 					print( f"init_coord = {self.topology.train.init_coord}. Skip pose sampling for frame 0..." )
-					self.add_to_device( out )
 				else:
 					rng_state = torch.random.get_rng_state()
-					out = self.predict_pose(
-						out = out,
-						prev_frame_coord = prev_frame_coord )
+					if self.topology.train.sample_random_pose:
+						out = self.predict_pose_random(
+							out = out,
+							restraint_features = restraint_features,
+							prev_frame_coord = prev_frame_coord )
+					else:
+						out = self.predict_pose(
+							out = out,
+							restraint_features = restraint_features,
+							prev_frame_coord = prev_frame_coord )
 					torch.random.set_rng_state( rng_state )
 			else:
-				self.add_to_device( out )
+				pass
 
 			out, batch = self.prepare_pose_for_injection(
 				out = out,
@@ -413,7 +424,7 @@ class FitToData():
 				frame = frame )
 
 			# Clear cache.
-			torch.cuda.empty_cache()
+			# torch.cuda.empty_cache()
 
 			# Note time taken by recycling alone.
 			t_r_s = time.perf_counter()
@@ -430,17 +441,19 @@ class FitToData():
 				if preserve_rng_state_at_inference:
 					torch.random.set_rng_state( torch_rng_state )
 
-				out = copy.deepcopy( outputs )
+				out = {k:v.clone() if torch.is_tensor(v) else v for k, v in outputs.items()}
+				# out = copy.deepcopy( outputs )
 				del outputs
 				# Just compute loss but don't backpropagate.
 				_, losses = self.loss_fn.forward( out,
 					self.gt_feature_dict,
-					self.processed_feature_dict["restraint_features"] )
+					restraint_features )
 				# Remove computed violations.
 				if "violation" in out:
-					out.pop( "violation" )
+					del out["violation"]
+					# out.pop( "violation" )
 
-				self.remove_from_device( out )
+				# self.remove_from_device( out )
 			t_r_e = time.perf_counter()
 			print( f"Time taken for OpenFold prediction at frame {frame}: {( t_r_e - t_r_s )} seconds" )
 
@@ -470,14 +483,11 @@ class FitToData():
 							unrelaxed_protein = unrelaxed_protein,
 							model_id = frame )
 
-			# Ignore this is if structure noising is enabled.
-			# if self.topology.model.struct_noising.enabled:
-			# 	pass
-			# else:
+			# self.add_to_device( out )
 			# Current frame coordinates for use in the nest frame if specified.
-			prev_frame_coord = out["final_atom_positions"].to( self.device )
-			prev_frame_msa = out["msa"].to( self.device )
-			prev_frame_pair = out["pair"].to( self.device )
+			prev_frame_coord = out["final_atom_positions"]
+			prev_frame_msa = out["msa"]
+			prev_frame_pair = out["pair"]
 			# Reinitialize out as specified in topology.
 			out = self.reinit_coords(
 				out = out,
@@ -490,16 +500,19 @@ class FitToData():
 
 			# using frame as the model_id.
 			self.stats_dict["model_id"].append( frame )
-
 			# Removed the modified MSA features.
 			for k in ["msa", "msa_feat", "msa_mask", "deletion_matrix", "cluster_deletion_mean", "cluster_profile"]:
-				batch[k] = self.processed_feature_dict[k].to( self.device )
-			# Remove the modified extra MSA features.
-			for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
-				batch[k] = self.processed_feature_dict[k].to( self.device )
+				del batch[k]
+				batch[k] = self.processed_feature_dict[k].clone().to( self.device )
+			if self.topology.model.extra_msa_subsampling.enabled:
+				# Remove the modified extra MSA features.
+				for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
+					del batch[k]
+					batch[k] = self.processed_feature_dict[k].clone().to( self.device )
 			if self.topology.train.add_to_existing_templates:
 				for k in ["template_aatype", "template_all_atom_positions", "template_all_atom_mask"]:
-					batch[k] = self.processed_feature_dict[k].to( self.device )
+					del batch[k]
+					batch[k] = self.processed_feature_dict[k].clone().to( self.device )
 
 			t_e = time.perf_counter()
 			print( f"Time taken for Frame {frame}: {( t_e - t_s )}  seconds" )
@@ -555,6 +568,7 @@ class FitToData():
 	################################################################################
 	def predict_pose( self,
 		out: Dict[str, Any],
+		restraint_features: Dict[str, Any],
 		prev_frame_coord: torch.Tensor ) -> Dict[str, Any]:
 		"""
 		I cycle of pose sampling comprises of M steps.
@@ -586,13 +600,13 @@ class FitToData():
 				prev_frame_coord = prev_frame_coord,
 				pose_iter = True )
 
-			self.add_to_device( out )
+			# self.add_to_device( out )
 			# with torch.autograd.detect_anomaly(): # Use while debugging.
 			out = model.predict( out = out )
 
 			cum_loss, losses = self.loss_fn.forward( out,
 				self.gt_feature_dict,
-				self.processed_feature_dict["restraint_features"] )
+				restraint_features )
 			self.update_loss_dict( losses, update_pose_metrics = True )
 
 			if step == self.topology.train.num_steps-1:
@@ -623,6 +637,12 @@ class FitToData():
 				"msa": out["msa"],
 				"pair": out["pair"]
 			}
+			del out
+			out = pose_dict[step]
+
+		# Log all predicted rigid transformations.
+		self.store_transformations( transformations_dict = model.transformations )
+
 		if self.topology.train.select_pose == "max":
 			print( "Selecting the pose with max data satisfaction...")
 			max_idx = np.argmax( track_metric )
@@ -637,21 +657,82 @@ class FitToData():
 		self.add_to_device( out )
 		return out
 
-		# xl_metric = self.stats_dict_pose["metrics"]["xlr"]
-		# q = np.quantile( xl_metric, 0.75 )
-		# to_remove = np.where( xl_metric < q )
-		# keys = list( pose_dict.keys() )
-		# for k in keys:
-		# 	if k in to_remove[0]:
-		# 		pose_dict.pop( k )
 
-		# print( pose_dict.keys() )
-		# idx = np.array( [k for k in pose_dict.keys()] )
-		# print( idx )
-		# print( self.metrics_fn_pose.metric_metadata_dict["xlr"]["xl_satisfaction_array"][idx] )
+	def predict_pose_random( self,
+		out: Dict[str, Any],
+		restraint_features: Dict[str, Any],
+		prev_frame_coord: torch.Tensor ) -> Dict[str, Any]:
+		"""
+		Predict rigid transformations at random.
+		Similar to predict_pose() above.
+		"""
+		print( "\n\033[1mInitiate random pose sampling now...\033[0m" )
+		model = RandomPoseSampling(
+			model_config = self.topology.model,
+			device = self.device )
 
-		# exit()
-		# return pose_dict
+		pose_dict = {}
+
+		track_metric = []
+		for step in range( self.topology.train.num_steps ):
+			print( f"\nPose sampling step: {step} --------------------------" )
+
+			# if self.topology.train.reinit_step0 or step != 0:
+			out = self.reinit_coords(
+				out = out,
+				prev_frame_coord = prev_frame_coord,
+				pose_iter = True )
+
+			out = model.predict( out = out )
+
+			cum_loss, losses = self.loss_fn.forward( out,
+				self.gt_feature_dict,
+				restraint_features )
+			self.update_loss_dict( losses, update_pose_metrics = True )
+
+			if step == self.topology.train.num_steps-1:
+				last_step = True
+			else:
+				last_step = False
+			metrics_dict = self.metrics_fn_pose.forward(
+				out = out, last_epoch = last_step )
+			self.update_data_metric_dict(
+				metrics_dict = metrics_dict, update_pose_metrics = True )
+			track_metric.append( metrics_dict["xlr"].item())
+
+			# Remove computed violations.
+			if "violation" in out:
+				out.pop( "violation" )
+
+			self.remove_from_device( out )
+
+			pose_dict[step] = {
+				"final_atom_positions": out["final_atom_positions"],
+				"final_atom_mask": out["final_atom_mask"],
+				"asym_id": out["asym_id"],
+				"plddt": out["plddt"],
+				"msa": out["msa"],
+				"pair": out["pair"]
+			}
+			del out
+			out = pose_dict[step]
+		# Log all predicted rigid transformations.
+		self.store_transformations( transformations_dict = model.transformations )
+
+		if self.topology.train.select_pose == "max":
+			print( "Selecting the pose with max data satisfaction...")
+			max_idx = np.argmax( track_metric )
+			print( max_idx, "  ", track_metric[max_idx] )
+			out = pose_dict[max_idx]
+		elif self.topology.train.select_pose == "last":
+			print( "Selecting the pose from last step..." )
+			last_step = self.topology.train.num_steps-1
+			out = pose_dict[last_step]
+		else:
+			raise ValueError( f"Incorrect value for the hyperparameters - last_step - specified. Use last/max..." )
+		self.add_to_device( out )
+		return out
+
 
 	################################################################################
 	################################################################################
@@ -756,11 +837,11 @@ class FitToData():
 
 		# Select subsampled MSA.
 		batch["msa"] = batch["msa"][:,subsampled_idx,:].to( self.device )
-		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :].to( self.device )
-		batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:].to( self.device )
-		batch["deletion_matrix"] = batch["deletion_matrix"][:,subsampled_idx,:].to( self.device )
-		batch['cluster_deletion_mean'] = batch["cluster_deletion_mean"][:,subsampled_idx,:].to( self.device )
-		batch["cluster_profile"] = batch["cluster_profile"][:,subsampled_idx,:, :].to( self.device )
+		batch["msa_feat"] = batch["msa_feat"][:,subsampled_idx,:, :]
+		batch["msa_mask"] = batch["msa_mask"][:,subsampled_idx,:]
+		batch["deletion_matrix"] = batch["deletion_matrix"][:,subsampled_idx,:]
+		batch['cluster_deletion_mean'] = batch["cluster_deletion_mean"][:,subsampled_idx,:]
+		batch["cluster_profile"] = batch["cluster_profile"][:,subsampled_idx,:, :]
 		return batch
 
 
@@ -796,7 +877,7 @@ class FitToData():
 
 		# Select subsampled MSA.
 		for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
-			batch[k] = batch[k][:,subsampled_idx,:].to( self.device )
+			batch[k] = batch[k][:,subsampled_idx,:]
 		return batch
 
 
@@ -811,9 +892,12 @@ class FitToData():
 		params["mask_frac"] = mask_frac
 		print( f"Using column mask fraction = {params['mask_frac']}..." )
 
+		# TODO: perform masking on CPU.
 		batch, masked_idx = msa_column_masking(
 			batch = batch,
 			params = params )
+		for k in ["msa", "deletion_matrix", "msa_feats"]:
+			batch[k] = batch[k].to( self.device )
 
 		print( f"Masked MSA columns = {masked_idx}" )
 		if "col_mask" not in self.stats_dict:
@@ -898,13 +982,30 @@ class FitToData():
 		for k1, k2 in zip(
 			["plddt", "pae", "ptm", "iptm"],
 			["plddt", "predicted_aligned_error", "ptm_score", "iptm_score", "num_recycles"] ):
-			v = out[k2]
+			v = out[k2].detach().cpu()
 			if k1 in ["ptm", "iptm"]:
 				self.stats_dict["confidence"][k1].append( v.item() )
 				str_ += f"{k1}: {v} \t"
 			else:
 				self.stats_dict["confidence"][k1].append( v  )
 		print( f"Confidence: {str_}" )
+
+
+	def store_transformations( self, transformations_dict: Dict[str, List] ):
+		"""
+		Store all predicted rigid transformations in the stats_dict every frame.
+		"""
+		if "transformations" not in self.stats_dict:
+			self.stats_dict["transformations"].update( 
+				{k: [] for k in ["rotation", "translation"]} )
+
+		# For M pose sampling steps -> [M, B, 4].
+		rot = torch.stack( transformations_dict["rotation"] ).cpu().numpy()
+		# For M pose sampling steps -> [M, B, 3].
+		trans = torch.stack( transformations_dict["rotation"] ).cpu().numpy()
+
+		self.stats_dict["transformations"]["rotation"].append( rot )
+		self.stats_dict["transformations"]["rotation"].append( trans )
 
 
 	################################################################################
