@@ -63,6 +63,8 @@ class BenchmarkModeling():
 		# Disable template embeddings.
 		self.no_templates = False
 		self.skip_pose_sampling = False
+		# Sample rigid transformations at random.
+		self.sample_random_pose = False
 		# Inject pose sampled structure via template embedder.
 		self.use_as_templates = False
 		# If true, add the pose sampled struct ffeats to existing template feats.
@@ -271,6 +273,7 @@ class BenchmarkModeling():
 			topo_dict.train.num_frames = self.num_frames
 			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
+			topo_dict.train.sample_random_pose = self.sample_random_pose
 			topo_dict.train.use_as_templates = self.use_as_templates
 			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
 			topo_dict.train.recycle_pose = self.recycle_pose
@@ -1217,7 +1220,7 @@ class BenchmarkModeling():
 		"""
 		Create the required file paths.
 		"""
-		self.base_dir = os.path.join( os.path.abspath( "./benchmark" ) )
+		self.base_dir = os.path.join( os.path.abspath( "/data/kartik/IMP_Rewired/imp_dl/benchmark" ) )
 		# self.meta_dir = os.path.join( self.base_dir,
 		# 							f"{self.benchmark_name}_metadata" )
 		self.meta_dir = get_meta_dir_path(
@@ -1434,6 +1437,7 @@ class BenchmarkModeling():
 				"add_to_existing_templates": self.add_to_existing_templates,
 				"recycle_pose": self.recycle_pose,
 				"skip_pose_sampling": self.skip_pose_sampling,
+				"sample_random_pose": self.sample_random_pose,
 				"init_coord": self.init_coord,
 				"init_rep": self.init_rep,
 				"reinit_rep": self.reinit_rep,
@@ -1475,11 +1479,8 @@ class BenchmarkModeling():
 if __name__ == "__main__":
 	# BenchmarkModeling().forward()
 
-	# hyperparameters = xlmerged_hyperparameters
-	# hyperparameters = pinderS_hyperparameters
-	hyperparameters = experiment_hyperparameters
-	# hyperparameters = badBatch_hyperparameters
-	for v in [40, 41, 41.1]:
+	hyperparameters = xlmerged_hyperparameters
+	for v in [11, 11.1]:
 		if f"experiment_{v}" in hyperparameters:
 			obj = BenchmarkModeling()
 			for k, v in hyperparameters[f"experiment_{v}"].items():
