@@ -3,14 +3,13 @@ Given an AF2 prediction, define rigid bodies
 	Split chains into rigid bodies.
 	Based on pLDDT and/or PAE.
 """
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple
 
 import torch
 
 ALLOWED_RIGID_TYPES = ["chains"]
 
 def get_rigid_body(
-	#out: Dict[str, Any],
 	final_atom_positions: torch.Tensor,
 	asym_id: torch.Tensor,
 	rigid_type: str):
