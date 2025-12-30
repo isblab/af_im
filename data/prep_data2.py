@@ -14,9 +14,11 @@ from typing import List
 import os, glob, copy, time, warnings
 import numpy as np
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 
 from utils.utils import ( open_file_handler,
 							read_json, write_json )
+from utils.api_utils import PdbRestApi
 from api_data_modules import( DownloadPdbStructure,
 								SeqResDict )
 
@@ -467,6 +469,9 @@ class Metadata():
 			self.resolution_dict = copy.deepcopy( obj.resolution_dict )
 			self.logs["SeqResDict"] = copy.deepcopy( obj.cif_logs )
 
+			if self.dataset_configs["global"]["download_assembly"]:
+				self.update_resolution_dict()
+
 			del obj
 
 			self.create_pdb_num_to_seq_id_mapping()
@@ -482,6 +487,28 @@ class Metadata():
 			write_json( self.logs, self.logs_file )
 
 		self.benchmark_pdb_ids_list = list( self.seqres_dict.keys() )
+
+
+	def update_resolution_dict( self ):
+		"""
+		When downloading the biological assembly, the cif file
+			does not contain the resolution of the structure.
+		So we need to get the resolutions for all separately from the PDB REST API.
+		"""
+		def get_resolution( entry_id: str ):
+			rest = PdbRestApi( entry_id = entry_id )
+			entry_data = rest.entry_data
+			if "resolution_combined" in entry_data["rcsb_entry_info"]:
+				resolution = entry_data["rcsb_entry_info"]["resolution_combined"]
+			else:
+				resolution = 0.0
+			return entry_id, resolution
+
+		with ThreadPoolExecutor( self.dataset_configs["global"]["cores"] ) as executor:
+			future = executor.submit( get_resolution, self.resolution_dict.keys() )
+			entry_id, resolution = future.result()
+
+			self.resolution_dict[entry_id] = resolution
 
 
 	def create_pdb_num_to_seq_id_mapping( self ):
