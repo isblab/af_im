@@ -36,6 +36,10 @@ def msa_subsampler( msa: torch.Tensor,
 			return subsample_sequentially(
 				msa = msa.squeeze( 0 ),
 				params = params )
+		elif subsample_type == "random":
+			return subsample_random(
+				msa = msa.squeeze( 0 ),
+				params = params )
 		else:
 			raise ValueError( "Incorrect subsampling method specified..." )
 
@@ -56,6 +60,23 @@ def get_eff( msa: torch.Tensor,
     msa_w = 1/np.sum( msa_w,-1 )
 
     return msa_w
+
+
+def subsample_random(
+	msa: torch.Tensor,
+	params: Dict[str, Any] ) -> torch.Tensor:
+	"""
+	Randomly select indices for sequences to be subsampled.
+	"""
+	# no. of sequences.
+	s = msa.shape[0]
+	neff = params["neff"]
+
+	subsampled_idx = np.random.choice(
+		np.arange( 1, s, 1 ),
+		size = neff,
+		replace = False )
+	return subsampled_idx
 
 
 # if cap_msa is enabled, we bypass the ExtraMSAStack, helps with determinism for |MSA| < 128
@@ -99,7 +120,8 @@ def subsample_sequentially(
 
     return torch.tensor( subsampled_idx )
 
-
+################################################################################
+################################################################################
 def msa_column_masking(
 	batch: Dict[str, torch.Tensor],
 	params: Dict[str, Any] ) -> Dict[str, torch.Tensor]:
@@ -128,7 +150,8 @@ def msa_column_masking(
 	batch = create_msa_feat( batch = batch )
 	return batch, mask_idx
 
-
+################################################################################
+################################################################################
 def mask_msa_for_xl_res(
 	batch: Dict[str, torch.Tensor],
 	xl_res_dict: Dict
@@ -151,15 +174,14 @@ def mask_msa_for_xl_res(
 	# Replacee cross-linked residue with the unknown token.
 	batch["msa"][:, 1:, res_mask] = 21
 	batch["deletion_matrix"][:, 1:, res_mask] = 0
-	# batch['msa'][1:,j] = 21
-	# batch["deletion_matrix"][:, 1:, j, :] = 0
 
 	batch.pop( "msa_feat" )
 	batch = create_msa_feat( batch = batch )
 
 	return batch
 
-
+################################################################################
+################################################################################
 def noised_structure(
 	out: Dict[str, Any],
 	params: Dict[str, Any]) -> Dict[str, Any]:
