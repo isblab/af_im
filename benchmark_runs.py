@@ -21,12 +21,14 @@ from utils.utils import ( open_file_handler, read_json, write_json, run_subproce
 from utils.pdb_utils import Parser, get_chain_id
 from utils.paths import (
 	get_meta_dir_path,
+	get_sys_data_dir_path,
 	get_sys_modeling_path,
 	get_benchmark_analysis_dir_path,
 	get_benchmark_analysis_version_dir_path,
 	get_benchmark_csv_file,
-	get_sys_data_dir_path,
 	get_sys_config_path,
+	get_stat_file_path,
+	get_analysis_dict_path,
 	get_unrelaxed_model_file,
 	get_relaxed_model_file,
 	get_native_struct_file,
@@ -34,9 +36,6 @@ from utils.paths import (
 from utils.tools import usalign, get_alignment_score
 from experiment_hparams import experiment_hyperparameters
 from xlmerged_hparams import xlmerged_hyperparameters
-from pinderS_hparams import pinderS_hyperparameters
-from badBatch_hparams import badBatch_hyperparameters
-
 
 class BenchmarkModeling():
 	def __init__( self, topo_dict: ConfigDict = None ):
@@ -65,6 +64,8 @@ class BenchmarkModeling():
 		self.skip_pose_sampling = False
 		# Sample rigid transformations at random.
 		self.sample_random_pose = False
+		# If true, template embedder is enabled else disabled.
+		self.use_template_embedder = True
 		# Inject pose sampled structure via template embedder.
 		self.use_as_templates = False
 		# If true, add the pose sampled struct ffeats to existing template feats.
@@ -213,7 +214,7 @@ class BenchmarkModeling():
 	def log_error( self, sys_name: str ):
 		"""
 		If an error occurs while modeling,
-			Log the errorneous entry_id in the dataset sepcific metadata dir.
+			Log the errorneous entry_id in the system specific mdeling dir..
 			log the traceback in the system dir.
 		"""
 		ver_path = self.get_sys_modeling_version_path( sys_name )
@@ -274,6 +275,7 @@ class BenchmarkModeling():
 			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
 			topo_dict.train.sample_random_pose = self.sample_random_pose
+			topo_dict.train.use_template_embedder = self.use_template_embedder
 			topo_dict.train.use_as_templates = self.use_as_templates
 			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
 			topo_dict.train.recycle_pose = self.recycle_pose
@@ -328,7 +330,11 @@ class BenchmarkModeling():
 			print( "\n" + "-"*70 + "\n" + "-"*70 )
 			print( f"{idx}/{self.num_systems} --> {sys_name}" )
 			print( "-"*70 + "\n" + "-"*70 + "\n" )
-			stat_file_path = self.get_stat_file_path( sys_name = sys_name )
+			stat_file_path = get_stat_file_path(
+				base_dir = self.base_dir,
+				sys_name = sys_name,
+				modeling_dir_name = self.modeling_dir_name,
+				modeling_version = self.modeling_version )
 
 			# remove system modleing and/or analysis dir if specified.
 			self.remove_existing_dir( sys_name = sys_name )
@@ -365,8 +371,7 @@ class BenchmarkModeling():
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
-			sys_name = sys_name
-		)
+			sys_name = sys_name )
 
 		topo_dict = self.modify_topology( sys_name = sys_name )
 
@@ -460,7 +465,12 @@ class BenchmarkModeling():
 		Parse the XLs .csv file for the given system
 			and return the FP XLs.
 		"""
-		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		data_dir = get_sys_data_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
+
 		xl_file = os.path.join(
 			data_dir,
 			f"interprotein_xls{self.sys_conf_suff}.csv" )
@@ -475,7 +485,7 @@ class BenchmarkModeling():
 		Return dict contaiing residue positions from start to
 			end for all entity_ids.
 		"""
-		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
 		sys_config = self.get_sys_config( sys_name = sys_name )
 		sys_key = list( sys_config.keys() )[0]
 		modeled_res_dict = {}
@@ -663,7 +673,11 @@ class BenchmarkModeling():
 			Initial predicted structure.
 			All selected good-scoring models.
 		"""
-		data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
+		data_dir = get_sys_data_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
 		native_file = os.path.join( data_dir, f"{sys_name}.cif" )
 
 		init_struct_dir = os.path.join( data_dir, f"{sys_name}_output/predictions" )
@@ -782,7 +796,7 @@ class BenchmarkModeling():
 		Compute TM-score for all sampled models in the given system.
 		"""
 		self.create_tmp_dir()
-		stats_dict = self.load_stat_file( sys_name = sys_name )
+		stats_dict = self.load_stat_dict( sys_name = sys_name )
 
 		all_sampled_tm = []
 		for model_id in stats_dict["model_id"]:
@@ -854,7 +868,7 @@ class BenchmarkModeling():
 			(good_scoring) for the given system.
 		"""
 		if source == "all_sampled":
-			data_dict = self.load_stat_file( sys_name = sys_name )
+			data_dict = self.load_stat_dict( sys_name = sys_name )
 		elif source == "good_scoring":
 			data_dict = self.load_analysis_dict( sys_name = sys_name )
 		else:
@@ -1175,7 +1189,7 @@ class BenchmarkModeling():
 		flat_dict.update( {k:[] for k in self.benchmark["PDB ID"]} )
 
 		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
-			stats_dict = self.load_stat_file( sys_name = sys_name )
+			stats_dict = self.load_stat_dict( sys_name = sys_name )
 			analysis_dict = self.load_analysis_dict( sys_name = sys_name )
 
 			# No. of good scoring models.
@@ -1220,7 +1234,8 @@ class BenchmarkModeling():
 		"""
 		Create the required file paths.
 		"""
-		self.base_dir = os.path.join( os.path.abspath( "/data/kartik/IMP_Rewired/imp_dl/benchmark" ) )
+		# self.base_dir = os.path.join( os.path.abspath( "/data/kartik/IMP_Rewired/imp_dl/benchmark" ) )
+		self.base_dir = os.path.join( os.path.abspath( "./benchmark" ) )
 		# self.meta_dir = os.path.join( self.base_dir,
 		# 							f"{self.benchmark_name}_metadata" )
 		self.meta_dir = get_meta_dir_path(
@@ -1242,13 +1257,7 @@ class BenchmarkModeling():
 		self.benchmark_csv_file = get_benchmark_csv_file(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name )
-		# self.benchmark_output_dir = os.path.join(
-		# 										self.base_dir,
-		# 										f"{self.benchmark_name}_benchmark_analysis" )
-		# self.benchmark_modeling_dir = os.path.join( self.benchmark_output_dir,
-		# 										f"version_{self.modeling_version}" )
-		# self.benchmark_csv_file = os.path.join( self.meta_dir,
-		# 										f"selected_{self.benchmark_name}_benchmark.csv" )
+
 		# Dict containing the resolution of the experimental structure.
 		self.resolution_dict_file = os.path.join( self.meta_dir, "resolution_dict.json" )
 		# File to store DOckQ.
@@ -1301,23 +1310,23 @@ class BenchmarkModeling():
 		self.num_systems = self.benchmark.shape[0]
 
 
-	def get_sys_path( self, sys_name: str ):
-		sys_path = os.path.join( 
-					os.path.abspath(
-						f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}"
-						)
-			)
-		return sys_path
+	# def get_sys_path( self, sys_name: str ):
+	# 	sys_path = os.path.join( 
+	# 				os.path.abspath(
+	# 					f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}"
+	# 					)
+	# 		)
+	# 	return sys_path
 
 
-	def get_sys_data_dir_path( self, sys_name: str ):
-		"""
-		Return the path to the system directory.
-		"""
-		data_dir = os.path.join(
-			self.base_dir,
-			f"{self.benchmark_name}_benchmark/{sys_name}" )
-		return data_dir
+	# def get_sys_data_dir_path( self, sys_name: str ):
+	# 	"""
+	# 	Return the path to the system directory.
+	# 	"""
+	# 	data_dir = os.path.join(
+	# 		self.base_dir,
+	# 		f"{self.benchmark_name}_benchmark/{sys_name}" )
+	# 	return data_dir
 
 
 	def get_sys_config( self, sys_name: str ):
@@ -1329,13 +1338,8 @@ class BenchmarkModeling():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			sys_conf_suff = self.sys_conf_suff
-		)
-		sys_config = read_json( sys_config_path
-			# os.path.join(
-			# 	data_dir,
-			# 	f"sys_config_{sys_name}{self.sys_conf_suff}.json" )
-			)
+			sys_conf_suff = self.sys_conf_suff )
+		sys_config = read_json( sys_config_path )
 		return sys_config
 
 
@@ -1343,7 +1347,6 @@ class BenchmarkModeling():
 		"""
 		Return the path to the system modeling version dir.
 		"""
-		# sys_path = self.get_sys_path( sys_name )
 		sys_modeling_path = get_sys_modeling_path(
 			base_dir = self.base_dir,
 			modeling_dir_name = self.modeling_dir_name,
@@ -1355,38 +1358,46 @@ class BenchmarkModeling():
 		return ver_path
 
 
-	def get_stat_file_path( self, sys_name: str ) -> pd.DataFrame:
-		"""
-		Return the path to the stats file for the given system.
-		"""
-		ver_path = self.get_sys_modeling_version_path( sys_name )
-		stat_file_path = os.path.join( ver_path, "Stats.npy" )
-		return stat_file_path
+	# def get_stat_file_path( self, sys_name: str ) -> pd.DataFrame:
+	# 	"""
+	# 	Return the path to the stats file for the given system.
+	# 	"""
+	# 	ver_path = self.get_sys_modeling_version_path( sys_name )
+	# 	stat_file_path = os.path.join( ver_path, "Stats.npy" )
+	# 	return stat_file_path
 
 
-	def load_stat_file( self, sys_name: str ) -> Dict[str, Dict]:
+	def load_stat_dict( self, sys_name: str ) -> Dict[str, Dict]:
 		"""
 		Load the stat file on memory.
 		"""
-		stat_file_path = self.get_stat_file_path( sys_name = sys_name )
+		stat_file_path = get_stat_file_path(
+			base_dir = self.base_dir,
+			sys_name = sys_name,
+			modeling_dir_name = self.modeling_dir_name,
+			modeling_version = self.modeling_version )
 		stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
 		return stats_dict
 
 
-	def get_analysis_file_path( self, sys_name: str ) -> pd.DataFrame:
-		"""
-		Return the path to the analysis_dict file for the given system.
-		"""
-		ver_path = self.get_sys_modeling_version_path( sys_name )
-		analysis_dict_file = os.path.join( ver_path, "analysis/analysis_dict.npy" )
-		return analysis_dict_file
+	# def get_analysis_file_path( self, sys_name: str ) -> pd.DataFrame:
+	# 	"""
+	# 	Return the path to the analysis_dict file for the given system.
+	# 	"""
+	# 	ver_path = self.get_sys_modeling_version_path( sys_name )
+	# 	analysis_dict_file = os.path.join( ver_path, "analysis/analysis_dict.npy" )
+	# 	return analysis_dict_file
 
 
 	def load_analysis_dict( self, sys_name: str ) -> Dict[str, Dict]:
 		"""
 		Load the analysis_dict on memory.
 		"""
-		analysis_dict_file = self.get_analysis_file_path( sys_name )
+		analysis_dict_file =get_analysis_dict_path(
+			base_dir = self.base_dir,
+			sys_name = sys_name,
+			modeling_dir_name = self.modeling_dir_name,
+			modeling_version = self.modeling_version )
 		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
 		return analysis_dict
 
@@ -1424,55 +1435,9 @@ class BenchmarkModeling():
 				"system": str( system )
 			} )
 
-		configs.update( {
-				"benchmark": self.benchmark_name,
-				"objective": self.modeling_objective,
-				"version": str( self.modeling_version ),
-				"num_frames": str( self.num_frames ),
-				"num_steps": str( self.num_steps ),
-				"num_recycles": str( self.num_recycles ),
-				"inference_mode": self.inference_mode,
-				"activate_dropouts": self.activate_dropouts,
-				"use_as_templates": self.use_as_templates,
-				"add_to_existing_templates": self.add_to_existing_templates,
-				"recycle_pose": self.recycle_pose,
-				"skip_pose_sampling": self.skip_pose_sampling,
-				"sample_random_pose": self.sample_random_pose,
-				"init_coord": self.init_coord,
-				"init_rep": self.init_rep,
-				"reinit_rep": self.reinit_rep,
-				"reinit_frame": self.reinit_frame,
-				"reinit_step": self.reinit_step,
-				"reinit_step0": self.reinit_step,
-				"fill_none": self.fill_none,
-				"prec": self.prec,
-				"device": self.device,
-				"db_preset": self.db_preset,
-				"sys_conf_suff": self.sys_conf_suff,
-				"enable_analysis": self.enable_analysis,
-				"enable_relax_validate": self.enable_relax_validate,
-				"disable_overwrite_prompt": self.disable_overwrite_prompt,
-				"remove_sys_modeling_dir": self.remove_sys_modeling_dir,
-				"remove_sys_analysis_dir": self.remove_sys_analysis_dir,
-				"violation": self.violation,
-				"xlr": self.xlr,
-				"subsampling": self.subsampling,
-				"extra_msa_subsampling": self.extra_msa_subsampling,
-				"column_maksing": self.column_masking,
-				# "struct_noising": self.struct_noising,
-				"msa_xl_res_mask": self.msa_xl_res_mask,
-				"base_dir": self.base_dir,
-				"meta_dir": self.meta_dir,
-				"modeling_dir_name": self.modeling_dir_name,
-				"modeling_version": self.modeling_version,
-				"benchmark_output_dir": self.benchmark_output_dir,
-				"benchmark_modeling_dir": self.benchmark_modeling_dir,
-				"benchmark_csv_file": self.benchmark_csv_file,
-				"dockq_dict_file": self.dockq_dict_file,
-				"molprob_plot_file": self.molprob_plot_file,
-				"logs_file": self.logs_file,
-				"config_file": self.config_file
-			} )
+		for k, v in vars( BenchmarkModeling() ).items():
+			if not k.startswith( "__" ) and not callable( v ):
+				configs[k] = v
 		write_json( configs, self.config_file )
 
 
@@ -1480,7 +1445,7 @@ if __name__ == "__main__":
 	# BenchmarkModeling().forward()
 
 	hyperparameters = xlmerged_hyperparameters
-	for v in [11, 11.1]:
+	for v in [13]:
 		if f"experiment_{v}" in hyperparameters:
 			obj = BenchmarkModeling()
 			for k, v in hyperparameters[f"experiment_{v}"].items():
