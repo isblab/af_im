@@ -32,7 +32,6 @@ class SimulateCrosslinks():
 		self.xls_dict = {}
 
 
-
 	def forward( self ):
 		"""
 		"""
@@ -40,7 +39,7 @@ class SimulateCrosslinks():
 		self.initialize_logs_dict()
 
 		self.jwalk_logs["Total_pdb_ids"] = len( self.pdb_ids_list )
-		self.get_xls_in_parallel()
+		self.get_xls_serially()
 
 		t_end = time.time()
 		time_taken = t_end - t_start
@@ -102,12 +101,16 @@ class SimulateCrosslinks():
 
 	def get_fp_xls( self, xl_df: pd.DataFrame ) -> pd.DataFrame:
 		"""
+		JWalk provided XLs are all TPs. We consider XLs above a certain
+			SASD noisy XLs or FP.
 		Obtain false positive (FP) XLs.
 			We consider XLs with distance > the (max bound + 10A) as FP.
+			We further sort them in descending order based on SASD.
 		"""
 		fp_xl_df = copy.copy( xl_df )
 		# Using SASD provides more accurate XLs.
 		fp_xl_df = fp_xl_df.loc[fp_xl_df["SASD"] > self.xl_max_bound+10.0]
+		fp_xl_df.sort_values( by = "SASD", ascending = False, inplace = True )
 		return fp_xl_df
 
 
@@ -117,6 +120,7 @@ class SimulateCrosslinks():
 			Index, Model (input file name)
 			Atom1 --> AA-RES-CHAIN-CA
 			Atom2 --> AA-RES-CHAIN-CA
+				Atom field may have 1 or 2 hyphens.
 			SASD --> Solvent accessible surface distance.
 			Eculidean distance --> distance between CA atoms.
 		Fetch all inter-protein XLs for which the SASD is less than xl_max_bound.
@@ -133,7 +137,6 @@ class SimulateCrosslinks():
 		interprotein_xls = interprotein_xls.reset_index( drop = True )
 
 		return interprotein_xls
-
 
 
 	def get_xls_for_entry_id( self, entry_id: str ):
@@ -179,22 +182,11 @@ class SimulateCrosslinks():
 		return entry_id, tp_inter_xls, fp_inter_xls, logs
 
 
-
-	def get_xls_in_parallel( self ):
+	def get_xls_serially( self ):
 		"""
 		Obtain XLs serially for the given entry_id's.
 		"""
-		# curr_dir = os.getcwd()
-		# os.chdir( self.pdb_struct_dir )
 		for idx, entry_id in enumerate( self.pdb_ids_list ):
-		# curr_dir = os.getcwd()
-
-		# with Pool( self.cores ) as p:
-		# 	for result in tqdm.tqdm( p.imap_unordered( self.get_xls_for_entry_id,
-		# 								self.pdb_ids_list ),
-		# 								total = len( self.pdb_ids_list ) ):
-		# 		entry_id, tp_inter_xls, fp_inter_xls, logs = result
-
 			entry_id, tp_inter_xls, fp_inter_xls, logs = self.get_xls_for_entry_id( entry_id )
 			if tp_inter_xls is None:
 				for k in logs:
