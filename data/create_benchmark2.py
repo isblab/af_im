@@ -16,7 +16,7 @@ class CreateBenchmark():
 	Create input files for modeling.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "pinderS"   # xlmerged, pinderS, afmb
+		self.benchmark_name = "xlmerged"   # xlmerged, pinderS, afmb
 
 		self.chain_entity_map = {}
 		self.selected_xls = {}
@@ -253,7 +253,7 @@ class CreateBenchmark():
 		Obtain the set of XLs to be used for modeling.
 		For TP XLs, we use a max of 50 XLs.
 			For complexes with >50 XLs we randomly select a subset.
-		Further, if specified, we add 10% FP XLs.
+		Further, if specified, we simulate noise by adding 10% XLs with SASD>max_bound.
 		Add, an extra column indicating whether a XL pair is TP or FP.
 		"""
 		tp_xls = self.xls_dict[sys_name]["tp_xls"]
@@ -282,11 +282,14 @@ class CreateBenchmark():
 			frac_fp = self.dataset_configs["jwalk"]["frac_fp"]
 
 			num_fp_xls = math.ceil( frac_fp*xls_df.shape[0] )
-			indexes = list( fp_xls.index )
-			sampled_idx = np.random.choice( a = indexes,
-											size = num_fp_xls,
-											replace = False )
-			fp_df = fp_xls.iloc[sampled_idx].copy()
+			# FP Xls have been pre-sorted i descending order based on SASD.
+			fp_df = fp_xls.iloc[:num_fp_xls].copy()
+			# # Sample noisy XLs (FPs) randomly.
+			# indexes = list( fp_xls.index )
+			# sampled_idx = np.random.choice( a = indexes,
+			# 								size = num_fp_xls,
+			# 								replace = False )
+			# fp_df = fp_xls.iloc[sampled_idx].copy()
 
 			xls_df = pd.concat( [xls_df, fp_df] )
 
@@ -299,7 +302,6 @@ class CreateBenchmark():
 		xls_df = xls_df.reset_index( drop = True )
 		xls_df["label"]  = tp_fp_label
 		return xls_df
-
 
 
 	def save_tp_sys_dict_to_sys_dir( self,
