@@ -8,6 +8,7 @@ import MDAnalysis as mda
 from MDAnalysis.analysis import rms, align
 from MDAnalysis.core.universe import Universe
 from MDAnalysis.core.groups import AtomGroup
+from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
 
 from utils.utils import run_subprocess
 
@@ -198,6 +199,23 @@ def compute_rmsd_post_align( ensemble_file: str ) -> np.ndarray:
 
 
 ################################################################################
+# ----------------------------------> DockQ <--------------------------------- #
+################################################################################
+def dockq( native_file: str, model_file: str ) -> float:
+	"""
+	Given the path to the native and the predicted structure (model),
+		compute the DockQ metric.
+	Ensure that the chain IDs are the same in the native
+		and the predicted structure.
+	"""
+	model = load_PDB( model_file )
+	native = load_PDB( native_file )
+	dockq_result = run_on_all_native_interfaces( model, native )
+	dockq = dockq_result[1]
+
+	return dockq
+
+################################################################################
 # ---------------------------------> USalign <-------------------------------- #
 ################################################################################
 def usalign(
@@ -215,7 +233,7 @@ def usalign(
 		and RMSD for the given models.
 	Assuming model_id1 to be the reference.
 
-	mol --> molecule type [auto, prot, RNA.
+	mol --> molecule type [auto, prot, RNA].
 	mm --> multimeric laignment option.
 		0: alignment of two monomeric structures.
 		1: alignment of two multi-chain oligomeric structures.
