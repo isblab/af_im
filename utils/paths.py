@@ -372,7 +372,7 @@ def get_unrelaxed_model_file(
 	modeling_dir_name: str,
 	modeling_version: Any,
 	model_id: int,
-	struct_format: str = ".pdb" ):
+	struct_format: str = "pdb" ):
 	"""
 	Get the file to the unrelaxed model (saved during fine-tuning).
 
@@ -403,7 +403,7 @@ def get_relaxed_model_file(
 	modeling_dir_name: str,
 	modeling_version: Any,
 	model_id: int,
-	struct_format: str = ".pdb" ):
+	struct_format: str = "pdb" ):
 	"""
 	Get the file to the relaxed model (saved during fine-tuning).
 	Only good-scoring models are relaxed and saved.
