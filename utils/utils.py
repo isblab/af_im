@@ -1,7 +1,7 @@
 """
 This script contains general purpose accessory functions.
 """
-from typing import List, Tuple, Dict, TextIO, Optional
+from typing import List, Tuple, Dict, TextIO, Optional, Any
 import json, subprocess, traceback, time
 from datetime import datetime
 from io import StringIO
@@ -12,6 +12,21 @@ import ml_collections as mlc
 
 import torch
 
+
+def get_gpu_mem_mb( gpu_id: int ):
+	"""
+	Obtain the GPU memory used for the given device using nvidia-smi.
+	"""
+	out = subprocess.check_output(
+		[
+			"nvidia-smi",
+			f"--id={gpu_id}",
+			"--query-gpu=memory.used",
+			"--format=csv,noheader,nounits"
+		],
+		encoding = "utf-8"
+	)
+	return int( out.strip() )
 
 
 def parse_nested_dict( dict_: Dict, action: str, 
