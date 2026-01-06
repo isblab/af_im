@@ -3,7 +3,7 @@ Craete input features for running OpenFold.
 Obtain initial prediction.
 """
 from typing import Tuple, Dict, Any
-import os, pathlib, shutil, pickle as pkl
+import io, os, pathlib, shutil, pickle as pkl
 import numpy as np
 import ml_collections as mlc
 
@@ -24,6 +24,16 @@ from utils.pdb_utils import prep_output
 
 def list_files_with_extensions( dir, extensions ):
     return [f for f in os.listdir(dir) if f.endswith(extensions)]
+
+
+class RemapCUDAUnpickler(pkl.Unpickler):
+	def find_class(self, module, name):
+		if module == 'torch.storage' and name == '_load_from_bytes':
+		# Change 'cuda:0' to 'cpu' if you want everything on CPU instead
+			return lambda b: torch.load(io.BytesIO(b),
+			map_location='cuda:0')
+		return super().find_class(module, name)
+
 
 class SystemRepresentation():
 	def __init__( self,
@@ -104,7 +114,10 @@ class SystemRepresentation():
 				pkl.dump( self.processed_feature_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
 				w.close()
 
-			print( self.processed_feature_dict.keys() )
+			self.processed_feature_dict = parse_nested_dict(
+				self.processed_feature_dict,
+				"add_to_device",
+				self.device )
 
 			# Run the prediction.
 			print( "Running model prediction..." )
@@ -116,7 +129,8 @@ class SystemRepresentation():
 			del out
 
 			w = open_file_handler( self.file_paths["out_dict_path"], "wb" )
-			pkl.dump( self.init_pred_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
+			tmp_dict = parse_nested_dict( self.init_pred_dict, action = "detach" )
+			pkl.dump( tmp_dict, w, protocol = pkl.HIGHEST_PROTOCOL )
 			w.close()
 
 			# Save the prediction on disk.
@@ -130,19 +144,18 @@ class SystemRepresentation():
 				self.feature_dict, self.processed_feature_dict, tag = self.prepare_input()
 			else:
 				f = open_file_handler( self.file_paths["feature_dict"], "rb" )
-				self.feature_dict = pkl.load( f )
+				self.feature_dict = RemapCUDAUnpickler( f ).load()
 				f.close()
 
 				f = open_file_handler( self.file_paths["processed_feature_dict"], "rb" )
-				self.processed_feature_dict = pkl.load( f )
+				self.processed_feature_dict = RemapCUDAUnpickler(f).load()
 				f.close()
 
 			print( self.processed_feature_dict.keys() )
 
 			f = open_file_handler( self.file_paths["out_dict_path"], "rb" )
-			self.init_pred_dict = pkl.load( f )
+			self.init_pred_dict = RemapCUDAUnpickler(f).load()
 			f.close()
-
 		self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "detach" )
 		self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "detach" )
 
@@ -151,17 +164,17 @@ class SystemRepresentation():
 		fetch_cur_batch = lambda t: t[..., cycle_no]
 		self.processed_feature_dict = tensor_tree_map( fetch_cur_batch, self.processed_feature_dict )
 
-		if self.create_restraint_feats:
+		self.gt_feature_dict = self.get_feature_from_init_struct()
+		# if self.create_restraint_feats:
 			# Add masks for excluded volume and sequence connectivity.
-			intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
-			connectivity_mask = self.get_sequence_connectivity_feats()
+			# intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
+			# connectivity_mask = self.get_sequence_connectivity_feats()
 
 			# Get the gt_features
-			self.gt_feature_dict = self.get_feature_from_init_struct()
-			self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
-			self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
-			self.gt_feature_dict["connectivity_mask"] = connectivity_mask
-
+			# self.gt_feature_dict = self.get_feature_from_init_struct()
+			# self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
+			# self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
+			# self.gt_feature_dict["connectivity_mask"] = connectivity_mask
 
 	################################################################################
 	################################################################################
@@ -422,11 +435,6 @@ class SystemRepresentation():
 			feature_dict, mode = "predict", is_multimer = self.is_multimer
 		)
 
-		processed_feature_dict = parse_nested_dict(
-			processed_feature_dict,
-			"add_to_device",
-			self.device )
-
 		return feature_dict, processed_feature_dict, tag
 
 
@@ -605,53 +613,52 @@ class SystemRepresentation():
 
 	################################################################################
 	################################################################################
-	def get_excluded_volume_feats( self ):
-		"""
-		Create masks to account for:
-			Only intrachain residue pairs.
-			Only interchain residue pairs.
-		Mask out all diagonal elements.
+	# def get_excluded_volume_feats( self ):
+	# 	"""
+	# 	Create masks to account for:
+	# 		Only intrachain residue pairs.
+	# 		Only interchain residue pairs.
+	# 	Mask out all diagonal elements.
 
-		intra_ev_mask, inter_ev_mask -> [N, N] 
-		"""
-		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+	# 	intra_ev_mask, inter_ev_mask -> [N, N] 
+	# 	"""
+	# 	asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
 
-		N = asym_id.shape[0]
+	# 	N = asym_id.shape[0]
 
-		#ignore all diagonal element.
-		diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
-		diagonal_mask = diagonal_mask.int()
+	# 	#ignore all diagonal element.
+	# 	diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
+	# 	diagonal_mask = diagonal_mask.int()
 
-		intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
-		intra_ev_mask *= diagonal_mask
-		inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
-		inter_ev_mask *= diagonal_mask
+	# 	intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+	# 	intra_ev_mask *= diagonal_mask
+	# 	inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
+	# 	inter_ev_mask *= diagonal_mask
 
-		return intra_ev_mask, inter_ev_mask
+	# 	return intra_ev_mask, inter_ev_mask
 
 
-	def get_sequence_connectivity_feats( self ):
-		"""
-		Create a mask to ignore all but intrachain adjacent residues.
-		Using an asymmetric mask to account for only ij pairs.
+	# def get_sequence_connectivity_feats( self ):
+	# 	"""
+	# 	Create a mask to ignore all but intrachain adjacent residues.
+	# 	Using an asymmetric mask to account for only ij pairs.
 
-		connectivity_maks -> [N, N]
-		"""
-		residue_index = self.processed_feature_dict["residue_index"]
-		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+	# 	connectivity_maks -> [N, N]
+	# 	"""
+	# 	residue_index = self.processed_feature_dict["residue_index"]
+	# 	asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
 
-		N = asym_id.shape[0]
+	# 	N = asym_id.shape[0]
 
-		intra_chain_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+	# 	intra_chain_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
 
-		# Adjacent residues in sequence.
-		adjacent_mask = torch.zeros( [N, N] )
-		adjacent_mask[residue_index, residue_index+1] = 1
+	# 	# Adjacent residues in sequence.
+	# 	adjacent_mask = torch.zeros( [N, N] )
+	# 	adjacent_mask[residue_index, residue_index+1] = 1
 
-		connectivity_mask = intra_chain_mask*adjacent_mask
+	# 	connectivity_mask = intra_chain_mask*adjacent_mask
 
-		return connectivity_mask
-
+	# 	return connectivity_mask
 
 	################################################################################
 	################################################################################
