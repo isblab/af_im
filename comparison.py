@@ -1,0 +1,603 @@
+"""
+Compare the performance of our method with GRASP and AlphaLink2
+	for the following metrics:
+	1. TM score wrt native structure
+	2. DockQ
+	3. Data satisfaction
+	4. Fraction of models satisfying an XL.
+"""
+from typing import List, Tuple, Dict, Any, Iterator
+import os, glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from utils.utils import (
+	read_json, write_json,
+	run_subprocess
+	)
+from utils.paths import (
+	BASE_DIR,
+	get_benchmark_csv_file,
+	get_native_struct_file,
+	get_init_struct_file,
+	get_unrelaxed_model_file,
+	get_stat_file_path
+)
+from utils.pdb_utils import (
+	get_chain_id,
+	remap_chains_cif,
+	remap_chains_pdb )
+from utils.tools import usalign, get_alignment_score, dockq
+
+
+class Comparison():
+	"""
+	Compare the performance of our method with GRASP and AlphaLink2.
+	"""
+	def __init__( self ):
+		# IMP_DL version to be considered.
+		self.modeling_version = 16
+		# USalign script.
+		self.usalign_script = "USalign"
+		self.logs = {}
+
+
+	def forward( self ):
+		"""
+		"""
+		self.create_required_files()
+		self.init_logs()
+		self.create_required_dirs()
+
+		# RMSD and TM-score computation.
+		self.compute_struct_similarity_for_benchmark()
+
+		# Rema chains before DockQ computation.
+		self.remap_chains_in_native()
+		self.remap_chains_in_preds()
+
+		self.compute_dockq_for_benchmark()
+
+		# Create plots.
+		# self.plot_tm_score_distribution()
+		self.plot_dockq_distribution()
+
+
+	def init_logs( self ):
+		"""
+		Initialize or load the logs dict.
+		"""
+		if os.path.exists( self.logs_file ):
+			self.logs = read_json( self.logs_file )
+			if self.imp_dl not in self.logs:
+				for k1 in ["data_satisfaction", "rmsd", "tm", "dockq"]:
+					self.logs[k1][self.imp_dl] = {}
+		else:
+			for k1 in ["data_satisfaction", "rmsd", "tm", "dockq"]:
+				self.logs[k1] = {}
+				for k2 in ["init", self.imp_dl, "grasp", "alphalink2"]:
+					self.logs[k1][k2] = {}
+
+
+	def create_required_files( self ):
+		"""
+		Create the required file and dir paths.
+		"""
+		# self.base_dir = BASE_DIR
+		self.base_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/"
+		self.benchmark_name = "xlmerged"
+		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
+
+		# Our method name.
+		self.imp_dl = f"imp_dl_{self.modeling_version}"
+
+		# Dir containing GRASP/AlphaLink2 preds for the benchmark.
+		self.grasp_output_dir = os.path.join( self.base_dir, "Grasp" )
+		self.alink2_output_dir = os.path.join( self.base_dir, "Alphalink2" )
+
+		# Dir to store the results of the analysis in this script.
+		self.output_dir = os.path.join( self.base_dir, "comparison" )
+		# Temp dir to store intermediate outputs.
+		self.tm_tmp_dir = os.path.join( self.output_dir, "tm_tmp" )
+		self.dockq_tmp_dir = os.path.join( self.output_dir, "dockq_tmp" )
+
+		# Load the benchmark.
+		benchmark_file = get_benchmark_csv_file(
+			self.base_dir,
+			self.benchmark_name )
+		self.benchmark = pd.read_csv( benchmark_file )
+		self.logs_file = os.path.join( self.output_dir, f"Logs.json" )
+
+
+	def create_required_dirs( self ):
+		"""
+		Create the required directories.
+		Temporary dir for storing intermediate
+			files for rmsd computation.
+		"""
+		for dir_ in [self.output_dir,
+			self.tm_tmp_dir, self.dockq_tmp_dir]:
+			os.makedirs( dir_, exist_ok = True )
+
+
+	def remove_tmp_dir( self ):
+		cmd = ["rm", "-r", f"{self.tmp_dir}"]
+		run_subprocess( cmd )
+
+
+	def get_grasp_model_file( self,
+		sys_name: str,
+		remapped: str = None ) -> Iterator[Tuple[int, str]]:
+		"""
+		A generator that yields that model_file of all
+			predicted structures for a given systen.
+		GRASP predicts 25 models by default with 0-indexed model IDs.
+		If remapped is True, returns the path for the remaped prediction file.
+		"""
+		for model_id in range( 0, 25 ):
+			if remapped:
+				model_file = os.path.join(
+					self.dockq_tmp_dir,
+					f"{sys_name}_grasp_{model_id}.pdb" )
+			else:
+				model_file = os.path.join(
+					self.grasp_output_dir,
+					f"{sys_name}/ranked_{model_id}.pdb" )
+			yield model_id, model_file
+
+
+	def get_alphalink2_model_file( self,
+		sys_name: str,
+		remapped: str = None ) -> Iterator[Tuple[int, str]]:
+		"""
+		A generator that yields that model_file of all
+			predicted structures for a given systen.
+		AlphaLink2 predicts 25 models by default with 0-indexed model IDs.
+		"""
+		sys_dir = os.path.join( self.alink2_output_dir, sys_name )
+		for model_id, model_file in enumerate(
+			glob.glob( f"{sys_dir}/**.pdb" )
+		):
+			# Ignore the best model .pdb file.
+			if "_best.pdb" in model_file:
+				continue
+			if remapped:
+				model_file = os.path.join(
+					self.dockq_tmp_dir,
+					f"{sys_name}_alphalink2_{model_id}.pdb" )
+				yield model_id, model_file
+			else:
+				yield model_id, model_file
+
+	################################################################################
+	################################################################################
+	def compute_struct_similarity_for_benchmark( self ):
+		"""
+		Compute te structural similarity wrt the native structure across the
+			entire benchmark for using the TM-score and RMSD.
+			Initial OpenFold structure
+			IMP DL
+			GRASP
+			AlphaLink2
+		"""
+		print( "\n" + "-"*70 +
+			"\n\t\033[1m--> Computing TM-score wrt the ground truth structure <--\033[0m\n" +
+			"-"*70 )
+
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			print( f"{i}. {sys_name}" )
+			if sys_name not in self.logs["tm"]["init"]:
+				rmsd, tm = self.compute_tm_init_struct( sys_name = sys_name )
+				self.logs["tm"]["init"][sys_name] = tm
+				self.logs["rmsd"]["init"][sys_name] = rmsd
+
+			if sys_name not in self.logs["tm"][self.imp_dl]:
+				rmsd, tm = self.compute_per_sys_tm( sys_name = sys_name, version = self.modeling_version )
+				self.logs["tm"][self.imp_dl][sys_name] = tm
+				self.logs["rmsd"][self.imp_dl][sys_name] = rmsd
+
+			if sys_name not in self.logs["tm"]["grasp"]:
+				rmsd, tm = self.compute_per_sys_tm_grasp( sys_name = sys_name )
+				self.logs["tm"]["grasp"][sys_name] = tm
+				self.logs["rmsd"]["grasp"][sys_name] = rmsd
+
+			# if sys_name in self.logs["tm"]["alphalink2"]:
+			# 	continue
+			# else:
+			# 	rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+			# 	self.logs["tm"]["alphalink2"][sys_name] = tm
+			# 	self.logs["rmsd"]["alphalink2"][sys_name] = rmsd
+
+			write_json( self.logs, self.logs_file )
+
+
+	def compute_tm_init_struct( self, sys_name: str ):
+		"""
+		Compute TM-score for the initial OpenFold predicted structure.
+		"""
+		init_struct_file = get_init_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		rmsd, tm = self.run_usalign(
+			sys_name = sys_name,
+			model_id2 = 00,  # Arbitrary model_id for the init struct.
+			model2_file = init_struct_file
+		)
+		return rmsd, tm
+
+
+	def compute_per_sys_tm( self,
+		sys_name: str,
+		version: Any ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute TM-score wrt the native structure for the given
+			system for all predictions from our method.
+		"""
+		stats_file = get_stat_file_path(
+			base_dir = self.base_dir,
+			sys_name = sys_name,
+			modeling_dir_name = self.modeling_dir_name,
+			modeling_version = version
+		)
+		stats_dict = np.load( stats_file, allow_pickle = True ).item()
+
+		model_ids = stats_dict["model_id"]
+		del stats_dict
+
+		rmsd, tm = [], []
+		for model_id in model_ids:
+			model_file = get_unrelaxed_model_file(
+				base_dir = self.base_dir,
+				sys_name = sys_name,
+				model_id = model_id,
+				modeling_dir_name = self.modeling_dir_name,
+				modeling_version = self.modeling_version
+			)
+			r, t = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			rmsd.append( r )
+			tm.append( t )
+		return rmsd, tm
+
+
+	def compute_per_sys_tm_grasp( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute TM-score wrt the native structure for the given
+			system for all predictions from GRASP.
+		GRASP predicts 25 models by default with 0-indexed model IDs.
+		"""
+		rmsd, tm = [], []
+		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name ):
+			r, t = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			rmsd.append( r )
+			tm.append( t )
+		return rmsd, tm
+
+
+	def compute_per_sys_tm_alphalink2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute TM-score wrt the native structure for the given
+			system for all predictions from AlphaLink2.
+		AlphaLink2 predicts 25 models by default with 0-indexed model IDs.
+		"""
+		rmsd, tm = [], []
+		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+			r, t = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			rmsd.append( r )
+			tm.append( t )
+		return rmsd, tm
+
+
+	def run_usalign( self,
+		sys_name: str,
+		model_id2: int,
+		model2_file: str
+		) -> Tuple[float, float]:
+		"""
+		Run USalign to compute TM-score for the predicted
+			model wrt native structure.
+		"""
+		native_file = get_native_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		stdout_file = usalign(
+			usalign_script = self.usalign_script,
+			model_id1 = 00,  # Arbitrary model_id for the native struct.
+			model1_file = native_file,
+			model_id2 = model_id2,
+			model2_file = model2_file,
+			tmp_dir = self.tm_tmp_dir,
+			mol = "prot",
+			mm = 1,
+			ter = 1
+			)
+		rmsd, tm = get_alignment_score( stdout_file )
+		return rmsd, tm
+
+	################################################################################
+	################################################################################
+	def get_chain_mapping( self, native_chain_ids: str ) -> Dict[str, str]:
+		"""
+		Map the native chain IDs to the system chain IDs.
+		"""
+		map_dict = {}
+		idx = 0
+		for chains in native_chain_ids.split( "," ):
+			for chain_id in chains.split( ":" ):
+				sys_chain_id = get_chain_id( idx = idx )
+				map_dict[chain_id] = sys_chain_id
+				idx += 1
+		return map_dict
+
+
+	def remap_chains_in_native( self ):
+		"""
+		For running DockQ, the chain IDs in the native
+			and predicted structures must be the same.
+		We remap chains in the native structure as its cheaper
+			than doing so for all predicted structures.
+		"""
+		print( "Remapping chain IDs in the native structure..." )
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			native_chain_ids = self.benchmark.loc[i, "Auth Asym ID"]
+			print( f"{i}. {sys_name}:: {native_chain_ids}" )
+			native_struct_file = get_native_struct_file(
+				base_dir = self.base_dir,
+				benchmark_name = self.benchmark_name,
+				sys_name = sys_name )
+
+			base, ext = os.path.splitext( native_struct_file )
+			native_remapped_file = base + "_remapped" + ext
+
+			if not os.path.exists( native_remapped_file ):
+				map_dict = self.get_chain_mapping( native_chain_ids )
+				remap_chains_cif( struct_file = native_struct_file, map_dict = map_dict )
+
+
+	def remap_chains_in_preds( self ):
+		"""
+		AlphaLink2 and GRASP provide a .pdb file as output.
+		The chain numbering may not be consistent across all predicted
+			structures (especially for GRASP).
+		Remap all predicted structures for AlphaLink2 and GRASP.
+		"""
+		print( "Remapping chain IDs in GRASP and AlphaLink2 predicted structures..." )
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			print( f"{i}. {sys_name}" )
+			for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name ):
+				remapped_file = os.path.join(
+					self.dockq_tmp_dir,
+					f"{sys_name}_grasp_{model_id}.pdb" )
+				if not os.path.exists( remapped_file ):
+					remap_chains_pdb(
+						struct_file = model_file,
+						remapped_file = remapped_file )
+
+			# for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+			# 	remapped_file = os.path.join(
+			# 		self.dockq_tmp_dir,
+			# 		f"{sys_name}_alphalink2_{model_id}.pdb" )
+			# 	if not os.path.exists( remapped_file ):
+			# 		remap_chains_pdb(
+			# 			struct_file = model_file,
+			# 			remapped_file = remapped_file )
+
+	################################################################################
+	################################################################################
+	def compute_dockq_for_benchmark( self ):
+		"""
+		Compute te DockQ score wrt the native structure across the
+			entire benchmark.
+			Initial OpenFold structure
+			IMP DL
+			GRASP
+			AlphaLink2
+		"""
+		print( "\n" + "-"*70 +
+			"\n\t\033[1m--> Computing DockQ wrt the ground truth structure <--\033[0m\n" +
+			"-"*70 )
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			print( f"{i}. {sys_name}" )
+			if sys_name not in self.logs["dockq"]["init"]:
+				dockq = self.compute_dockq_init_struct( sys_name = sys_name )
+				self.logs["dockq"]["init"][sys_name] = dockq
+
+			if sys_name not in self.logs["dockq"][self.imp_dl]:
+				dockq = self.compute_per_sys_dockq( sys_name = sys_name )
+				self.logs["dockq"][self.imp_dl][sys_name] = dockq
+
+			if sys_name not in self.logs["dockq"]["grasp"]:
+				dockq = self.compute_per_sys_dockq_grasp( sys_name = sys_name )
+				self.logs["dockq"]["grasp"][sys_name] = dockq
+
+			# if sys_name not in self.logs["dockq"]["alphalink2"]:
+			# 	dockq = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+			# 	self.logs["dockq"]["alphalink2"][sys_name] = dockq
+
+			write_json( self.logs, self.logs_file )
+
+
+	def compute_dockq_init_struct( self, sys_name: str ):
+		"""
+		Compute DockQ for the initial OpenFold predicted structure.
+		"""
+		init_struct_file = get_init_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		dockq_score = self.run_dockq( sys_name = sys_name, model_file = init_struct_file )
+		return dockq_score
+
+
+	def compute_per_sys_dockq( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute DockQ wrt the native structure for the given
+			system for all predictions from our method.
+		"""
+		stats_file = get_stat_file_path(
+			base_dir = self.base_dir,
+			sys_name = sys_name,
+			modeling_dir_name = self.modeling_dir_name,
+			modeling_version = self.modeling_version
+		)
+		stats_dict = np.load( stats_file, allow_pickle = True ).item()
+
+		model_ids = stats_dict["model_id"]
+		del stats_dict
+
+		dockq_score = []
+		for model_id in model_ids:
+			model_file = get_unrelaxed_model_file(
+				base_dir = self.base_dir,
+				sys_name = sys_name,
+				modeling_dir_name = self.modeling_dir_name,
+				modeling_version = self.modeling_version,
+				model_id = model_id
+			)
+			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
+			dockq_score.append( d )
+		return dockq_score
+
+
+	def compute_per_sys_dockq_grasp( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute DockQ wrt the native structure for the given
+			system for all predictions from GRASP.
+		"""
+		dockq_score = []
+		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = True ):
+			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
+			dockq_score.append( d )
+		return dockq_score
+
+
+	def compute_per_sys_dockq_alphalink2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute DockQ wrt the native structure for the given
+			system for all predictions from AlphaLink2.
+		"""
+		dockq_score = []
+		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name, remapped = True ):
+			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
+			dockq_score.append( d )
+		return dockq_score
+
+
+	def run_dockq( self, sys_name: str, model_file: str ):
+		"""
+		Compute DockQ score for the given system.
+		"""
+		native_file = get_native_struct_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+		)
+		base, ext = os.path.splitext( native_file )
+		native_remapped_file = base + "_remapped" + ext
+		dockq_score = dockq(
+			native_file = native_remapped_file,
+			model_file = model_file
+		)
+		return dockq_score
+
+	################################################################################
+	################################################################################
+	def plot_tm_score_distribution( self ):
+		"""
+		Plot the distribution of TM-score wrt the native structure.
+		"""
+		records = []
+		for sys_name in self.benchmark["PDB ID"]:
+			for tm in self.logs["tm"][self.imp_dl][sys_name]:
+				records.append( ( sys_name, self.imp_dl, tm ) )
+			for tm in  self.logs["tm"]["grasp"][sys_name]:
+				records.append( ( sys_name, "Grasp", tm ) )
+			# records.append( ( sys_name, "Alphalink2",
+			# 	self.logs["tm"]["alphalink2"][sys_name] ) )
+
+		df = pd.DataFrame( records, columns = ["Complex", "Method", "TM"] )
+		print( df.head() )
+
+		plt.figure( figsize = ( 20, 30 ) )
+		plt.rcParams["font.family"] = "sans"
+		ax = sns.boxenplot(
+			data = df,
+			x = "Complex",
+			y = "TM",
+			hue = "Method",
+			# width = 1.5,
+			# split = False,
+			# inner = "quart",
+			# cut = 0,
+			linewidth = 0.1
+		)
+
+		ax.set_ylabel( "TM-score" )
+		ax.set_xlabel( "Complex" )
+		plt.xticks( rotation = 90 )
+		plt.legend( title = "Method" )
+		plt.tight_layout()
+		plt.show()
+		plt.close()
+
+
+	def plot_dockq_distribution( self ):
+		"""
+		Plot the distribution of DockQ wrt the native structure.
+		"""
+		records = []
+		for sys_name in self.benchmark["PDB ID"]:
+			for tm in self.logs["dockq"][self.imp_dl][sys_name]:
+				records.append( ( sys_name, self.imp_dl, tm ) )
+			for tm in  self.logs["dockq"]["grasp"][sys_name]:
+				records.append( ( sys_name, "Grasp", tm ) )
+			# records.append( ( sys_name, "Alphalink2",
+			# 	self.logs["dockq"]["alphalink2"][sys_name] ) )
+
+		df = pd.DataFrame( records, columns = ["Complex", "Method", "DockQ"] )
+
+		plt.figure( figsize = ( 20, 30 ) )
+		plt.rcParams["font.family"] = "sans"
+		ax = sns.boxenplot(
+			data = df,
+			x = "Complex",
+			y = "DockQ",
+			hue = "Method",
+			# width = 1.5,
+			linewidth = 0.1
+		)
+
+		ax.set_ylabel( "DockQ" )
+		ax.set_xlabel( "Complex" )
+		plt.xticks( rotation = 90 )
+		plt.legend( title = "Method" )
+		plt.tight_layout()
+		plt.show()
+		plt.close()
+
+
+if __name__ == "__main__":
+	Comparison().forward()
