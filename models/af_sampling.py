@@ -84,41 +84,42 @@ def subsample_sequentially(
         msa: torch.Tensor,
         params: Dict[str, Any]
         ) -> torch.Tensor:
-    """
-    Subsample the MSA sequentially up to the desired neff
-        weighted by their similarity.
-    Adapted from DEERFold/openfold/data/msa_subsampling.py.
-    """
-    neff = params["neff"]
-    eff_cutoff = params["eff_cutoff"]
-    cap_msa = params["cap_msa"]
+	"""
+	Subsample the MSA sequentially up to the desired neff
+		weighted by their similarity.
+	Adapted from DEERFold/openfold/data/msa_subsampling.py.
+	"""
+	neff = params["neff"]
+	eff_cutoff = params["eff_cutoff"]
+	cap_msa = params["cap_msa"]
 
-    subsampled_idx = [0]
+	subsampled_idx = [0]
 
-    idx = np.arange( 1, msa.shape[0] )
-    np.random.shuffle( idx )
+	if neff > 1:
+		idx = np.arange( 1, msa.shape[0] )
+		np.random.shuffle( idx )
 
-    new = [msa[0,:]]
+		new = [msa[0,:]]
 
-    for i in idx:
-        new.append( msa[i,:] )
-        subsampled_idx.append( i )
-        neff_ = get_eff(
-            np.array( new ),
-            eff_cutoff = eff_cutoff ).sum()
+		for i in idx:
+			new.append( msa[i,:] )
+			subsampled_idx.append( i )
+			neff_ = get_eff(
+				np.array( new ),
+				eff_cutoff = eff_cutoff ).sum()
 
-        if cap_msa:
-            if neff_ > neff or len( new ) > 126:
-                new.pop()
-                subsampled_idx.pop()
-                break
-        else:
-            if neff_ > neff:
-                new.pop()
-                subsampled_idx.pop()
-                break
+			if cap_msa:
+				if neff_ > neff or len( new ) > 126:
+					new.pop()
+					subsampled_idx.pop()
+					break
+			else:
+				if neff_ > neff:
+					new.pop()
+					subsampled_idx.pop()
+					break
 
-    return torch.tensor( subsampled_idx )
+	return torch.tensor( subsampled_idx )
 
 ################################################################################
 ################################################################################
