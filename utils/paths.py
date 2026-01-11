@@ -539,8 +539,9 @@ def get_init_pred_file(
 	sys_name: str
 ):
 	"""
-	Return the path to the initial OpenFold prediction for
-		the given system stored as a .pkl file.
+	Return the path to the output dict for the initial
+		OpenFold prediction for the given system stored
+		as a .pkl file.
 
 	Input:
 	----------
