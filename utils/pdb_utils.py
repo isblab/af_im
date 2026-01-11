@@ -11,7 +11,10 @@ from scipy.spatial import distance_matrix
 
 #import gemmi
 import Bio
-from Bio.PDB import PDBParser, MMCIFParser, Structure, Model, Residue, MMCIFIO
+from Bio.PDB import (
+	PDBParser, MMCIFParser,
+	MMCIFIO, PDBIO,
+	Structure, Model, Residue )
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 import modelcif
 import modelcif.model
@@ -114,25 +117,25 @@ def aa_3_to_1( aa ):
 
 
 
-def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
-	"""
-	Convert a .pdb file to a .cif file.
+# def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
+# 	"""
+# 	Convert a .pdb file to a .cif file.
 
-	Input:
-	----------
-	pdb_file_path --> Path to the .pdb file.
-	cif_file_path --> Path to the .cif file.
+# 	Input:
+# 	----------
+# 	pdb_file_path --> Path to the .pdb file.
+# 	cif_file_path --> Path to the .cif file.
 
-	Returns:
-	----------
-	None
-	"""
-	struct = gemmi.read_structure( pdb_file_path )
+# 	Returns:
+# 	----------
+# 	None
+# 	"""
+# 	struct = gemmi.read_structure( pdb_file_path )
 
-	cif_doc = struct.make_mmcif_document()
+# 	cif_doc = struct.make_mmcif_document()
 
-	w = open_file_handler( cif_file_path, "w" )
-	w.write( cif_doc.as_string() )
+# 	w = open_file_handler( cif_file_path, "w" )
+# 	w.write( cif_doc.as_string() )
 
 
 
@@ -535,6 +538,78 @@ class Parser():
 		return coords_dict
 
 
+def remap_chains_pdb(
+	struct_file: str,
+	remapped_file: str = None ):
+	"""
+	Rename all chains in the given .pdb file.
+	"""
+	base, ext = os.path.splitext( struct_file )
+	if remapped_file is None:
+		remapped_file = base + "_remapped" + ext
+	else:
+		pass
+
+	if "pdb" in ext:
+		io = PDBIO()
+	else:
+		raise ValueError( f"Incorrect file format: {ext}. required .pdb..." )
+
+	# Thie returns an iterable starting from A.
+	new_ids = iter( string.ascii_uppercase )
+
+	structure = Parser( struct_file ).structure
+	for model in structure:
+		for chain in model:
+			chain.id = next( new_ids )
+
+	io = PDBIO()
+	io.set_structure( structure )
+	io.save( remapped_file )
+
+
+def remap_chains_cif(
+	struct_file: str,
+	map_dict: Dict[str, str],
+	remapped_file: str = None ):
+	"""
+	Map all chains in the given structure (.cif file) as specified in the map_dict.
+	e.g. For mapping chains from [H, L, C] to [A, B, C],
+	The map dict is assumed to contain the auth asym_ids.
+	map_dict: {
+		"H": "A", "L": "B", "C": "C"
+	}
+	Modify both the label_asym_id and auth_asym_id.
+	"""
+	base, ext = os.path.splitext( struct_file )
+	if remapped_file is None:
+		remapped_file = base + "_remapped" + ext
+	else:
+		pass
+
+	if "cif" in ext:
+		io = MMCIFIO()
+	else:
+		raise ValueError( f"Incorrect file format: {ext}. required .cif..." )
+
+	mmcif_dict = MmcifDictParser( struct_file ).mmcif_dict
+	asym_to_auth = dict(
+		zip( mmcif_dict["_atom_site.label_asym_id"], mmcif_dict["_atom_site.auth_asym_id"] )
+	)
+
+	mmcif_dict["_atom_site.auth_asym_id"] = [
+		map_dict.get(chain_id, chain_id)
+		for chain_id in mmcif_dict["_atom_site.auth_asym_id"]
+	]
+	mmcif_dict["_atom_site.label_asym_id"] = [
+		map_dict.get(
+			asym_to_auth[chain_id], asym_to_auth[chain_id] )
+		for chain_id in mmcif_dict["_atom_site.label_asym_id"]
+	]
+
+	io = MMCIFIO()
+	io.set_dict( mmcif_dict )
+	io.save( remapped_file )
 
 ################### AF2 module to save PDB/CIF ###################
 ##--------------------------------------------------------------##
