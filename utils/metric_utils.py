@@ -16,8 +16,9 @@ def final_pred_to_dist_map(
 
 	Input:
 	----------
-	final_atom_pos --> coordinates in atom37 representtaion.
-					[B,N,37,3] --> For 2ayo: [1,480,37,3]
+	final_atom_pos --> xyz coordinates. Following representations are allowed:
+				atom37 representtaion: [B,N,37,3] --> For 2ayo: [1,480,37,3]
+				per-residue representtaion: [B,N,3] --> For 2ayo: [1,480,3]
 
 	Returns:
 	----------
@@ -25,9 +26,14 @@ def final_pred_to_dist_map(
 	"""
 	# Extracting Ca-coordinates - index 1.
 	# [B,N,3] --> For 2ayo: [1,480,3]
-	ca_idx = rc.atom_order["CA"]
-	#[B, N, 37, 3] -> [B, N, 3]
-	ca_pos = final_atom_pos[:, :, ca_idx, :]
+	if final_atom_pos.shape == 4:
+		ca_idx = rc.atom_order["CA"]
+		#[B, N, 37, 3] -> [B, N, 3]
+		ca_pos = final_atom_pos[:, :, ca_idx, :]
+	elif final_atom_pos.shape == 3:
+		ca_pos = final_atom_pos
+	else:
+		raise ValueError( f"Incorrect shape of the tensor: {final_atom_pos.shape}..." )
 	diff = ca_pos.unsqueeze( 2 ) - ca_pos.unsqueeze( 1 )
 	D = torch.sqrt( 
 					torch.sum( ( diff )**2, dim = -1 ) + eps
