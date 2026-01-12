@@ -4,7 +4,7 @@ Duplicating some function here from utils.utils, so as to not have more
 	extra dependency while running GRASP and AlphaLink2.
 """
 from typing import List, Dict, Any
-import os, subprocess, time, gzip, argparse, json
+import os, subprocess, time, gzip, argparse, json, yaml
 import pickle as pkl
 import numpy as np
 import pandas as pd
@@ -166,8 +166,10 @@ class CompetingMethodsRunner():
 			self.output_dir = os.path.join( self.base_dir, "Grasp" )
 		elif self.model == "alphalink2":
 			self.output_dir = os.path.join( self.base_dir, "Alphalink2" )
+		elif self.model == "boltz2":
+			self.output_dir = os.path.join( self.base_dir, "Boltz2" )
 		else:
-			raise ValueError( f"Incorrect model chosen {self.model}. Supported grasp/alphalink2..." )
+			raise ValueError( f"Incorrect model chosen {self.model}. Supported grasp/alphalink2/boltz2..." )
 
 		os.makedirs( self.output_dir, exist_ok = True )
 
@@ -203,6 +205,13 @@ class CompetingMethodsRunner():
 			self.inputs["fasta_file"][sys_name] = os.path.abspath( fasta_file )
 
 			ext = "txt" if self.model == "grasp" else "csv"
+			if self.model == "grasp":
+				ext = "txt"
+			elif self.model == "alphalink2":
+				ext = "csv"
+			else:
+				# For Boltz-2
+				ext = "yml"
 			restraints_file = os.path.join( sys_dir_path, f"{sys_name}_restraint.{ext}" )
 			self.inputs["restraints_file"][sys_name] = os.path.abspath( restraints_file )
 
@@ -238,6 +247,47 @@ class CompetingMethodsRunner():
 
 	################################################################################
 	################################################################################
+	def yield_restraints( self,
+		xl_file: str,
+		entity_chain_map: Dict[int, Dict],
+		numeric_chain_ids: bool ):
+		"""
+		A generator that yields restrained residue pairs.
+		Accounts for ambiguity.
+		"""
+		xl_df = pd.read_csv( xl_file )
+
+		for row in xl_df.iterrows():
+			p1, p2 = row[1]["prot1"], row[1]["prot2"]
+			r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+			r1, r2 = int( r1 ), int( r2 )
+
+			entity_id1 = int( p1.split( "_" )[1] )
+			entity_id2 = int( p2.split( "_" )[1] )
+
+			# Get the residue indices.
+			try:
+				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
+			except:
+				continue
+
+			try:
+				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
+			except:
+				continue
+
+			# For ambiguous XLs, we consider all combinations.
+			for chain_id1 in entity_chain_map[entity_id1]["chains"]:
+				if not numeric_chain_ids:
+					chain_id1 = get_chain_id( chain_id1 - 1  ) # 0-indexed.
+				for chain_id2 in entity_chain_map[entity_id2]["chains"]:
+					if not numeric_chain_ids:
+						chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
+
+					yield entity_id1, entity_id2, chain_id1, chain_id2, r1_idx, r2_idx
+
+	################################################################################
+	################################################################################
 	def create_restraints_file_grasp( self, sys_name: str ):
 		"""
 		Create a .txt file containing the Xl residues.
@@ -258,7 +308,7 @@ class CompetingMethodsRunner():
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name )
 		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
-		xl_df = pd.read_csv( xl_file )
+		# xl_df = pd.read_csv( xl_file )
 
 		entity_chain_map = get_entity_chain_mapping(
 			base_dir = self.base_dir,
@@ -271,45 +321,72 @@ class CompetingMethodsRunner():
 		restraints_included = []
 		cb_max_bound = self.xl_max_bound - 2*1.5
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
-		for row in xl_df.iterrows():
-			p1, p2 = row[1]["prot1"], row[1]["prot2"]
-			r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
-
-			entity_id1 = int( p1.split( "_" )[1] )
-			entity_id2 = int( p2.split( "_" )[1] )
+		for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = True ):
+			( entity_id1, entity_id2, chain_id1,
+				chain_id2, r1_idx, r2_idx ) = row
 
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
 
-			# get the residue indices.
-			try:
-				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
-			except:
-				continue
-			try:
-				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
-			except:
-				continue
-
 			# For ambiguous XLs, we consider all combinations.
-			for chain_id1 in entity_chain_map[entity_id1]["chains"]:
-				if seq1[r1_idx] != "K":
-					raise ValueError( f"{sys_name}: Entity: {entity_id1}; Chain: {chain_id1}; residue {r1}->{r1_idx+1} is not a Lys..." )
-				residue1 = f"{chain_id1}-{r1_idx+1}-{seq1[r1_idx]}"
-				for chain_id2 in entity_chain_map[entity_id2]["chains"]:
-					if seq1[r1_idx] != "K":
-						raise ValueError( f"{sys_name}: Entity: {entity_id2}; Chain: {chain_id2}; residue {r2}->{r2_idx+1} is not a Lys..." )
-					residue2 = f"{chain_id2}-{r2_idx+1}-{seq2[r2_idx]}"
+			if seq1[r1_idx] != "K":
+				raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
+					f"Chain: {chain_id1}; residue {r1_idx+1} is not a Lys..." )
+			residue1 = f"{chain_id1}-{r1_idx+1}-{seq1[r1_idx]}"
 
-					# ignore suplicate restraints.
-					# 	GRASP is agnostic to A-B and B-A restraint.
-					if f"{residue1},{residue2}" in restraints_included or f"{residue2},{residue1}" in restraints_included:
-						# print( f"{sys_name}: {residue1},{residue2} already present..." )
-						continue
-					restraints_included.append( f"{residue1},{residue2}" )
+			if seq1[r1_idx] != "K":
+				raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
+					f"Chain: {chain_id2}; residue {r2_idx+1} is not a Lys..." )
+			residue2 = f"{chain_id2}-{r2_idx+1}-{seq2[r2_idx]}"
 
-					w.writelines( f"{residue1}, {residue2}, {cb_max_bound}, {self.fdr}\n" )
+			# ignore suplicate restraints.
+			# 	GRASP is agnostic to A-B and B-A restraint.
+			if f"{residue1},{residue2}" in restraints_included or f"{residue2},{residue1}" in restraints_included:
+				continue
+			restraints_included.append( f"{residue1},{residue2}" )
+
+			w.writelines( f"{residue1}, {residue2}, {cb_max_bound}, {self.fdr}\n" )
 		w.close()
+
+		# for row in xl_df.iterrows():
+		# 	p1, p2 = row[1]["prot1"], row[1]["prot2"]
+		# 	r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+
+		# 	entity_id1 = int( p1.split( "_" )[1] )
+		# 	entity_id2 = int( p2.split( "_" )[1] )
+
+		# 	seq1 = entity_chain_map[entity_id1]["seq"]
+		# 	seq2 = entity_chain_map[entity_id2]["seq"]
+
+		# 	# get the residue indices.
+		# 	try:
+		# 		r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
+		# 	except:
+		# 		continue
+		# 	try:
+		# 		r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
+		# 	except:
+		# 		continue
+
+		# 	# For ambiguous XLs, we consider all combinations.
+		# 	for chain_id1 in entity_chain_map[entity_id1]["chains"]:
+		# 		if seq1[r1_idx] != "K":
+		# 			raise ValueError( f"{sys_name}: Entity: {entity_id1}; Chain: {chain_id1}; residue {r1}->{r1_idx+1} is not a Lys..." )
+		# 		residue1 = f"{chain_id1}-{r1_idx+1}-{seq1[r1_idx]}"
+		# 		for chain_id2 in entity_chain_map[entity_id2]["chains"]:
+		# 			if seq1[r1_idx] != "K":
+		# 				raise ValueError( f"{sys_name}: Entity: {entity_id2}; Chain: {chain_id2}; residue {r2}->{r2_idx+1} is not a Lys..." )
+		# 			residue2 = f"{chain_id2}-{r2_idx+1}-{seq2[r2_idx]}"
+
+		# 			# ignore suplicate restraints.
+		# 			# 	GRASP is agnostic to A-B and B-A restraint.
+		# 			if f"{residue1},{residue2}" in restraints_included or f"{residue2},{residue1}" in restraints_included:
+		# 				# print( f"{sys_name}: {residue1},{residue2} already present..." )
+		# 				continue
+		# 			restraints_included.append( f"{residue1},{residue2}" )
+
+		# 			w.writelines( f"{residue1}, {residue2}, {cb_max_bound}, {self.fdr}\n" )
+		# w.close()
 
 
 	def create_inputs_for_grasp( self, sys_name: str ):
@@ -477,41 +554,54 @@ class CompetingMethodsRunner():
 		AlphaLink2 expects Ca-Ca crosslinks.
 		"""
 		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
-		xl_df = pd.read_csv( xl_file )
+		# xl_df = pd.read_csv( xl_file )
 
 		restraints_included = []
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
-		for row in xl_df.iterrows():
-			p1, p2 = row[1]["prot1"], row[1]["prot2"]
-			r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
-			r1, r2 = int( r1 ), int( r2 )
+		for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
+			( entity_id1, entity_id2, chain_id1,
+				chain_id2, r1_idx, r2_idx ) = row
 
-			entity_id1 = int( p1.split( "_" )[1] )
-			entity_id2 = int( p2.split( "_" )[1] )
-
-			# Get the residue indices.
-			try:
-				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
-			except:
+			# ignore duplicate restraints: AB and BA.
+			restraint = {r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}
+			restraint_inv = {r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}
+			if restraint in restraints_included or restraint_inv in restraints_included:
 				continue
+			restraints_included.append( restraint )
+			w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
 
-			try:
-				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
-			except:
-				continue
 
-			# For ambiguous XLs, we consider all combinations.
-			for chain_id1 in entity_chain_map[entity_id1]["chains"]:
-				chain_id1 = get_chain_id( chain_id1 - 1  ) # 0-indexed.
-				for chain_id2 in entity_chain_map[entity_id2]["chains"]:
-					chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
-					# ignore duplicate restraints.
-					restraint = {r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}
-					restraint_inv = {r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}
-					if restraint in restraints_included or restraint_inv in restraints_included:
-						continue
-					restraints_included.append( restraint )
-					w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
+		# for row in xl_df.iterrows():
+		# 	p1, p2 = row[1]["prot1"], row[1]["prot2"]
+		# 	r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+		# 	r1, r2 = int( r1 ), int( r2 )
+
+		# 	entity_id1 = int( p1.split( "_" )[1] )
+		# 	entity_id2 = int( p2.split( "_" )[1] )
+
+		# 	# Get the residue indices.
+		# 	try:
+		# 		r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
+		# 	except:
+		# 		continue
+
+		# 	try:
+		# 		r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
+		# 	except:
+		# 		continue
+
+		# 	# For ambiguous XLs, we consider all combinations.
+		# 	for chain_id1 in entity_chain_map[entity_id1]["chains"]:
+				# chain_id1 = get_chain_id( chain_id1 - 1  ) # 0-indexed.
+				# for chain_id2 in entity_chain_map[entity_id2]["chains"]:
+				# 	chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
+				# 	# ignore duplicate restraints.
+				# 	restraint = {r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}
+				# 	restraint_inv = {r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}
+				# 	if restraint in restraints_included or restraint_inv in restraints_included:
+				# 		continue
+				# 	restraints_included.append( restraint )
+				# 	w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
 
 		w.close()
 
@@ -596,6 +686,90 @@ class CompetingMethodsRunner():
 
 	################################################################################
 	################################################################################
+	def create_inputs_for_boltz2( self, sys_name: str ):
+		"""
+		Boltz2 accepts input in a .yaml file.
+		Format can be found here: https://github.com/jwohlwend/boltz/blob/main/docs/prediction.md
+		We can reuse the pre-computed MSAs.
+		"""
+		data_dir = get_sys_data_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
+		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		# xl_df = pd.read_csv( xl_file )
+
+		entity_chain_map = get_entity_chain_mapping(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
+
+		alignment_dir = os.path.join( data_dir, f"{sys_name}_output/" f"alignments/" )
+
+		boltz_input = {"version": 1}
+		boltz_input.update( {k:[] for k in ["sequences", 'constraints']} )
+
+		for entity_id in entity_chain_map:
+			chains = entity_chain_map[entity_id]["chains"]
+			seq = entity_chain_map[entity_id]["seq"]
+			# Convert numeric chain IDs to alphabets.
+			chain_ids = [get_chain_id( idx-1 ) for idx in chains]
+			# For homomers the MSA remains the same.
+			msa_file = os.path.join( alignment_dir, f"{sys_name}_{entity_id}_{chain_ids[0]}/bfd_unirefclust_hits.a3m" )
+			protein = {
+				"protein": {
+					"id": chain_ids,
+					"sequence": seq,
+					"msa": msa_file
+				}
+			}
+			boltz_input["sequences"].append( protein )
+
+		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+
+		# Will add all Xl restraints as contacts for conditioning Boltz-2.
+		for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
+			( entity_id1, entity_id2, chain_id1,
+				chain_id2, r1_idx, r2_idx ) = row
+
+			contact = {
+				"contact": {
+					"token1": [chain_id1, int( r1_idx+1 )],
+					"token2": [chain_id2, int( r2_idx+1 )],
+					"max_distance": self.xl_max_bound
+				}
+			}
+			boltz_input["constraints"].append( contact )
+
+		# Save as a yaml file.
+		with open( self.inputs["restraints_file"][sys_name], "w" ) as w:
+			yaml.safe_dump( boltz_input, w, sort_keys = False )
+
+
+	def run_boltz2_per_system( self, sys_name: str, gpu_id: int ):
+		"""
+		Run Boltz2 prediction for the given system with the default settings.
+		This is the easiet among the three to run.
+		"""
+		env = os.environ.copy()
+		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
+
+		cmd = [
+			"boltz",
+			"predict",
+			f"{self.inputs['restraints_file'][sys_name]}",
+			"--out_dir", f"{self.inputs['sys_dir_path'][sys_name]}",  # output dir.
+			"--recycling_steps", "3",
+			"--sampling_steps", "200",
+			"--diffusion_samples", "25",
+			# "--use_msa_server"  # We use pre-computed alignments.
+		]
+		# subprocess.call() doe snot allow conrol over the process, so using Popen.
+		proc = subprocess.Popen( cmd, env = env )
+		return proc
+
+	################################################################################
+	################################################################################
 	def create_inputs_for_benchmark( self ):
 		"""
 		Create input files for running GRASP/AlphaLink2 on the benchmark.
@@ -608,8 +782,10 @@ class CompetingMethodsRunner():
 			print( f"Creating inputs for {sys_name} to run {self.model}" )
 			if self.model == "grasp":
 				self.create_inputs_for_grasp( sys_name = sys_name )
-			else:
+			if self.model == "alphalink2":
 				self.create_inputs_for_alphalink2( sys_name = sys_name )
+			else:
+				self.create_inputs_for_boltz2( sys_name = sys_name )
 
 
 	def run_model_for_benchmark( self ):
@@ -629,11 +805,13 @@ class CompetingMethodsRunner():
 				print( "-"*80 + f"\nRunning {self.model} for: {idx}. {sys_name}\n" + "-"*80 )
 				if self.model == "grasp":
 					proc = self.run_grasp_per_system( sys_name = sys_name, gpu_id = gpu_id )
-				else:
+				elif self.model == "alphalink2":
 					# AlphaLik2 must be run from the AlphaLinki2 dir.
 					os.chdir( self.alphalink2_dir )
 					proc = self.run_alphalink2_per_system( sys_name = sys_name, gpu_id = gpu_id )
 					os.chdir( base )
+				else:
+					proc = self.run_boltz2_per_system( sys_name = sys_name, gpu_id = gpu_id )
 
 				# Keep track of memory usage.
 				while proc.poll() is None:
@@ -666,7 +844,7 @@ if __name__ == "__main__":
 	parser.add_argument(
 		"-m", "--model",
 		type = str, required = True,
-		help = "Specify the model to use: grasp or alphalink2." )
+		help = "Specify the model to use: grasp/alphalink2/boltz2." )
 	args = parser.parse_args()
 
 	CompetingMethodsRunner(
