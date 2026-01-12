@@ -19,7 +19,8 @@ class StructuralSimilarity():
 					model_ids: List[int],
 					struct_format: str,
 					analysis_dir: str,
-					ensemble_dir: str ):
+					ensemble_dir: str,
+					ref_model: int = 0 ):
 		self.sys_name = sys_name
 		self.rmsd_config = rmsd_config
 		self.model_ids = model_ids
@@ -28,6 +29,8 @@ class StructuralSimilarity():
 		self.analysis_dir = analysis_dir
 		# Dir containing predicted structures.
 		self.ensemble_dir = ensemble_dir
+		# Model with which to start structural similarity comparison.
+		self.ref_model = ref_model
 
 		# Dict to store relaxed models and relaxation metadata.
 		self.rmsd_dict = {}
@@ -39,6 +42,16 @@ class StructuralSimilarity():
 		"""
 		self.struct_models_exist()
 		self.create_tmp_dir()
+
+		# Sanity check.
+		if self.rmsd_config.metric not in ["rmsd", "tm"]:
+			raise ValueError( "Incorrect structural similarity metric specified. Use rmsd/tm..." )
+		if self.rmsd_config.similarity_cutoff < 0.0:
+			raise ValueError( f"Cannot use negative similarity cutoff..." )
+		if self.rmsd_config.metric == "tm":
+			if self.rmsd_config.similarity_cutoff > 1.0:
+				raise ValueError( "Similarity cutoff for TM-score cannot be >1.0..." )
+
 		if self.rmsd_config.tool == "mdanalysis":
 			models = self.rmsd_pipeline_mdanalysis()
 		elif self.rmsd_config.tool == "usalign":
@@ -105,7 +118,10 @@ class StructuralSimilarity():
 			selected_models = self.model_ids
 		else:
 			for i in range( len( self.model_ids ) ):
-				model_id1 = self.model_ids[i]
+				if i == 0 and self.ref_model is not None:
+					model_id1 = self.ref_model
+				else:
+					model_id1 = self.model_ids[i]
 				if model_id1 in ignore_models:
 					continue
 				u1 = load_ensemble(
@@ -153,7 +169,10 @@ class StructuralSimilarity():
 		else:
 			total_models = len( self.model_ids )
 			for i in range( total_models ):
-				model_id1 = self.model_ids[i]
+				if i == 0 and self.ref_model is not None:
+					model_id1 = self.ref_model
+				else:
+					model_id1 = self.model_ids[i]
 				if model_id1 in ignore_models:
 					continue
 				for j in range( i, total_models ):
@@ -165,7 +184,9 @@ class StructuralSimilarity():
 						model_id1 = model_id1,
 						model_id2 = model_id2 )
 
-					if rmsd <= self.rmsd_config.similarity_cutoff:
+					similarity = rmsd if self.rmsd_config.metric == "rmsd" else tm
+
+					if similarity <= self.rmsd_config.similarity_cutoff:
 						ignore_models.append( model_id2 )
 					else:
 						self.rmsd_dict[f"model_{model_id1}_{model_id2}"] = {

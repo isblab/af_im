@@ -155,12 +155,18 @@ class Assay():
 			good_models_index = self.analysis_dict["good_models_index"]
 		print( "Good-scoring models = ", len( good_models ) )
 
+		# get model with max data satisfaction.
+		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
+		max_data_sat_idx = np.argmax( xlr[good_models_index] )
+		max_data_sat_model = good_models[max_data_sat_idx]
+
 		#------------------------------------------------------------#
 		print( "\n--> Removing structurally similar models <--" )
 		if not "selected_good_models" in self.analysis_dict:
 			ts = time.perf_counter()
 			selected_good_models, rmsd_dict = self.filter_similar_models(
-				good_models = good_models
+				good_models = good_models,
+				ref_model = max_data_sat_model
 			)
 			# selected_good_models = model_ids[selected_model_index]
 			# Get the index for the, selected good models, in the full set of models.
@@ -260,8 +266,10 @@ class Assay():
 
 	################################################################################
 	################################################################################
-	def filter_similar_models( self, good_models: np.array
-					) -> tuple[np.array, Dict[str, float]]:
+	def filter_similar_models( self,
+		good_models: np.array,
+		ref_model: int
+		) -> tuple[np.array, Dict[str, float]]:
 		"""
 		Remove models with high structural similarity (RMSD <= 0.5).
 		"""
@@ -271,7 +279,8 @@ class Assay():
 			model_ids = good_models,
 			struct_format = self.struct_format,
 			analysis_dir = self.analysis_dir,
-			ensemble_dir = self.ensemble_dir
+			ensemble_dir = self.ensemble_dir,
+			ref_model = ref_model
 			)
 		struct_sim.forward()
 		selected_model_index = copy.copy( struct_sim.selected_model_index )
