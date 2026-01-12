@@ -5,6 +5,96 @@ Cotains the configs for an experiment.
 xlmerged_hyperparameters = {
 
 	## -------------------------------------------------------------------------------- ##
+	"experiment_20.1": {
+		"modeling_objective": "Pose sampling+MSA subsampling neff=1. No extraMSA. Using pose as template. TP+FP XLs only. viol quantile=0.75.",
+		"benchmark_name": "xlmerged",
+		"modeling_version": 20,
+		"sys_conf_suff": "_tpfp",
+		"device": "cuda:1",
+		"enable_relax_validate": False,
+		"num_frames": 50,
+		"num_steps": 20,
+		"num_recycles": 1,
+		"inference_mode": "eval",
+		"activate_dropouts": "none",
+		"use_extra_msa": False,
+		"use_template_embedder": True,
+		"skip_pose_sampling": False,
+		"sample_random_pose": False,
+		"use_as_templates": True,
+		"add_to_existing_templates": False,
+		"recycle_pose": False,
+		"init_coord": "zero",
+		"init_rep": ["zero", "zero"],
+		"reinit_rep": ["init", "init"],
+		"reinit_frame": "prev_frame",
+		"reinit_step": "prev_frame",
+		"select_pose": "last",
+		"subsampling": {
+			"enabled": True,
+			"type": "sequential",
+			"params": {"neff": [1], "eff_cutoff": 0.8, "cap_msa": False}
+		},
+		"extra_msa_subsampling": {
+			"enabled": False,
+			"params": {"neff": [128]}
+		},
+		"column_masking": {
+			"enabled": False,
+			"params": {"mask_frac": [0.3] }
+		},
+		"model_selection": {
+				"quant_filter": {
+					"enabled": True,
+					"quantiles": {"xlr": 0.9, "violation": 0.75}
+				}
+		}
+	},
+	## -------------------------------------------------------------------------------- ##
+	"experiment_20": {
+		"modeling_objective": "Pose sampling+MSA subsampling neff=1. Using pose as template. TP+FP XLs only. viol quantile=0.75.",
+		"benchmark_name": "xlmerged",
+		"modeling_version": 20,
+		"sys_conf_suff": "_tpfp",
+		"device": "cuda:0",
+		"num_frames": 50,
+		"num_steps": 20,
+		"num_recycles": 1,
+		"inference_mode": "eval",
+		"activate_dropouts": "none",
+		"skip_pose_sampling": False,
+		"sample_random_pose": False,
+		"use_template_embedder": True,
+		"use_as_templates": True,
+		"add_to_existing_templates": False,
+		"recycle_pose": False,
+		"init_coord": "zero",
+		"init_rep": ["zero", "zero"],
+		"reinit_rep": ["init", "init"],
+		"reinit_frame": "prev_frame",
+		"reinit_step": "prev_frame",
+		"select_pose": "last",
+		"subsampling": {
+			"enabled": True,
+			"type": "sequential",
+			"params": {"neff": [1], "eff_cutoff": 0.8, "cap_msa": False}
+		},
+		"extra_msa_subsampling": {
+			"enabled": False,
+			"params": {"neff": [128]}
+		},
+		"column_masking": {
+			"enabled": False,
+			"params": {"mask_frac": [0.3] }
+		},
+		"model_selection": {
+				"quant_filter": {
+					"enabled": True,
+					"quantiles": {"xlr": 0.9, "violation": 0.75}
+				}
+		}
+	},
+	## -------------------------------------------------------------------------------- ##
 	"experiment_19.2": {
 		"modeling_objective": "Use pose sampled struct as template. No recycles. TP+FP XLs only.",
 		"benchmark_name": "xlmerged",
