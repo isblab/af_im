@@ -12,7 +12,7 @@ import pandas as pd
 from ml_collections import ConfigDict
 import matplotlib.pyplot as plt
 import torch
-from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
+# from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
 
 from openfold_wrapper import IntegrativeLearning
 
@@ -33,7 +33,7 @@ from utils.paths import (
 	get_relaxed_model_file,
 	get_native_struct_file,
 	get_init_struct_file )
-from utils.tools import usalign, get_alignment_score
+from utils.tools import usalign, get_alignment_score, dockq
 from experiment_hparams import experiment_hyperparameters
 from xlmerged_hparams import xlmerged_hyperparameters
 
@@ -49,6 +49,10 @@ class BenchmarkModeling():
 		self.sys_conf_suff = ""
 		# No. of recyling iters for OpenFold.
 		self.num_recycles = 1
+		# If true, template embedder is enabled else disabled.
+		self.use_template_embedder = True
+		# If True, use the extra MSA embedder.
+		self.use_extra_msa = True
 		# OpenFold inference mode - train/eval.
 		self.inference_mode = "eval"  # train/eval
 		# Selectively activate dropouts for evoformer/structure_module.
@@ -64,8 +68,6 @@ class BenchmarkModeling():
 		self.skip_pose_sampling = False
 		# Sample rigid transformations at random.
 		self.sample_random_pose = False
-		# If true, template embedder is enabled else disabled.
-		self.use_template_embedder = True
 		# Inject pose sampled structure via template embedder.
 		self.use_as_templates = False
 		# If true, add the pose sampled struct ffeats to existing template feats.
@@ -270,12 +272,13 @@ class BenchmarkModeling():
 			topo_dict.db_preset = self.db_preset
 			topo_dict.model.num_recycles = self.num_recycles
 			topo_dict.model.inference_mode = self.inference_mode
+			topo_dict.model.use_template_embedder = self.use_template_embedder
+			topo_dict.model.use_extra_msa = self.use_extra_msa
 			topo_dict.model.activate_dropouts = self.activate_dropouts
 			topo_dict.train.num_frames = self.num_frames
 			topo_dict.train.num_steps = self.num_steps
 			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
 			topo_dict.train.sample_random_pose = self.sample_random_pose
-			topo_dict.train.use_template_embedder = self.use_template_embedder
 			topo_dict.train.use_as_templates = self.use_as_templates
 			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
 			topo_dict.train.recycle_pose = self.recycle_pose
@@ -402,9 +405,11 @@ class BenchmarkModeling():
 		for sys_name in self.benchmark["PDB ID"]:
 			analysis_dict = self.load_analysis_dict( sys_name = sys_name )
 
-			auth_asym_ids = self.benchmark[self.benchmark["PDB ID"] == sys_name]["Auth Asym ID"].tolist()[0]
-			auth_asym_ids = auth_asym_ids.split( "," )
-			sys_chains = self.get_sys_chains( auth_asym_ids = auth_asym_ids )
+			# get chian IDs from the native structure.
+			# This is stored as a comma-separated str per entity.
+			native_chain_ids = self.benchmark[self.benchmark["PDB ID"] == sys_name]["Auth Asym ID"].tolist()[0]
+			native_chain_ids = native_chain_ids.split( "," )
+			sys_chains = self.get_sys_chains( native_chain_ids = native_chain_ids )
 
 			# Get the FP XLs.
 			fp_xls = self.get_fp_XLs( sys_name = sys_name )
@@ -444,19 +449,21 @@ class BenchmarkModeling():
 		return fp_sat_dict
 
 
-	def get_sys_chains( self, auth_asym_ids: List[str] ):
+	def get_sys_chains( self, native_chain_ids: List[str] ):
 		"""
 		Given the system chain IDs, create the system chain IDs starting from "A".
+		native_chain_ids is a list containing per entity chain IDs.
+			Multiple instances of an entity are separated by ":".
 		"""
 		sys_idx = 0
 		sys_chains = []
-		for aa_id in auth_asym_ids:
+		for chain_ids in native_chain_ids:
 			tmp = []
-			for id_ in aa_id.split( "-" ):
+			for id_ in chain_ids.split( ":" ):
 				chain_id = get_chain_id( idx = sys_idx )
 				tmp.append( chain_id )
 				sys_idx += 1
-			sys_chains.append( "-".join( tmp ) )
+			sys_chains.append( ":".join( tmp ) )
 		return sys_chains
 
 
@@ -633,6 +640,24 @@ class BenchmarkModeling():
 
 	################################################################################
 	################################################################################
+	def remap_chains_in_native( self ):
+		"""
+		For running DockQ, the chain IDs in the native
+			and predicted structures must be the same.
+		We remap chains in the native structure as its cheaper
+			than in the prediction.
+		"""
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			native_chain_ids = self.benchmark.loc( "Auth Asym ID", i )
+			chain_ids = []
+			# Split the per-entity instances before obtaiing system chain IDs.
+			[chain_ids.extend( c.split( ":" ) ) for c in native_chain_ids]
+			sys_chains = self.get_sys_chains( native_chain_ids = chain_ids )
+
+			map_dict = dict( zip( chain_ids, sys_chains ) )
+			# TODO: STOPPED
+
+
 	def compute_dockq( self ):
 		"""
 		Compute the DockQ wrt the ground truth structure.
@@ -652,19 +677,6 @@ class BenchmarkModeling():
 				self.compute_per_sys_dockq( sys_name = sys_name )
 
 		write_json( self.dockq_dict, self.dockq_dict_file )
-
-
-	def dockq( self, native_file: str, model_file: str ):
-		"""
-		Given the path to the native and the predicted structure (model),
-			compute the DockQ metric.
-		"""
-		model = load_PDB( model_file )
-		native = load_PDB( native_file )
-		dockq_result = run_on_all_native_interfaces( model, native )
-		dockq = dockq_result[1]
-
-		return dockq
 
 
 	def compute_per_sys_dockq( self, sys_name: str ):
@@ -688,7 +700,7 @@ class BenchmarkModeling():
 			init_model_file = init_model_file[0]
 
 		# Get DockQ for initial predicted structure.
-		init_struct_dockq = self.dockq( native_file = native_file, model_file = init_model_file )
+		init_struct_dockq = dockq( native_file = native_file, model_file = init_model_file )
 
 		self.dockq_dict[sys_name]["init_struct"] = init_struct_dockq
 
@@ -699,7 +711,7 @@ class BenchmarkModeling():
 			model_file = os.path.join( 
 				self.get_sys_modeling_version_path( sys_name = sys_name ),
 				f"analysis/relaxed_models/model_{i}.{self.struct_format}" )
-			dockq = self.dockq( native_file = native_file, model_file = model_file )
+			dockq = dockq( native_file = native_file, model_file = model_file )
 			self.dockq_dict[sys_name]["selected_good_models"].append( dockq )
 
 	################################################################################
@@ -854,12 +866,11 @@ class BenchmarkModeling():
 		print( "\n" + "-"*70 + "\n\t\t\t\033[1m--> Creating plots <--\033[0m\n" + "-"*70 )
 		self.plot_per_epoch_distribution()
 		if self.enable_relax_validate:
-			if self.sys_conf_suff:
+			if self.sys_conf_suff == "_tpfp":
 				self.plot_fpxl_ssatisfaction()
 				self.plot_tm_score_distribution()
 			# self.plot_dockq_score()
 			self.plot_molrobity_scores()
-		# self.plot_avg_distribution()
 
 
 	def get_dict_for_source( self, sys_name: str, source: str ):

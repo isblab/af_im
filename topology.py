@@ -56,7 +56,7 @@ config = mlc.ConfigDict(
 		# 				),
 		"model_checkpoint": None,
 		"jax_params_path": os.path.join(
-							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_{ofold_config_preset}.npz"
+							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/resources/params/params_{ofold_config_preset}.npz"
 						),
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
@@ -117,6 +117,8 @@ config = mlc.ConfigDict(
 		# Selectively activate dropouts for either the evoformer or structure_module only.
 		# 	this option is ignored when inference_mode = train.
 		"activate_dropouts": "none",  # evoformer/structure_module/none
+		"use_extra_msa": True,  # If True, use the extra MSA embedder, else disable it.
+		"use_template_embedder": True,  # If True, use template embedder else disable it.
 		# Subsample MSA feats
 		"subsampling": {
 			"enabled": False,
@@ -255,12 +257,12 @@ config = mlc.ConfigDict(
 		"use_as_templates": False,  # Inject pose sampled structure via template embedder.
 		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
 		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
-		"skip_pose_sampling": False,
-		"sample_random_pose": False,
+		"skip_pose_sampling": False,  # If True, skip pose sampling.
+		"sample_random_pose": False,  # If True, perform random pose sampling.
 		"init_coord": "zero",  # zero/ init
-		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": init struct rep; "zero": initializes to 0; "none" initialie to None.
+		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": as specified in init_rep; "zero": initializes to 0; "none" initialie to None.
 		"reinit_rep": ["zero", "zero"],  # prev_frame: reuses MSA/Pair rep from previous frame; init: initialize as in init_rep.
-		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes again.
+		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes as in init_rep.
 		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
 		"fill_none": False,  # (deprecated) If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.

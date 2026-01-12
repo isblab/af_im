@@ -83,7 +83,6 @@ class FitToData():
 
 		self.fit()
 
-
 	################################################################################
 	################################################################################
 	def create_required_paths( self ):
@@ -101,7 +100,6 @@ class FitToData():
 		Create the required directories if not already existing.
 		"""
 		os.makedirs( self.ensemble_dir, exist_ok = True )
-
 
 	################################################################################
 	################################################################################
@@ -124,7 +122,6 @@ class FitToData():
 		
 		with torch.no_grad():
 			self.feature_dict = parse_nested_dict( self.feature_dict, "add_dim" )
-			# self.feature_dict["residue_index"] = self.feature_dict["residue_index"]
 
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, action = "to_tensor" )
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "add_dim" )
@@ -134,7 +131,6 @@ class FitToData():
 			self.gt_feature_dict["residue_index"] = self.gt_feature_dict["residue_index"].to( torch.int64 )
 
 			self.init_pred_dict = parse_nested_dict( self.init_pred_dict, action = "to_tensor" )
-			# self.init_pred_dict = parse_nested_dict( self.init_pred_dict, "add_dim" )
 
 			for k in self.init_pred_dict:
 				if k != "sm":
@@ -157,7 +153,6 @@ class FitToData():
 		Add all tensors to device.
 		"""
 		dict_ = parse_nested_dict( dict_, "detach" )
-
 
 	################################################################################
 	################################################################################
@@ -313,6 +308,39 @@ class FitToData():
 
 		return out
 
+	def initialize_openfold_model( self ):
+		"""
+		Initialize pre-trained OpenFold model.
+		"""
+		# Initialize the OpenFold model predict structures biased by the pose sampled conformation.
+		recycler_model = Recycler(
+			ofold_config = self.ofold_config,
+			jax_param_path = self.jax_params_path,
+			num_iters = self.topology.model.num_recycles,
+			inference_mode = self.topology.model.inference_mode,
+			activate_dropouts = self.topology.model.activate_dropouts,
+			device = self.device )
+
+		# Toggle template embedder ON/OFF.
+		use_template_embedder = self.topology.model.use_template_embedder
+		self.ofold_config.model.template.enabled = use_template_embedder
+		if use_template_embedder:
+			print( "Template embedder turned ON..." )
+		else:
+			print( "Template embedder turned OFF..." )
+			if self.topology.train.use_as_templates:
+				raise RuntimeError(
+					f"Cannot inject templates because the template embedder is disabled..." )
+
+		# Toggle extra MSA embedder ON/OFF.
+		use_extra_msa = self.topology.model.use_extra_msa
+		self.ofold_config.model.template.enabled = use_extra_msa
+		if use_extra_msa:
+			print( "Extra MSA embedder turned ON..." )
+		else:
+			print( "Extra MSA embedder turned OFF..." )
+		return recycler_model
+
 
 	def fit( self ) -> None:
 		"""
@@ -349,35 +377,19 @@ class FitToData():
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 
-		# Ensure reproducibility when pose sampling and column masking are used especially when using dropouts.
-		preserve_rng_state_at_inference = (
-			( not self.topology.train.skip_pose_sampling or self.topology.model.column_masking.enabled ) and
-			( self.topology.model.inference_mode == "train" or self.topology.model.activate_dropouts != "none" )
-			)
-		# Initialize the OpenFold model predict structures biased by the pose sampled conformation.
-		recycler_model = Recycler(
-			ofold_config = self.ofold_config,
-			jax_param_path = self.jax_params_path,
-			num_iters = self.topology.model.num_recycles,
-			inference_mode = self.topology.model.inference_mode,
-			activate_dropouts = self.topology.model.activate_dropouts,
-			device = self.device )
+		recycler_model = self.initialize_openfold_model()
 
 		self.add_to_device( self.processed_feature_dict )
 		restraint_features = self.processed_feature_dict.pop( "restraint_features" )
-		self.add_to_device( restraint_features )
 		# Add gt_features to device.
 		self.add_to_device( self.gt_feature_dict )
 
 		# Create a clone that can be modified every frame as specified.
 		batch = {}
 		for k in self.processed_feature_dict:
-			# if k == "restraint_features":
-			# 	continue
 			v = self.processed_feature_dict[k]
 			batch[k] = v.clone()
 			if torch.is_tensor( v ) and torch.is_floating_point( v ):
-			# if isinstance( self.processed_feature_dict[k].dtype, float ):
 				batch[k] = batch[k].to( dtype = torch.float32 )
 
 		t_start = time.perf_counter()
@@ -403,7 +415,7 @@ class FitToData():
 				if frame == 0 and self.topology.train.init_coord == "zero":
 					print( f"init_coord = {self.topology.train.init_coord}. Skip pose sampling for frame 0..." )
 				else:
-					rng_state = torch.random.get_rng_state()
+					# rng_state = torch.random.get_rng_state()
 					if self.topology.train.sample_random_pose:
 						out = self.predict_pose_random(
 							out = out,
@@ -414,7 +426,7 @@ class FitToData():
 							out = out,
 							restraint_features = restraint_features,
 							prev_frame_coord = prev_frame_coord )
-					torch.random.set_rng_state( rng_state )
+					# torch.random.set_rng_state( rng_state )
 			else:
 				pass
 
@@ -423,26 +435,17 @@ class FitToData():
 				batch = batch,
 				frame = frame )
 
-			# Clear cache.
-			# torch.cuda.empty_cache()
-
 			# Note time taken by recycling alone.
 			t_r_s = time.perf_counter()
 			print( "\n\033[1mRecycling optimized pose...\033[0m" )
 			with torch.no_grad():
 				out, batch = self.af_sampling( out = out, batch = batch )
 
-				if preserve_rng_state_at_inference:
-					print( "Preserving RNG state for OpenFold inference..." )
-					torch_rng_state = torch.random.get_rng_state()
 				outputs = recycler_model.forward(
 					out = out,
 					batch = batch )
-				if preserve_rng_state_at_inference:
-					torch.random.set_rng_state( torch_rng_state )
 
 				out = {k:v.clone() if torch.is_tensor(v) else v for k, v in outputs.items()}
-				# out = copy.deepcopy( outputs )
 				del outputs
 				# Just compute loss but don't backpropagate.
 				_, losses = self.loss_fn.forward( out,
@@ -451,9 +454,7 @@ class FitToData():
 				# Remove computed violations.
 				if "violation" in out:
 					del out["violation"]
-					# out.pop( "violation" )
 
-				# self.remove_from_device( out )
 			t_r_e = time.perf_counter()
 			print( f"Time taken for OpenFold prediction at frame {frame}: {( t_r_e - t_r_s )} seconds" )
 
@@ -483,7 +484,6 @@ class FitToData():
 							unrelaxed_protein = unrelaxed_protein,
 							model_id = frame )
 
-			# self.add_to_device( out )
 			# Current frame coordinates for use in the nest frame if specified.
 			prev_frame_coord = out["final_atom_positions"]
 			prev_frame_msa = out["msa"]
@@ -594,7 +594,6 @@ class FitToData():
 		for step in range( self.topology.train.num_steps ):
 			print( f"\nPose sampling step: {step} --------------------------" )
 
-			# if self.topology.train.reinit_step0 or step != 0:
 			out = self.reinit_coords(
 				out = out,
 				prev_frame_coord = prev_frame_coord,
@@ -816,8 +815,6 @@ class FitToData():
 		params["neff"] = int( neff )
 		print( f"Using neff = {params['neff']}..." )
 
-		# Preserve the PRNG state.
-		# np_rng_state = np.random.get_state()
 
 		subsampled_idx = msa_subsampler(
 			msa = batch["msa"].cpu(),
@@ -860,10 +857,7 @@ class FitToData():
 		params["neff"] = int( neff )
 		print( f"Using neff = {params['neff']}..." )
 
-		# Preserve the PRNG state.
-		# np_rng_state = np.random.get_state()
-
-		indices = list( np.arange( 0, batch["extra_msa"].shape[1], 1 ) )
+		indices = list( np.arange( 1, batch["extra_msa"].shape[1], 1 ) )
 		subsampled_idx = random.sample( indices, neff )
 
 		if "extra_msa_subsample" not in self.stats_dict:
@@ -877,7 +871,11 @@ class FitToData():
 
 		# Select subsampled MSA.
 		for k in ["extra_msa", "extra_deletion_matrix", "extra_msa_mask"]:
-			batch[k] = batch[k][:,subsampled_idx,:]
+			# No extra-MSA information.
+			if subsampled_idx == None:
+				batch[k] = torch.zeros( batch[k].shape )[:,0,:]
+			else:
+				batch[k] = batch[k][:,subsampled_idx,:]
 		return batch
 
 
@@ -896,7 +894,7 @@ class FitToData():
 		batch, masked_idx = msa_column_masking(
 			batch = batch,
 			params = params )
-		for k in ["msa", "deletion_matrix", "msa_feats"]:
+		for k in ["msa", "deletion_matrix", "msa_feat"]:
 			batch[k] = batch[k].to( self.device )
 
 		print( f"Masked MSA columns = {masked_idx}" )
