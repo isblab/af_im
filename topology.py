@@ -220,7 +220,8 @@ config = mlc.ConfigDict(
 			"mol": "prot",
 			"mm": 1,
 			"ter": 1,
-			"similarity_cutoff": 3.0, # 4 A as per this cutoff (doi: 10.1002/prot.26818)
+			"metric": "tm", # rmsd or tm-score
+			"similarity_cutoff": 0.8, # 4 A as per this cutoff (doi: 10.1002/prot.26818)
 			"clean_up": True
 		},
 		"relax":{
