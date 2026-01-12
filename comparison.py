@@ -12,24 +12,76 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import ml_collections as mlc
 
+import torch
+
+from openfold_wrapper import IntegrativeLearning
+from topology import topology_dict
+from metrics import Metrics
 from utils.utils import (
 	read_json, write_json,
 	run_subprocess
 	)
 from utils.paths import (
 	BASE_DIR,
+	get_sys_data_dir_path,
 	get_benchmark_csv_file,
 	get_native_struct_file,
 	get_init_struct_file,
 	get_unrelaxed_model_file,
-	get_stat_file_path
+	get_relaxed_model_file,
+	get_stat_file_path,
+	get_analysis_dict_path
 )
 from utils.pdb_utils import (
+	Parser,
 	get_chain_id,
 	remap_chains_cif,
 	remap_chains_pdb )
 from utils.tools import usalign, get_alignment_score, dockq
+
+
+
+def init_integrative_learning_module(
+		sys_name: str,
+		base_dir: str,
+		benchmark_name: str,
+		modeling_dir_name: str,
+		sys_conf_suff: str,
+		topo_dict: mlc.ConfigDict ) -> IntegrativeLearning:
+	"""
+	Initialize the IntegrativeLearning module.
+
+	Input:
+	----------
+	sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
+
+	Returns:
+	----------
+	il_obj -> an instance of IntegrativeLearning().
+	topo_dict -> dict specifying the configs for modeling.
+	"""
+	# Initialize the topology dict.
+	topo_dict = topology_dict()
+	# Not using XL tolerance while computing metric.
+	topo_dict.metrics.xlr.allow_xl_tolerance = False
+
+	data_dir = get_sys_data_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		sys_name = sys_name )
+
+	il_obj = IntegrativeLearning( 
+			sys_name = sys_name,
+			base_dir = base_dir,
+			data_dir = data_dir,
+			sys_config_file =  f"sys_config_{sys_name}{sys_conf_suff}.json",
+			modeling_dir_name = modeling_dir_name,
+			topology_dict = topo_dict,
+			)
+	il_obj.create_required_paths_dirs()
+	return il_obj, topo_dict
 
 
 class Comparison():
@@ -61,7 +113,7 @@ class Comparison():
 		self.compute_dockq_for_benchmark()
 
 		# Create plots.
-		# self.plot_tm_score_distribution()
+		self.plot_tm_score_distribution()
 		self.plot_dockq_distribution()
 
 
@@ -71,13 +123,13 @@ class Comparison():
 		"""
 		if os.path.exists( self.logs_file ):
 			self.logs = read_json( self.logs_file )
-			if self.imp_dl not in self.logs:
-				for k1 in ["data_satisfaction", "rmsd", "tm", "dockq"]:
+			for k1 in ["data_satisfaction", "rmsd", "tm", "dockq"]:
+				if self.imp_dl not in self.logs[k1]:
 					self.logs[k1][self.imp_dl] = {}
 		else:
 			for k1 in ["data_satisfaction", "rmsd", "tm", "dockq"]:
 				self.logs[k1] = {}
-				for k2 in ["init", self.imp_dl, "grasp", "alphalink2"]:
+				for k2 in ["init", self.imp_dl, "grasp", "alphalink2", "boltz2"]:
 					self.logs[k1][k2] = {}
 
 
@@ -85,8 +137,8 @@ class Comparison():
 		"""
 		Create the required file and dir paths.
 		"""
-		# self.base_dir = BASE_DIR
-		self.base_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/"
+		self.base_dir = BASE_DIR
+		# self.base_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/"
 		self.benchmark_name = "xlmerged"
 		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
 
@@ -96,6 +148,7 @@ class Comparison():
 		# Dir containing GRASP/AlphaLink2 preds for the benchmark.
 		self.grasp_output_dir = os.path.join( self.base_dir, "Grasp" )
 		self.alink2_output_dir = os.path.join( self.base_dir, "Alphalink2" )
+		self.boltz2_output_dir = os.path.join( self.base_dir, "Boltz2" )
 
 		# Dir to store the results of the analysis in this script.
 		self.output_dir = os.path.join( self.base_dir, "comparison" )
@@ -131,7 +184,7 @@ class Comparison():
 		sys_name: str,
 		remapped: str = None ) -> Iterator[Tuple[int, str]]:
 		"""
-		A generator that yields that model_file of all
+		A generator that yields that model_file of all GRASP
 			predicted structures for a given systen.
 		GRASP predicts 25 models by default with 0-indexed model IDs.
 		If remapped is True, returns the path for the remaped prediction file.
@@ -152,7 +205,7 @@ class Comparison():
 		sys_name: str,
 		remapped: str = None ) -> Iterator[Tuple[int, str]]:
 		"""
-		A generator that yields that model_file of all
+		A generator that yields that model_file of all AlphaLink2
 			predicted structures for a given systen.
 		AlphaLink2 predicts 25 models by default with 0-indexed model IDs.
 		"""
@@ -171,16 +224,40 @@ class Comparison():
 			else:
 				yield model_id, model_file
 
+
+	def get_boltz2_model_file( self,
+		sys_name: str,
+		remapped: str = None ) -> Iterator[Tuple[int, str]]:
+		"""
+		A generator that yields model_file for all Boltz2
+			predicted structures for a given systen.
+		We used Boltz-2 to predict 25 structures.
+		"""
+		sys_dir = os.path.join( self.boltz2_output_dir, sys_name )
+		pred_dir = os.path.join( sys_dir,
+			f"boltz_results_{sys_name}_restraint/predictions/{sys_name}_restraint/" )
+		for model_id, model_file in enumerate(
+			glob.glob( f"{sys_dir}/**.cif" )
+		):
+			if remapped:
+				model_file = os.path.join(
+					self.dockq_tmp_dir,
+					f"{sys_name}_boltz2_{model_id}.pdb" )
+				yield model_id, model_file
+			else:
+				yield model_id, model_file
+
 	################################################################################
 	################################################################################
 	def compute_struct_similarity_for_benchmark( self ):
 		"""
-		Compute te structural similarity wrt the native structure across the
+		Compute the structural similarity wrt the native structure across the
 			entire benchmark for using the TM-score and RMSD.
 			Initial OpenFold structure
 			IMP DL
 			GRASP
 			AlphaLink2
+			Boltz2
 		"""
 		print( "\n" + "-"*70 +
 			"\n\t\033[1m--> Computing TM-score wrt the ground truth structure <--\033[0m\n" +
@@ -203,12 +280,15 @@ class Comparison():
 				self.logs["tm"]["grasp"][sys_name] = tm
 				self.logs["rmsd"]["grasp"][sys_name] = rmsd
 
-			# if sys_name in self.logs["tm"]["alphalink2"]:
-			# 	continue
-			# else:
+			# if sys_name not in self.logs["tm"]["alphalink2"]:
 			# 	rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
 			# 	self.logs["tm"]["alphalink2"][sys_name] = tm
 			# 	self.logs["rmsd"]["alphalink2"][sys_name] = rmsd
+
+			if sys_name not in self.logs["tm"]["boltz2"]:
+				rmsd, tm = self.compute_per_sys_tm_boltz2( sys_name = sys_name )
+				self.logs["tm"]["boltz2"][sys_name] = tm
+				self.logs["rmsd"]["boltz2"][sys_name] = rmsd
 
 			write_json( self.logs, self.logs_file )
 
@@ -237,20 +317,28 @@ class Comparison():
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from our method.
 		"""
-		stats_file = get_stat_file_path(
+		# stats_file = get_stat_file_path(
+		# 	base_dir = self.base_dir,
+		# 	sys_name = sys_name,
+		# 	modeling_dir_name = self.modeling_dir_name,
+		# 	modeling_version = version
+		# )
+		# stats_dict = np.load( stats_file, allow_pickle = True ).item()
+		# model_ids = stats_dict["model_id"]
+		# del stats_dict
+		analysis_dict_file = get_analysis_dict_path(
 			base_dir = self.base_dir,
 			sys_name = sys_name,
 			modeling_dir_name = self.modeling_dir_name,
 			modeling_version = version
 		)
-		stats_dict = np.load( stats_file, allow_pickle = True ).item()
-
-		model_ids = stats_dict["model_id"]
-		del stats_dict
+		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
+		model_ids = analysis_dict["selected_good_models"]
+		del analysis_dict
 
 		rmsd, tm = [], []
 		for model_id in model_ids:
-			model_file = get_unrelaxed_model_file(
+			model_file = get_relaxed_model_file(
 				base_dir = self.base_dir,
 				sys_name = sys_name,
 				model_id = model_id,
@@ -295,6 +383,25 @@ class Comparison():
 		"""
 		rmsd, tm = [], []
 		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+			r, t = self.run_usalign(
+				sys_name = sys_name,
+				model_id2 = model_id,
+				model2_file = model_file
+			)
+			rmsd.append( r )
+			tm.append( t )
+		return rmsd, tm
+
+
+	def compute_per_sys_tm_boltz2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute TM-score wrt the native structure for the given
+			system for all predictions from Boltz2.
+		We used Boltz2 for predicting 50 structures.
+		"""
+		rmsd, tm = [], []
+		for model_id, model_file in self.get_boltz2_model_file( sys_name = sys_name ):
 			r, t = self.run_usalign(
 				sys_name = sys_name,
 				model_id2 = model_id,
@@ -405,12 +512,13 @@ class Comparison():
 	################################################################################
 	def compute_dockq_for_benchmark( self ):
 		"""
-		Compute te DockQ score wrt the native structure across the
+		Compute the DockQ score wrt the native structure across the
 			entire benchmark.
 			Initial OpenFold structure
 			IMP DL
 			GRASP
 			AlphaLink2
+			Boltz2
 		"""
 		print( "\n" + "-"*70 +
 			"\n\t\033[1m--> Computing DockQ wrt the ground truth structure <--\033[0m\n" +
@@ -432,6 +540,10 @@ class Comparison():
 			# if sys_name not in self.logs["dockq"]["alphalink2"]:
 			# 	dockq = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
 			# 	self.logs["dockq"]["alphalink2"][sys_name] = dockq
+
+			if sys_name not in self.logs["dockq"]["boltz2"]:
+				dockq = self.compute_per_sys_dockq_boltz2( sys_name = sys_name )
+				self.logs["dockq"]["boltz2"][sys_name] = dockq
 
 			write_json( self.logs, self.logs_file )
 
@@ -455,20 +567,29 @@ class Comparison():
 		Compute DockQ wrt the native structure for the given
 			system for all predictions from our method.
 		"""
-		stats_file = get_stat_file_path(
+		# stats_file = get_stat_file_path(
+		# 	base_dir = self.base_dir,
+		# 	sys_name = sys_name,
+		# 	modeling_dir_name = self.modeling_dir_name,
+		# 	modeling_version = self.modeling_version
+		# )
+		# stats_dict = np.load( stats_file, allow_pickle = True ).item()
+
+		# model_ids = stats_dict["model_id"]
+		# del stats_dict
+		analysis_dict_file = get_analysis_dict_path(
 			base_dir = self.base_dir,
 			sys_name = sys_name,
 			modeling_dir_name = self.modeling_dir_name,
-			modeling_version = self.modeling_version
+			modeling_version = version
 		)
-		stats_dict = np.load( stats_file, allow_pickle = True ).item()
-
-		model_ids = stats_dict["model_id"]
-		del stats_dict
+		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
+		model_ids = analysis_dict["selected_good_models"]
+		del analysis_dict
 
 		dockq_score = []
 		for model_id in model_ids:
-			model_file = get_unrelaxed_model_file(
+			model_file = get_relaxed_model_file(
 				base_dir = self.base_dir,
 				sys_name = sys_name,
 				modeling_dir_name = self.modeling_dir_name,
@@ -506,6 +627,19 @@ class Comparison():
 		return dockq_score
 
 
+	def compute_per_sys_dockq_boltz2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute DockQ wrt the native structure for the given
+			system for all predictions from Boltz2.
+		"""
+		dockq_score = []
+		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = True ):
+			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
+			dockq_score.append( d )
+		return dockq_score
+
+
 	def run_dockq( self, sys_name: str, model_file: str ):
 		"""
 		Compute DockQ score for the given system.
@@ -525,6 +659,152 @@ class Comparison():
 
 	################################################################################
 	################################################################################
+	def compute_data_sat_for_benchmark( self ):
+		"""
+		Compute data satisfaction for the entire benchmark.
+			IMP DL
+			GRASP
+			AlphaLink2
+			Boltz2
+		"""
+		print( "\n" + "-"*70 +
+			"\n\t\033[1m--> Computing data satisfaction <--\033[0m\n" +
+			"-"*70 )
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			print( f"{i}. {sys_name}" )
+
+
+	def compute_per_sys_data_sat( self, sys_name: str ):
+		"""
+		Compute data satisfaction for all predicted models by
+			our method for a given system.
+		"""
+		il_obj, topo_dict = self.init_integrative_learning_module(
+			sys_name = sys_name )
+		restraint_features = il_obj.run_data_gathering()
+
+		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
+		# stats_file = get_stat_file_path(
+		# 	base_dir = self.base_dir,
+		# 	sys_name = sys_name,
+		# 	modeling_dir_name = self.modeling_dir_name,
+		# 	modeling_version = self.modeling_version
+		# )
+		# stats_dict = np.load( stats_file, allow_pickle = True ).item()
+		# model_ids = stats_dict["model_id"]
+		# del stats_dict
+		analysis_dict_file = get_analysis_dict_path(
+			base_dir = self.base_dir,
+			sys_name = sys_name,
+			modeling_dir_name = self.modeling_dir_name,
+			modeling_version = version
+		)
+		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
+		model_ids = analysis_dict["selected_good_models"]
+		del analysis_dict
+
+		data_sat = []
+		for model_id in model_ids:
+			model_file = get_relaxed_model_file(
+				base_dir = self.base_dir,
+				sys_name = sys_name,
+				modeling_dir_name = self.modeling_dir_name,
+				modeling_version = self.modeling_version,
+				model_id = model_id
+			)
+			d = self.compute_data_satisfaction_from_model(
+				sys_name = sys_name,
+				model_file = model_file,
+				metrics_func = metrics_func )
+
+			data_sat.append( d )
+
+
+	def compute_per_sys_data_sat_grasp( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute data satisfaction for the given system
+			for all predictions from GRASP.
+		"""
+		il_obj, topo_dict = self.init_integrative_learning_module(
+			sys_name = sys_name )
+		restraint_features = il_obj.run_data_gathering()
+		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
+
+		data_sat = []
+		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = False ):
+			d = self.compute_data_satisfaction_from_model(
+				sys_name = sys_name,
+				model_file = model_file,
+				metrics_func = metrics_func )
+			data_sat.append( d )
+		return data_sat
+
+
+	def compute_per_sys_data_sat_alphalink2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute data satisfaction for the given system
+			for all predictions from AlphaLink2.
+		"""
+		il_obj, topo_dict = self.init_integrative_learning_module(
+			sys_name = sys_name )
+		restraint_features = il_obj.run_data_gathering()
+		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
+
+		data_sat = []
+		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name, remapped = False ):
+			d = self.compute_data_satisfaction_from_model(
+				sys_name = sys_name,
+				model_file = model_file,
+				metrics_func = metrics_func )
+			data_sat.append( d )
+		return data_sat
+
+
+	def compute_per_sys_data_sat_boltz2( self,
+		sys_name: str ) -> Tuple[List[float], List[float]]:
+		"""
+		Compute data satisfaction for the given system
+			for all predictions from Boltz2.
+		"""
+		il_obj, topo_dict = self.init_integrative_learning_module(
+			sys_name = sys_name )
+		restraint_features = il_obj.run_data_gathering()
+		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
+
+		data_sat = []
+		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = False ):
+			d = self.compute_data_satisfaction_from_model(
+				sys_name = sys_name,
+				model_file = model_file,
+				metrics_func = metrics_func )
+			data_sat.append( d )
+		return data_sat
+
+
+	def compute_data_satisfaction_from_model( self,
+		sys_name: str,
+		model_file: str,
+		metrics_func: Metrics ):
+		"""
+		Given the file path for the predicted structure,
+			compute the data satisfaction.
+		Obtain the restraint_features for the system.
+		Get the coordinates from the predicted structure.
+		"""
+		p = Parser( model_file )
+		coords_dict = p.get_coordinates()
+		coords = np.stack( coords_dict.values() )
+
+		pred = {"final_atom_positions": torch.from_numpy( coords )}
+		metrics_dict = metrics_func.forward(
+			out = pred, last_epoch = False  )
+		
+		return metrics_dict["xlr"]
+
+	################################################################################
+	################################################################################
 	def plot_tm_score_distribution( self ):
 		"""
 		Plot the distribution of TM-score wrt the native structure.
@@ -537,6 +817,8 @@ class Comparison():
 				records.append( ( sys_name, "Grasp", tm ) )
 			# records.append( ( sys_name, "Alphalink2",
 			# 	self.logs["tm"]["alphalink2"][sys_name] ) )
+			for tm in  self.logs["tm"]["boltz2"][sys_name]:
+				records.append( ( sys_name, "Boltz2", tm ) )
 
 		df = pd.DataFrame( records, columns = ["Complex", "Method", "TM"] )
 		print( df.head() )
@@ -560,7 +842,8 @@ class Comparison():
 		plt.xticks( rotation = 90 )
 		plt.legend( title = "Method" )
 		plt.tight_layout()
-		plt.show()
+		file = os.path.join( self.output_dir, "tm_plot.png" )
+		plt.savefig( file, dpi = 300 )
 		plt.close()
 
 
@@ -576,6 +859,8 @@ class Comparison():
 				records.append( ( sys_name, "Grasp", tm ) )
 			# records.append( ( sys_name, "Alphalink2",
 			# 	self.logs["dockq"]["alphalink2"][sys_name] ) )
+			for tm in  self.logs["dockq"]["boltz2"][sys_name]:
+				records.append( ( sys_name, "Boltz2", tm ) )
 
 		df = pd.DataFrame( records, columns = ["Complex", "Method", "DockQ"] )
 
@@ -595,7 +880,8 @@ class Comparison():
 		plt.xticks( rotation = 90 )
 		plt.legend( title = "Method" )
 		plt.tight_layout()
-		plt.show()
+		file = os.path.join( self.output_dir , "dockq_plot.png" )
+		plt.savefig( file, dpi = 300 )
 		plt.close()
 
 
