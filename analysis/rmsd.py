@@ -20,7 +20,7 @@ class StructuralSimilarity():
 					struct_format: str,
 					analysis_dir: str,
 					ensemble_dir: str,
-					ref_model: int = 0 ):
+					ref_model: int = None ):
 		self.sys_name = sys_name
 		self.rmsd_config = rmsd_config
 		self.model_ids = model_ids
