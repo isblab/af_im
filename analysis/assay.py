@@ -168,13 +168,11 @@ class Assay():
 				good_models = good_models,
 				ref_model = max_data_sat_model
 			)
-			# selected_good_models = model_ids[selected_model_index]
+			# selected_goo_models = model_ids[selected_model_index]
 			# Get the index for the, selected good models, in the full set of models.
-			selected_model_index = np.where(
-					np.isin(
-					np.array( model_ids ), np.array( selected_good_models )
-					)
-				)[0]
+			index = {v: i for i, v in enumerate( model_ids )}
+			selected_model_index = [index[i] for i in selected_good_models]
+
 			self.analysis_dict["selected_model_index"] = selected_model_index
 			self.analysis_dict["selected_good_models"] = selected_good_models
 			self.analysis_dict["rmsd"] = rmsd_dict
