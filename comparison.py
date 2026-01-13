@@ -29,9 +29,7 @@ from utils.paths import (
 	get_benchmark_csv_file,
 	get_native_struct_file,
 	get_init_struct_file,
-	get_unrelaxed_model_file,
 	get_relaxed_model_file,
-	get_stat_file_path,
 	get_analysis_dict_path
 )
 from utils.pdb_utils import (
@@ -42,13 +40,13 @@ from utils.pdb_utils import (
 from utils.tools import usalign, get_alignment_score, dockq
 
 
-
 def init_integrative_learning_module(
 		sys_name: str,
 		base_dir: str,
 		benchmark_name: str,
 		modeling_dir_name: str,
-		sys_conf_suff: str ) -> IntegrativeLearning:
+		sys_conf_suff: str
+		) -> Tuple[IntegrativeLearning, mlc.ConfigDict]:
 	"""
 	Initialize the IntegrativeLearning module.
 
@@ -107,6 +105,9 @@ class Comparison():
 		self.create_required_files()
 		self.init_logs()
 		self.create_required_dirs()
+
+		# Perform structural filtering
+		self.filtering()
 
 		# RMSD and TM-score computation.
 		self.compute_struct_similarity_for_benchmark()
@@ -167,6 +168,9 @@ class Comparison():
 			self.base_dir,
 			self.benchmark_name )
 		self.benchmark = pd.read_csv( benchmark_file )
+
+		self.selected_models_file = os.path.join( self.output_dir, f"Selected_models.json" )
+
 		self.logs_file = os.path.join( self.output_dir, f"Logs.json" )
 
 
@@ -255,6 +259,104 @@ class Comparison():
 
 	################################################################################
 	################################################################################
+	def filtering( self ):
+		"""
+		Remove structurally similar models for GRASP, AlphaLink2, and Boltz2.
+		"""
+		print( "\n" + "-"*70 +
+			"\n\t\033[1m--> Filtering structurally similar models <--\033[0m\n" +
+			"-"*70 )
+
+		if os.path.exists( self.selected_models_file ):
+			self.selected_models = read_json( self.selected_models_file )
+		else:
+			self.selected_models = {k:{} for k in ["grasp", "alphalink2", "boltz2"]}
+
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			print( f"{i}. {sys_name}" )
+			# Filter GRASP predicted models.
+			if self.model_type["grasp"]:
+				if sys_name not in self.selected_models["grasp"]:
+					model_ids, model_files = [], []
+					for model_id, model_file in self.get_grasp_model_file(
+							sys_name = sys_name, remapped = False ):
+						model_ids.append( model_id )
+						model_files.append( model_file )
+					selected_models = self.similarity_filtering(
+							model_ids = model_ids,
+							model_files = model_files )
+					self.selected_models["grasp"][sys_name] = selected_models
+				print( "GRASP: ", self.selected_models["grasp"][sys_name] )
+				write_json( self.selected_models, self.selected_models_file )
+
+			# Filter AlphaLink2 predicted models.
+			if self.model_type["alphalink2"]:
+				if sys_name not in self.selected_models["alphalink2"]:
+					model_ids, model_files = [], []
+					for model_id, model_file in self.get_alphalink2_model_file(
+							sys_name = sys_name, remapped = False ):
+						model_ids.append( model_id )
+						model_files.append( model_file )
+					selected_models = self.similarity_filtering(
+							model_ids = model_ids,
+							model_files = model_files )
+					self.selected_models["alphalink2"][sys_name] = selected_models
+				print( "Alphalink2: ", self.selected_models["alphalink2"][sys_name] )
+				write_json( self.selected_models, self.selected_models_file )
+
+			# Filter AlphaLink2 predicted models.
+			if self.model_type["boltz2"]:
+				if sys_name not in self.selected_models["boltz2"]:
+					model_ids, model_files = [], []
+					for model_id, model_file in self.get_boltz2_model_file(
+							sys_name = sys_name, remapped = False ):
+						model_ids.append( model_id )
+						model_files.append( model_file )
+					selected_models = self.similarity_filtering(
+							model_ids = model_ids,
+							model_files = model_files )
+					self.selected_models["boltz2"][sys_name] = selected_models
+				print( "Boltz2: ", self.selected_models["boltz2"][sys_name] )
+				write_json( self.selected_models, self.selected_models_file )
+
+
+	def similarity_filtering( self,
+		model_ids: List[int],
+		model_files: List[str] ):
+		"""
+		Filter models based on structural similarity.
+		Two models are similar if they have a TM-score >=0.7.
+		"""
+		selected_models = []
+		ignore_models = []
+
+		total_models = len( model_ids )
+		for i in range( total_models ):
+			model_id1 = model_ids[i]
+			if model_id1 in ignore_models:
+				continue
+			model1_file = model_files[i]
+			for j in range( i, total_models ):
+				model_id2 = model_ids[j]
+				if model_id1 == model_id2 or model_id2 in ignore_models:
+					continue
+
+				_, tm = self.run_usalign(
+					native_file = model1_file,
+					model_id2 = model_id2,
+					model2_file = model_files[j]
+				)
+
+				if tm >= 0.7:
+					ignore_models.append( model_id2 )
+
+			if model_id1 not in selected_models:
+				selected_models.append( model_id1 )
+
+		return selected_models
+
+	################################################################################
+	################################################################################
 	def compute_struct_similarity_for_benchmark( self ):
 		"""
 		Compute the structural similarity wrt the native structure across the
@@ -271,39 +373,45 @@ class Comparison():
 
 		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			print( f"{i}. {sys_name}" )
+			native_file = get_native_struct_file(
+				base_dir = self.base_dir,
+				benchmark_name = self.benchmark_name,
+				sys_name = sys_name,
+			)
+
 			if sys_name not in self.logs["tm"]["init"]:
-				rmsd, tm = self.compute_tm_init_struct( sys_name = sys_name )
+				rmsd, tm = self.compute_tm_init_struct( sys_name = sys_name, native_file = native_file )
 				self.logs["tm"]["init"][sys_name] = tm
 				self.logs["rmsd"]["init"][sys_name] = rmsd
 
 			if self.model_type["imp_dl"]:
 				if sys_name not in self.logs["tm"][self.imp_dl]:
-					rmsd, tm = self.compute_per_sys_tm( sys_name = sys_name )
+					rmsd, tm = self.compute_per_sys_tm( sys_name = sys_name, native_file = native_file )
 					self.logs["tm"][self.imp_dl][sys_name] = tm
 					self.logs["rmsd"][self.imp_dl][sys_name] = rmsd
 
 			if self.model_type["grasp"]:
 				if sys_name not in self.logs["tm"]["grasp"]:
-					rmsd, tm = self.compute_per_sys_tm_grasp( sys_name = sys_name )
+					rmsd, tm = self.compute_per_sys_tm_grasp( sys_name = sys_name, native_file = native_file )
 					self.logs["tm"]["grasp"][sys_name] = tm
 					self.logs["rmsd"]["grasp"][sys_name] = rmsd
 
 			if self.model_type["alphalink2"]:
 				if sys_name not in self.logs["tm"]["alphalink2"]:
-					rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+					rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name, native_file = native_file )
 					self.logs["tm"]["alphalink2"][sys_name] = tm
 					self.logs["rmsd"]["alphalink2"][sys_name] = rmsd
 
 			if self.model_type["boltz2"]:
 				if sys_name not in self.logs["tm"]["boltz2"]:
-					rmsd, tm = self.compute_per_sys_tm_boltz2( sys_name = sys_name )
+					rmsd, tm = self.compute_per_sys_tm_boltz2( sys_name = sys_name, native_file = native_file )
 					self.logs["tm"]["boltz2"][sys_name] = tm
 					self.logs["rmsd"]["boltz2"][sys_name] = rmsd
 
 			write_json( self.logs, self.logs_file )
 
 
-	def compute_tm_init_struct( self, sys_name: str ):
+	def compute_tm_init_struct( self, sys_name: str, native_file: str ):
 		"""
 		Compute TM-score for the initial OpenFold predicted structure.
 		"""
@@ -313,7 +421,7 @@ class Comparison():
 			sys_name = sys_name,
 		)
 		rmsd, tm = self.run_usalign(
-			sys_name = sys_name,
+			native_file = native_file,
 			model_id2 = 00,  # Arbitrary model_id for the init struct.
 			model2_file = init_struct_file
 		)
@@ -321,7 +429,8 @@ class Comparison():
 
 
 	def compute_per_sys_tm( self,
-		sys_name: str ) -> Tuple[List[float], List[float]]:
+		sys_name: str,
+		native_file: str ) -> Tuple[List[float], List[float]]:
 		"""
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from our method.
@@ -355,7 +464,7 @@ class Comparison():
 				modeling_version = self.modeling_version
 			)
 			r, t = self.run_usalign(
-				sys_name = sys_name,
+				native_file = native_file,
 				model_id2 = model_id,
 				model2_file = model_file
 			)
@@ -365,7 +474,8 @@ class Comparison():
 
 
 	def compute_per_sys_tm_grasp( self,
-		sys_name: str ) -> Tuple[List[float], List[float]]:
+		sys_name: str,
+		native_file: str ) -> Tuple[List[float], List[float]]:
 		"""
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from GRASP.
@@ -373,8 +483,10 @@ class Comparison():
 		"""
 		rmsd, tm = [], []
 		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name ):
+			if model_id not in self.selected_models["grasp"][sys_name]:
+				continue
 			r, t = self.run_usalign(
-				sys_name = sys_name,
+				native_file = native_file,
 				model_id2 = model_id,
 				model2_file = model_file
 			)
@@ -384,7 +496,8 @@ class Comparison():
 
 
 	def compute_per_sys_tm_alphalink2( self,
-		sys_name: str ) -> Tuple[List[float], List[float]]:
+		sys_name: str,
+		native_file: str ) -> Tuple[List[float], List[float]]:
 		"""
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from AlphaLink2.
@@ -392,8 +505,10 @@ class Comparison():
 		"""
 		rmsd, tm = [], []
 		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+			if model_id not in self.selected_models["alphalink2"][sys_name]:
+				continue
 			r, t = self.run_usalign(
-				sys_name = sys_name,
+				native_file = native_file,
 				model_id2 = model_id,
 				model2_file = model_file
 			)
@@ -403,7 +518,8 @@ class Comparison():
 
 
 	def compute_per_sys_tm_boltz2( self,
-		sys_name: str ) -> Tuple[List[float], List[float]]:
+		sys_name: str,
+		native_file: str ) -> Tuple[List[float], List[float]]:
 		"""
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from Boltz2.
@@ -411,8 +527,10 @@ class Comparison():
 		"""
 		rmsd, tm = [], []
 		for model_id, model_file in self.get_boltz2_model_file( sys_name = sys_name ):
+			if model_id not in self.selected_models["boltz2"][sys_name]:
+				continue
 			r, t = self.run_usalign(
-				sys_name = sys_name,
+				native_file = native_file,
 				model_id2 = model_id,
 				model2_file = model_file
 			)
@@ -422,7 +540,7 @@ class Comparison():
 
 
 	def run_usalign( self,
-		sys_name: str,
+		native_file: str,
 		model_id2: int,
 		model2_file: str
 		) -> Tuple[float, float]:
@@ -430,11 +548,6 @@ class Comparison():
 		Run USalign to compute TM-score for the predicted
 			model wrt native structure.
 		"""
-		native_file = get_native_struct_file(
-			base_dir = self.base_dir,
-			benchmark_name = self.benchmark_name,
-			sys_name = sys_name,
-		)
 		stdout_file = usalign(
 			usalign_script = self.usalign_script,
 			model_id1 = 00,  # Arbitrary model_id for the native struct.
@@ -500,6 +613,8 @@ class Comparison():
 		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			print( f"{i}. {sys_name}" )
 			for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name ):
+				if sys_name not in self.selected_models["grasp"]:
+					continue
 				remapped_file = os.path.join(
 					self.dockq_tmp_dir,
 					f"{sys_name}_grasp_{model_id}.pdb" )
@@ -509,6 +624,8 @@ class Comparison():
 						remapped_file = remapped_file )
 
 			# for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+				# if sys_name not in self.selected_models["alphalink2"]:
+				# 	continue
 			# 	remapped_file = os.path.join(
 			# 		self.dockq_tmp_dir,
 			# 		f"{sys_name}_alphalink2_{model_id}.pdb" )
@@ -580,16 +697,6 @@ class Comparison():
 		Compute DockQ wrt the native structure for the given
 			system for all predictions from our method.
 		"""
-		# stats_file = get_stat_file_path(
-		# 	base_dir = self.base_dir,
-		# 	sys_name = sys_name,
-		# 	modeling_dir_name = self.modeling_dir_name,
-		# 	modeling_version = self.modeling_version
-		# )
-		# stats_dict = np.load( stats_file, allow_pickle = True ).item()
-
-		# model_ids = stats_dict["model_id"]
-		# del stats_dict
 		analysis_dict_file = get_analysis_dict_path(
 			base_dir = self.base_dir,
 			sys_name = sys_name,
@@ -622,6 +729,8 @@ class Comparison():
 		"""
 		dockq_score = []
 		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = True ):
+			if model_id not in self.selected_models["grasp"][sys_name]:
+				continue
 			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
 			dockq_score.append( d )
 		return dockq_score
@@ -635,6 +744,8 @@ class Comparison():
 		"""
 		dockq_score = []
 		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name, remapped = True ):
+			if model_id not in self.selected_models["alphalink2"][sys_name]:
+				continue
 			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
 			dockq_score.append( d )
 		return dockq_score
@@ -648,6 +759,8 @@ class Comparison():
 		"""
 		dockq_score = []
 		for model_id, model_file in self.get_boltz2_model_file( sys_name = sys_name, remapped = False ):
+			if model_id not in self.selected_models["boltz2"][sys_name]:
+				continue
 			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
 			dockq_score.append( d )
 		return dockq_score
@@ -723,15 +836,7 @@ class Comparison():
 		restraint_features = il_obj.run_data_gathering()
 
 		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
-		# stats_file = get_stat_file_path(
-		# 	base_dir = self.base_dir,
-		# 	sys_name = sys_name,
-		# 	modeling_dir_name = self.modeling_dir_name,
-		# 	modeling_version = self.modeling_version
-		# )
-		# stats_dict = np.load( stats_file, allow_pickle = True ).item()
-		# model_ids = stats_dict["model_id"]
-		# del stats_dict
+
 		analysis_dict_file = get_analysis_dict_path(
 			base_dir = self.base_dir,
 			sys_name = sys_name,
@@ -757,6 +862,7 @@ class Comparison():
 				metrics_func = metrics_func )
 
 			data_sat.append( d )
+		return data_sat
 
 
 	def compute_per_sys_data_sat_grasp( self,
@@ -776,6 +882,8 @@ class Comparison():
 
 		data_sat = []
 		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = False ):
+			if model_id not in self.selected_models["grasp"][sys_name]:
+				continue
 			d = self.compute_data_satisfaction_from_model(
 				sys_name = sys_name,
 				model_file = model_file,
@@ -801,6 +909,8 @@ class Comparison():
 
 		data_sat = []
 		for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name, remapped = False ):
+			if model_id not in self.selected_models["alphalink2"][sys_name]:
+				continue
 			d = self.compute_data_satisfaction_from_model(
 				sys_name = sys_name,
 				model_file = model_file,
@@ -826,6 +936,8 @@ class Comparison():
 
 		data_sat = []
 		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = False ):
+			if model_id not in self.selected_models["boltz2"][sys_name]:
+				continue
 			d = self.compute_data_satisfaction_from_model(
 				sys_name = sys_name,
 				model_file = model_file,
@@ -864,7 +976,7 @@ class Comparison():
 			 Distribution of DockQ wrt the native structure.
 			 Distribution of data satisfaction.
 		"""
-		for metric in ["tm", "rmsd", "dockq", "data_satisfcation"]:
+		for metric in ["tm", "rmsd", "dockq", "data_satisfaction"]:
 			records = []
 			for sys_name in self.benchmark["PDB ID"]:
 				if self.model_type["imp_dl"]:
@@ -884,17 +996,24 @@ class Comparison():
 				records,
 				columns = ["Complex", "Method", f"{metric.capitalize()}"] )
 
-			plt.figure( figsize = ( 30, 20 ) )
+			plt.figure( figsize = ( 25, 10 ) )
 			plt.rcParams["font.family"] = "sans"
+			# ax = sns.violinplot(
+			# 	data = df,
+			# 	x = "Complex",
+			# 	y = f"{metric.capitalize()}",
+			# 	hue = "Method",
+			# 	width = 1.0,
+			# 	split = False,
+			# 	inner = "quart",
+			# 	cut = 0,
+			# 	linewidth = 0.1
+			# )
 			ax = sns.boxenplot(
 				data = df,
 				x = "Complex",
 				y = f"{metric.capitalize()}",
 				hue = "Method",
-				# width = 1.5,
-				# split = False,
-				# inner = "quart",
-				# cut = 0,
 				linewidth = 0.1
 			)
 
