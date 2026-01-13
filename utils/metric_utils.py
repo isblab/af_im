@@ -26,11 +26,11 @@ def final_pred_to_dist_map(
 	"""
 	# Extracting Ca-coordinates - index 1.
 	# [B,N,3] --> For 2ayo: [1,480,3]
-	if final_atom_pos.shape == 4:
+	if len( final_atom_pos.shape ) == 4:
 		ca_idx = rc.atom_order["CA"]
 		#[B, N, 37, 3] -> [B, N, 3]
 		ca_pos = final_atom_pos[:, :, ca_idx, :]
-	elif final_atom_pos.shape == 3:
+	elif len( final_atom_pos.shape ) == 3:
 		ca_pos = final_atom_pos
 	else:
 		raise ValueError( f"Incorrect shape of the tensor: {final_atom_pos.shape}..." )
