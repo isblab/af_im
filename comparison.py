@@ -48,8 +48,7 @@ def init_integrative_learning_module(
 		base_dir: str,
 		benchmark_name: str,
 		modeling_dir_name: str,
-		sys_conf_suff: str,
-		topo_dict: mlc.ConfigDict ) -> IntegrativeLearning:
+		sys_conf_suff: str ) -> IntegrativeLearning:
 	"""
 	Initialize the IntegrativeLearning module.
 
@@ -91,6 +90,12 @@ class Comparison():
 	def __init__( self ):
 		# IMP_DL version to be considered.
 		self.modeling_version = 16
+		self.model_type = {
+			"imp_dl": True,
+			"grasp": True,
+			"alphalink2": False,
+			"boltz2": True
+		}
 		# USalign script.
 		self.usalign_script = "USalign"
 		self.logs = {}
@@ -112,9 +117,10 @@ class Comparison():
 
 		self.compute_dockq_for_benchmark()
 
+		self.compute_data_sat_for_benchmark()
+
 		# Create plots.
-		self.plot_tm_score_distribution()
-		self.plot_dockq_distribution()
+		self.create_plots()
 
 
 	def init_logs( self ):
@@ -231,13 +237,13 @@ class Comparison():
 		"""
 		A generator that yields model_file for all Boltz2
 			predicted structures for a given systen.
-		We used Boltz-2 to predict 25 structures.
+		We used Boltz-2 to predict 50 structures.
 		"""
 		sys_dir = os.path.join( self.boltz2_output_dir, sys_name )
 		pred_dir = os.path.join( sys_dir,
 			f"boltz_results_{sys_name}_restraint/predictions/{sys_name}_restraint/" )
 		for model_id, model_file in enumerate(
-			glob.glob( f"{sys_dir}/**.cif" )
+			glob.glob( f"{pred_dir}/*.cif" )
 		):
 			if remapped:
 				model_file = os.path.join(
@@ -270,25 +276,29 @@ class Comparison():
 				self.logs["tm"]["init"][sys_name] = tm
 				self.logs["rmsd"]["init"][sys_name] = rmsd
 
-			if sys_name not in self.logs["tm"][self.imp_dl]:
-				rmsd, tm = self.compute_per_sys_tm( sys_name = sys_name, version = self.modeling_version )
-				self.logs["tm"][self.imp_dl][sys_name] = tm
-				self.logs["rmsd"][self.imp_dl][sys_name] = rmsd
+			if self.model_type["imp_dl"]:
+				if sys_name not in self.logs["tm"][self.imp_dl]:
+					rmsd, tm = self.compute_per_sys_tm( sys_name = sys_name )
+					self.logs["tm"][self.imp_dl][sys_name] = tm
+					self.logs["rmsd"][self.imp_dl][sys_name] = rmsd
 
-			if sys_name not in self.logs["tm"]["grasp"]:
-				rmsd, tm = self.compute_per_sys_tm_grasp( sys_name = sys_name )
-				self.logs["tm"]["grasp"][sys_name] = tm
-				self.logs["rmsd"]["grasp"][sys_name] = rmsd
+			if self.model_type["grasp"]:
+				if sys_name not in self.logs["tm"]["grasp"]:
+					rmsd, tm = self.compute_per_sys_tm_grasp( sys_name = sys_name )
+					self.logs["tm"]["grasp"][sys_name] = tm
+					self.logs["rmsd"]["grasp"][sys_name] = rmsd
 
-			# if sys_name not in self.logs["tm"]["alphalink2"]:
-			# 	rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
-			# 	self.logs["tm"]["alphalink2"][sys_name] = tm
-			# 	self.logs["rmsd"]["alphalink2"][sys_name] = rmsd
+			if self.model_type["alphalink2"]:
+				if sys_name not in self.logs["tm"]["alphalink2"]:
+					rmsd, tm = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+					self.logs["tm"]["alphalink2"][sys_name] = tm
+					self.logs["rmsd"]["alphalink2"][sys_name] = rmsd
 
-			if sys_name not in self.logs["tm"]["boltz2"]:
-				rmsd, tm = self.compute_per_sys_tm_boltz2( sys_name = sys_name )
-				self.logs["tm"]["boltz2"][sys_name] = tm
-				self.logs["rmsd"]["boltz2"][sys_name] = rmsd
+			if self.model_type["boltz2"]:
+				if sys_name not in self.logs["tm"]["boltz2"]:
+					rmsd, tm = self.compute_per_sys_tm_boltz2( sys_name = sys_name )
+					self.logs["tm"]["boltz2"][sys_name] = tm
+					self.logs["rmsd"]["boltz2"][sys_name] = rmsd
 
 			write_json( self.logs, self.logs_file )
 
@@ -311,8 +321,7 @@ class Comparison():
 
 
 	def compute_per_sys_tm( self,
-		sys_name: str,
-		version: Any ) -> Tuple[List[float], List[float]]:
+		sys_name: str ) -> Tuple[List[float], List[float]]:
 		"""
 		Compute TM-score wrt the native structure for the given
 			system for all predictions from our method.
@@ -330,7 +339,7 @@ class Comparison():
 			base_dir = self.base_dir,
 			sys_name = sys_name,
 			modeling_dir_name = self.modeling_dir_name,
-			modeling_version = version
+			modeling_version = self.modeling_version
 		)
 		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
 		model_ids = analysis_dict["selected_good_models"]
@@ -529,21 +538,25 @@ class Comparison():
 				dockq = self.compute_dockq_init_struct( sys_name = sys_name )
 				self.logs["dockq"]["init"][sys_name] = dockq
 
-			if sys_name not in self.logs["dockq"][self.imp_dl]:
-				dockq = self.compute_per_sys_dockq( sys_name = sys_name )
-				self.logs["dockq"][self.imp_dl][sys_name] = dockq
+			if self.model_type["imp_dl"]:
+				if sys_name not in self.logs["dockq"][self.imp_dl]:
+					dockq = self.compute_per_sys_dockq( sys_name = sys_name )
+					self.logs["dockq"][self.imp_dl][sys_name] = dockq
 
-			if sys_name not in self.logs["dockq"]["grasp"]:
-				dockq = self.compute_per_sys_dockq_grasp( sys_name = sys_name )
-				self.logs["dockq"]["grasp"][sys_name] = dockq
+			if self.model_type["grasp"]:
+				if sys_name not in self.logs["dockq"]["grasp"]:
+					dockq = self.compute_per_sys_dockq_grasp( sys_name = sys_name )
+					self.logs["dockq"]["grasp"][sys_name] = dockq
 
-			# if sys_name not in self.logs["dockq"]["alphalink2"]:
-			# 	dockq = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
-			# 	self.logs["dockq"]["alphalink2"][sys_name] = dockq
+			if self.model_type["alphalink2"]:
+				if sys_name not in self.logs["dockq"]["alphalink2"]:
+					dockq = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+					self.logs["dockq"]["alphalink2"][sys_name] = dockq
 
-			if sys_name not in self.logs["dockq"]["boltz2"]:
-				dockq = self.compute_per_sys_dockq_boltz2( sys_name = sys_name )
-				self.logs["dockq"]["boltz2"][sys_name] = dockq
+			if self.model_type["boltz2"]:
+				if sys_name not in self.logs["dockq"]["boltz2"]:
+					dockq = self.compute_per_sys_dockq_boltz2( sys_name = sys_name )
+					self.logs["dockq"]["boltz2"][sys_name] = dockq
 
 			write_json( self.logs, self.logs_file )
 
@@ -581,7 +594,7 @@ class Comparison():
 			base_dir = self.base_dir,
 			sys_name = sys_name,
 			modeling_dir_name = self.modeling_dir_name,
-			modeling_version = version
+			modeling_version = self.modeling_version
 		)
 		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
 		model_ids = analysis_dict["selected_good_models"]
@@ -634,7 +647,7 @@ class Comparison():
 			system for all predictions from Boltz2.
 		"""
 		dockq_score = []
-		for model_id, model_file in self.get_grasp_model_file( sys_name = sys_name, remapped = True ):
+		for model_id, model_file in self.get_boltz2_model_file( sys_name = sys_name, remapped = False ):
 			d = self.run_dockq( sys_name = sys_name, model_file = model_file )
 			dockq_score.append( d )
 		return dockq_score
@@ -673,14 +686,40 @@ class Comparison():
 		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
 			print( f"{i}. {sys_name}" )
 
+			if self.model_type["imp_dl"]:
+				if sys_name not in self.logs["data_satisfaction"][self.imp_dl]:
+					dockq = self.compute_per_sys_data_sat( sys_name = sys_name )
+					self.logs["data_satisfaction"][self.imp_dl][sys_name] = dockq
+
+			if self.model_type["grasp"]:
+				if sys_name not in self.logs["data_satisfaction"]["grasp"]:
+					dockq = self.compute_per_sys_data_sat_grasp( sys_name = sys_name )
+					self.logs["data_satisfaction"]["grasp"][sys_name] = dockq
+
+			if self.model_type["alphalink2"]:
+				if sys_name not in self.logs["data_satisfaction"]["alphalink2"]:
+					dockq = self.compute_per_sys_data_sat_alphalink2( sys_name = sys_name )
+					self.logs["data_satisfaction"]["alphalink2"][sys_name] = dockq
+
+			if self.model_type["boltz2"]:
+				if sys_name not in self.logs["data_satisfaction"]["boltz2"]:
+					dockq = self.compute_per_sys_data_sat_boltz2( sys_name = sys_name )
+					self.logs["data_satisfaction"]["boltz2"][sys_name] = dockq
+
+			write_json( self.logs, self.logs_file )
+
 
 	def compute_per_sys_data_sat( self, sys_name: str ):
 		"""
 		Compute data satisfaction for all predicted models by
 			our method for a given system.
 		"""
-		il_obj, topo_dict = self.init_integrative_learning_module(
-			sys_name = sys_name )
+		il_obj, topo_dict = init_integrative_learning_module(
+			sys_name = sys_name,
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			modeling_dir_name = self.modeling_dir_name,
+			sys_conf_suff = "_tpfp" )
 		restraint_features = il_obj.run_data_gathering()
 
 		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
@@ -697,7 +736,7 @@ class Comparison():
 			base_dir = self.base_dir,
 			sys_name = sys_name,
 			modeling_dir_name = self.modeling_dir_name,
-			modeling_version = version
+			modeling_version = self.modeling_version
 		)
 		analysis_dict = np.load( analysis_dict_file, allow_pickle = True ).item()
 		model_ids = analysis_dict["selected_good_models"]
@@ -726,8 +765,12 @@ class Comparison():
 		Compute data satisfaction for the given system
 			for all predictions from GRASP.
 		"""
-		il_obj, topo_dict = self.init_integrative_learning_module(
-			sys_name = sys_name )
+		il_obj, topo_dict = init_integrative_learning_module(
+			sys_name = sys_name,
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			modeling_dir_name = self.modeling_dir_name,
+			sys_conf_suff = "_tpfp" )
 		restraint_features = il_obj.run_data_gathering()
 		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
 
@@ -747,8 +790,12 @@ class Comparison():
 		Compute data satisfaction for the given system
 			for all predictions from AlphaLink2.
 		"""
-		il_obj, topo_dict = self.init_integrative_learning_module(
-			sys_name = sys_name )
+		il_obj, topo_dict = init_integrative_learning_module(
+			sys_name = sys_name,
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			modeling_dir_name = self.modeling_dir_name,
+			sys_conf_suff = "_tpfp" )
 		restraint_features = il_obj.run_data_gathering()
 		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
 
@@ -768,8 +815,12 @@ class Comparison():
 		Compute data satisfaction for the given system
 			for all predictions from Boltz2.
 		"""
-		il_obj, topo_dict = self.init_integrative_learning_module(
-			sys_name = sys_name )
+		il_obj, topo_dict = init_integrative_learning_module(
+			sys_name = sys_name,
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			modeling_dir_name = self.modeling_dir_name,
+			sys_conf_suff = "_tpfp" )
 		restraint_features = il_obj.run_data_gathering()
 		metrics_func = Metrics( topo_dict["metrics"], restraint_features )
 
@@ -794,95 +845,73 @@ class Comparison():
 		Get the coordinates from the predicted structure.
 		"""
 		p = Parser( model_file )
-		coords_dict = p.get_coordinates()
-		coords = np.stack( coords_dict.values() )
+		for model in p.get_models():
+			coords_dict = p.get_coordinates( model )
+		coords = np.concatenate( list( coords_dict.values() ), axis = 0 )
 
-		pred = {"final_atom_positions": torch.from_numpy( coords )}
+		pred = {"final_atom_positions": torch.from_numpy( coords ).unsqueeze( 0 )}
 		metrics_dict = metrics_func.forward(
 			out = pred, last_epoch = False  )
-		
-		return metrics_dict["xlr"]
+
+		return metrics_dict["xlr"].item()
 
 	################################################################################
 	################################################################################
-	def plot_tm_score_distribution( self ):
+	def create_plots( self ):
 		"""
-		Plot the distribution of TM-score wrt the native structure.
+		Create the following plots:
+		 	Distribution of TM-score and RMSD wrt the native structure.
+			 Distribution of DockQ wrt the native structure.
+			 Distribution of data satisfaction.
 		"""
-		records = []
-		for sys_name in self.benchmark["PDB ID"]:
-			for tm in self.logs["tm"][self.imp_dl][sys_name]:
-				records.append( ( sys_name, self.imp_dl, tm ) )
-			for tm in  self.logs["tm"]["grasp"][sys_name]:
-				records.append( ( sys_name, "Grasp", tm ) )
-			# records.append( ( sys_name, "Alphalink2",
-			# 	self.logs["tm"]["alphalink2"][sys_name] ) )
-			for tm in  self.logs["tm"]["boltz2"][sys_name]:
-				records.append( ( sys_name, "Boltz2", tm ) )
+		for metric in ["tm", "rmsd", "dockq", "data_satisfcation"]:
+			records = []
+			for sys_name in self.benchmark["PDB ID"]:
+				if self.model_type["imp_dl"]:
+					for m in self.logs[metric][self.imp_dl][sys_name]:
+						records.append( ( sys_name, self.imp_dl, m ) )
+				if self.model_type["grasp"]:
+					for m in  self.logs[metric]["grasp"][sys_name]:
+						records.append( ( sys_name, "Grasp", m ) )
+				if self.model_type["alphalink2"]:
+					for m in  self.logs[metric]["alphalink2"][sys_name]:
+						records.append( ( sys_name, "Alphalink2", m ) )
+				if self.model_type["boltz2"]:
+					for m in  self.logs[metric]["boltz2"][sys_name]:
+						records.append( ( sys_name, "Boltz2", m ) )
 
-		df = pd.DataFrame( records, columns = ["Complex", "Method", "TM"] )
-		print( df.head() )
+			df = pd.DataFrame(
+				records,
+				columns = ["Complex", "Method", f"{metric.capitalize()}"] )
 
-		plt.figure( figsize = ( 20, 30 ) )
-		plt.rcParams["font.family"] = "sans"
-		ax = sns.boxenplot(
-			data = df,
-			x = "Complex",
-			y = "TM",
-			hue = "Method",
-			# width = 1.5,
-			# split = False,
-			# inner = "quart",
-			# cut = 0,
-			linewidth = 0.1
-		)
+			plt.figure( figsize = ( 30, 20 ) )
+			plt.rcParams["font.family"] = "sans"
+			ax = sns.boxenplot(
+				data = df,
+				x = "Complex",
+				y = f"{metric.capitalize()}",
+				hue = "Method",
+				# width = 1.5,
+				# split = False,
+				# inner = "quart",
+				# cut = 0,
+				linewidth = 0.1
+			)
 
-		ax.set_ylabel( "TM-score" )
-		ax.set_xlabel( "Complex" )
-		plt.xticks( rotation = 90 )
-		plt.legend( title = "Method" )
-		plt.tight_layout()
-		file = os.path.join( self.output_dir, "tm_plot.png" )
-		plt.savefig( file, dpi = 300 )
-		plt.close()
-
-
-	def plot_dockq_distribution( self ):
-		"""
-		Plot the distribution of DockQ wrt the native structure.
-		"""
-		records = []
-		for sys_name in self.benchmark["PDB ID"]:
-			for tm in self.logs["dockq"][self.imp_dl][sys_name]:
-				records.append( ( sys_name, self.imp_dl, tm ) )
-			for tm in  self.logs["dockq"]["grasp"][sys_name]:
-				records.append( ( sys_name, "Grasp", tm ) )
-			# records.append( ( sys_name, "Alphalink2",
-			# 	self.logs["dockq"]["alphalink2"][sys_name] ) )
-			for tm in  self.logs["dockq"]["boltz2"][sys_name]:
-				records.append( ( sys_name, "Boltz2", tm ) )
-
-		df = pd.DataFrame( records, columns = ["Complex", "Method", "DockQ"] )
-
-		plt.figure( figsize = ( 20, 30 ) )
-		plt.rcParams["font.family"] = "sans"
-		ax = sns.boxenplot(
-			data = df,
-			x = "Complex",
-			y = "DockQ",
-			hue = "Method",
-			# width = 1.5,
-			linewidth = 0.1
-		)
-
-		ax.set_ylabel( "DockQ" )
-		ax.set_xlabel( "Complex" )
-		plt.xticks( rotation = 90 )
-		plt.legend( title = "Method" )
-		plt.tight_layout()
-		file = os.path.join( self.output_dir , "dockq_plot.png" )
-		plt.savefig( file, dpi = 300 )
-		plt.close()
+			ax.set_ylabel( f"{metric.capitalize()}", fontsize = 20 )
+			ax.set_xlabel( "Complex", fontsize = 20 )
+			plt.xticks( rotation = 90 )
+			plt.tick_params(
+				axis = "both",
+				labelsize = 20,
+				length = 10,
+				width = 4
+			)
+			plt.legend( title = "Method" )
+			plt.tight_layout()
+			file = os.path.join( self.output_dir, f"{metric}_plot.png" )
+			plt.savefig( file, dpi = 300 )
+			plt.close()
 
 
 if __name__ == "__main__":
