@@ -1,19 +1,19 @@
 """
 A wrapper script to obtain the initial data satisfcation for selected complexes.
-Will consider complexes for which the data satisfaction is < a cutoff.
+Will consider complexes for which the data satisfaction is <= a cutoff.
 """
-from typing import Dict
-import os, time, subprocess, traceback
+from typing import Tuple, Dict
+import os, sys, time, traceback, argparse
+import signal, pickle as pkl
 from datetime import datetime
-import ml_collections as mlc
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from multiprocessing import Pool
+import tqdm
 import torch
 
-from openfold.config import model_config
-
 from openfold_wrapper import IntegrativeLearning
+from system_representation2 import SystemRepresentation
 from loss import LossFunction
 from metrics import Metrics
 from topology import topology_dict
@@ -22,22 +22,44 @@ from utils.utils import ( open_file_handler,
 						write_json )
 from topology import topology_dict
 
-from utils.paths import get_sys_data_dir_path
+from utils.paths import get_sys_data_dir_path, get_init_pred_file
 from utils.utils import parse_nested_dict
 
+# "8a67", "8evd", "8ij9", "8oij" --> Removed jus for testing.
+
+PROBLEMATIC = [
+	# Prediction failed for the following due to H-chain mapped to Titin.
+	# This is not an exhaustive list; just some entries that I found.
+	"1kcs", "1f58", "2b1h", "5dmi", "1uj3",
+	"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
+	"3sge", "4m1d", "5u3j", "6db7", "6u6u",
+	"6jep", "6q18", "7n4j", "7tp3", "8x0t",
+	"8fdo", "6xq0", "8yor", "3qa3", "7yds",
+	"5e8e",    # 5e8e_B has a non-standard aa PCA.
+	"7xpc",    # contains non-standard aa MSE.
+	# Some error in map_residue_to_index.
+	"6m4v", "5e8e", "7xpc"
+	]
+
+
 class InitPrediction():
-	def __init__( self ):
-		self.benchmark_name = "pinderS"  # xlsim/abag/oreilly/xlmerged
+	def __init__( self,
+		benchmark_name: str,
+		modeling_version: int,
+		cpu_cores: int = 5,
+		device: str = "cpu" ):
+		self.benchmark_name = benchmark_name # "xlmerged"  # xlsim/abag/oreilly/xlmerged
 		# Define the modeling objective.
 		self.modeling_objective = f"({self.benchmark_name}) Obtaining initial prediction."
 		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
-		self.modeling_version = 0
-		self.device = "cuda:0"
+		self.modeling_version = modeling_version
+		self.cpu_cores = cpu_cores
+		self.device = device  # "cuda:0"
 		self.data_sat_cutoff = 1.0 if self.benchmark_name == "oreilly" else 0.75
+		self.sys_conf_suff = "_tpfp"
 
 		self.init_pred_metrics = {}
 		self.logs = {}
-
 
 
 	def forward( self ):
@@ -48,15 +70,15 @@ class InitPrediction():
 		self.create_required_paths()
 		self.initialize_logs_dict()
 		self.load_benchamrk()
+		# self.prep_msa_for_benchmark()
 		self.predict_for_benchmark()
 		self.filter_complexes()
 
-		# Load PDB ID to benchmark mapping.
-		self.pdb_benchmark_map = read_json( self.pdb_benchmark_map_file )
+		# # Load PDB ID to benchmark mapping.
+		# self.pdb_benchmark_map = read_json( self.pdb_benchmark_map_file )
 		self.write_data_for_selected_complexes()
 
 		write_json( self.logs, self.logs_file )
-
 
 	################################################################################
 	################################################################################
@@ -65,14 +87,19 @@ class InitPrediction():
 		Log the following info:
 			Time taken by each system.
 			Memory consumed by each system.
+			Entries for which an error occured.
 		"""
+		log_keys = ["time", "msa_time",
+			"msa_created", "memory_allocated",
+			"memory_reserved", "errored"]
 		if os.path.exists( self.logs_file ):
 			self.logs = read_json( self.logs_file )
+			# Initialize keys added in later versions of the script.
+			for k in log_keys:
+				if k not in self.logs:
+					self.logs[k] = {}
 		else:
-			self.logs = {k:{} for k in ["time",
-										"memory_allocated",
-										"memory_reserved",
-										"errored"]}
+			self.logs = {k:{} for k in log_keys}
 
 
 	def create_required_paths( self ):
@@ -84,7 +111,7 @@ class InitPrediction():
 							f"{self.benchmark_name}_metadata" )
 
 		self.benchmark_file = os.path.join( self.meta_dir,
-						f"{self.benchmark_name}_benchmark.csv" )
+						f"{self.benchmark_name}_benchmark{self.sys_conf_suff}.csv" )
 		# Dict mapping PDB ID to its respective benchmark.
 		self.pdb_benchmark_map_file = os.path.join( self.meta_dir, "pdb_benchmark_mapping.json" )
 
@@ -107,15 +134,6 @@ class InitPrediction():
 		self.num_systems = self.benchmark.shape[0]
 
 
-	def get_sys_path( self, sys_name: str ):
-		sys_path = os.path.join( 
-					os.path.abspath(
-						f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}"
-						)
-			)
-		return sys_path
-
-
 	################################################################################
 	################################################################################
 	def log_error( self, sys_name: str ):
@@ -123,6 +141,10 @@ class InitPrediction():
 		If an error occurs while modeling,
 			Log the errorneous entry_id in the dataset sepcific metadata dir.
 			log the traceback in the system dir.
+		
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
 		"""
 		self.logs["errored"][sys_name] = None
 
@@ -146,6 +168,10 @@ class InitPrediction():
 		Log the device memory used during modeling.
 		device must be in the following formar: cuda[0]
 		Reset the CUDA memory stats after logging.
+
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
 		"""
 		if self.device == "cpu":
 			raise ValueError( "Pytorch does not provide " +
@@ -160,65 +186,20 @@ class InitPrediction():
 		self.logs["memory_reserved"][sys_name] = max_reserved
 
 
-	def predict_for_benchmark( self ):
+	def init_integrative_learning_module(
+			self, sys_name: str ) -> IntegrativeLearning:
 		"""
-		Get initial prediction for all complexes in the benchmark.
-		Obtain the violation loss and XL satisfaction.
-		Prediction failed for the following due to H-chain mapped to Titin.
-			["1kcs", "1f58", "2b1h", "5dmi", "1uj3",
-			"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
-			"3sge", "4m1d", "5dmi", "5u3j", "6db7",
-			"6u6u", "6jep", "6q18", "7n4j", "7tp3",
-			"8x0t", "8fdo", "6xq0", "8yor"]
-		5e8e_B has a non-standard aa PCA.
-		7xpc contains non-standard aa MSE.
-		"""
-		if os.path.exists( self.init_pred_metrics_file ):
-			self.init_pred_metrics = read_json( self.init_pred_metrics_file )
-		# else:
-		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
-			if sys_name in ["1kcs", "1f58", "2b1h", "5dmi", "1uj3",
-					"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
-					"3sge", "4m1d", "5dmi", "5u3j", "6db7",
-					"6u6u", "6jep", "6q18", "7n4j", "7tp3",
-					"8x0t", "8fdo", "6xq0", "8yor", "3qa3"]:
-					continue
-			# Some error in map_residue_to_index.
-			if sys_name in ["6m4v"]:
-				continue
-			print( f"\n----------- \033[1m {i}. {sys_name}\033[0m" )
-			if sys_name in self.logs["errored"]:
-				print( f"{sys_name} errored in a previous run..." )
-				continue
-			elif sys_name in self.init_pred_metrics:
-				print( f"Already completed for {sys_name}..." )
-				continue
-			# try:
-			tic = time.perf_counter()
-			violation, xl_metric = self.run_per_system_prediction( sys_name = sys_name )
-			self.init_pred_metrics[sys_name] = {
-				"violation": violation.item(),
-				"xl_satisfaction": xl_metric.item() }
-			toc = time.perf_counter()
-			if not sys_name in self.logs["time"]:
-				self.logs["time"][sys_name] = toc-tic
-				write_json( self.logs, self.logs_file )
-			write_json( self.init_pred_metrics, self.init_pred_metrics_file )
-			# except:
-			# 	self.log_error( sys_name = sys_name )
+		Initialize the IntegrativeLearning module.
 
-			torch.cuda.empty_cache()
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
 
-
-	def run_per_system_prediction( self, sys_name: str ):
+		Returns:
+		----------
+		il_obj -> an instance of IntegrativeLearning().
+		topo_dict -> dict specifying the configs for modeling.
 		"""
-		Run OpenFold prediction for a given complex (system).
-		Initialize the IntergrativeLearning class.
-		Obtain an initial prediction.
-		Compute the violation loss and XL metric.
-		"""
-		# Only TP XLs.
-		sys_conf_suff = ""
 		# Initialize the topology dict.
 		topo_dict = topology_dict()
 		# Not using XL tolerance while computing metric.
@@ -233,11 +214,155 @@ class InitPrediction():
 				sys_name = sys_name,
 				base_dir = self.base_dir,
 				data_dir = data_dir,
-				sys_config_file =  f"sys_config_{sys_name}{sys_conf_suff}.json",
+				sys_config_file =  f"sys_config_{sys_name}{self.sys_conf_suff}.json",
 				modeling_dir_name = self.modeling_dir_name,
 				topology_dict = topo_dict,
 				)
 		il_obj.create_required_paths_dirs()
+		return il_obj, topo_dict
+
+
+	################################################################################
+	################################################################################
+	def prep_msa_for_benchmark( self ):
+		"""
+		Prepare MSAs for all complexes in the benchmark, in parallel.
+			MSA creation can be parallelized and to cut down runtime.
+		"""
+		if os.path.exists( self.init_pred_metrics_file ):
+			self.init_pred_metrics = read_json( self.init_pred_metrics_file )
+
+		try:
+			with Pool( self.cpu_cores ) as p:
+				for result in tqdm.tqdm(
+					p.imap_unordered(
+					self.prep_msa_per_system, self.benchmark["PDB ID"] ),
+					total = len( self.benchmark["PDB ID"] )
+					):
+					sys_name, success, time_taken = result
+
+					if success:
+						self.logs["msa_created"][sys_name] = None
+						self.logs["msa_time"][sys_name] = time_taken
+		except KeyboardInterrupt:
+			print( "\nInterrupted by user. Terminating pool..." )
+			# Kill all processes.
+			p.terminate()
+			p.join()
+			raise
+
+
+	def prep_msa_per_system( self, sys_name: str ):
+		"""
+		For the given system, create input MSAs.
+
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
+
+		Returns:
+		----------
+		sys_name -> same as above.
+		success -> bool identifier indicating if MSA creation completed successfully.
+		time_taken -> time taken for MSA creation.
+		"""
+		if sys_name in PROBLEMATIC:
+			success = False
+			time_taken = None
+		elif sys_name in self.logs["errored"]:
+			success = False
+			time_taken = None
+
+		if sys_name in self.logs["msa_created"]:
+			success = True
+			time_taken = self.logs["msa_time"][sys_name]
+		else:
+			# try:
+			ts = time.perf_counter()
+			il_obj, topo_dict = self.init_integrative_learning_module(
+				sys_name = sys_name )
+			sys_rep_obj = SystemRepresentation(
+				sys_name = sys_name,
+				is_multimer = True,
+				sys_rep_config = topo_dict.system_representation,
+				fasta_dir = il_obj.fasta_dir,
+				alignment_dir = il_obj.alignment_dir,
+				ofold_output_dir = il_obj.ofold_output_dir,
+				seed_worker = il_obj.seed_worker
+			)
+			# Only run the input creation part.
+			sys_rep_obj.create_required_paths()
+			sys_rep_obj.init_ofold_config()
+			sys_rep_obj.init_feature_processor()
+			sys_rep_obj.prepare_input()
+			success = True
+			te = time.perf_counter()
+			time_taken = te - ts
+			# except KeyboardInterrupt:
+			# 	print( "KeyBoard Interrupt..." )
+			# 	raise
+			# except:
+			# 	# self.log_error( sys_name = sys_name )
+			# 	print( "Here" )
+			# 	success = False
+			# 	time_taken = None
+		return sys_name, success, time_taken
+
+
+	################################################################################
+	################################################################################
+	def predict_for_benchmark( self ):
+		"""
+		Get initial prediction for all complexes in the benchmark.
+		Obtain the violation loss and XL satisfaction.
+		"""
+		if os.path.exists( self.init_pred_metrics_file ):
+			self.init_pred_metrics = read_json( self.init_pred_metrics_file )
+		# else:
+		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			if sys_name in PROBLEMATIC:
+				continue
+
+			print( f"\n----------- \033[1m {i}. {sys_name}\033[0m" )
+			if sys_name in self.logs["errored"]:
+				print( f"{sys_name} errored in a previous run..." )
+				continue
+			elif sys_name in self.init_pred_metrics:
+				print( f"Already completed for {sys_name}..." )
+				continue
+
+			tic = time.perf_counter()
+			violation, xl_metric, ptm, iptm = self.run_prediction_per_system( sys_name = sys_name )
+			self.init_pred_metrics[sys_name] = {
+				"violation": violation.item(),
+				"xl_satisfaction": xl_metric.item(),
+				"ptm": ptm,
+				"iptm": iptm }
+			toc = time.perf_counter()
+			if not sys_name in self.logs["time"]:
+				self.logs["time"][sys_name] = toc-tic
+				write_json( self.logs, self.logs_file )
+			write_json( self.init_pred_metrics, self.init_pred_metrics_file )
+
+
+
+	def run_prediction_per_system(
+		self, sys_name: str
+		) -> Tuple[float, float, float, float]:
+		"""
+		Run OpenFold prediction for a given complex (system).
+		Initialize the IntergrativeLearning class.
+		Obtain an initial prediction.
+		Compute the violation loss and XL metric.
+
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
+		"""
+		torch.cuda.reset_peak_memory_stats()
+		torch.cuda.synchronize()
+		il_obj, topo_dict = self.init_integrative_learning_module(
+			sys_name = sys_name )
 
 		print( "\n" + "-"*70 + "\n" +"-"*27 +
 			" \033[1mData gathering\033[0m " +
@@ -276,12 +401,26 @@ class InitPrediction():
 		violation = losses["violation"]
 		xl_metric = metrics_dict["xlr"]
 		print( f"{sys_name} -- Violation = {violation} \t XL_metric = {xl_metric}" )
-		return violation, xl_metric
+
+		init_pred_file = get_init_pred_file(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name )
+		f = open_file_handler( init_pred_file, "rb" )
+		out = pkl.load( f )
+		f.close()
+		ptm = float( out["ptm_score"] )
+		iptm = float( out["iptm_score"] )
+
+		del il_obj
+		torch.cuda.empty_cache()
+		return violation, xl_metric, ptm, iptm
 
 
 	def filter_complexes( self ):
 		"""
-		Remove complexes for which data satisfcation is greater than the specified cutoff.
+		Remove complexes for which data satisfcation is
+			greater than the specified cutoff.
 		"""
 		all_keys = list( self.init_pred_metrics.keys() )
 		for sys_name in all_keys:
@@ -319,6 +458,14 @@ class InitPrediction():
 			No. of TP Inter-protein XLs.
 			No. of FP Inter-protein XLs.
 			Auth asym IDs.
+
+		Input:
+		----------
+		sys_name -> name of the complex modeled. For the benchmark, it's the PDB ID.
+
+		Returns:
+		----------
+		sys_dict -> dict containing the relevant info as mentioned above for the system.
 		"""
 		idx = self.benchmark.index[self.benchmark["PDB ID"] == sys_name].tolist()
 		sys_dict = {
@@ -329,230 +476,37 @@ class InitPrediction():
 			"TP XLs": self.benchmark.loc[idx, "Selected TP XLs"].tolist()[0],
 			"FP XLs": self.benchmark.loc[idx, "Selected FP XLs"].tolist()[0],
 			"Auth Asym ID": self.benchmark.loc[idx, "Auth Asym ID"].tolist()[0],
-			# "benchmark": self.pdb_benchmark_map[sys_name]
+			"pTM": round( self.init_pred_metrics[sys_name]["ptm"], 3 ),
+			"ipTM": round( self.init_pred_metrics[sys_name]["iptm"], 3 )
 		}
-		if self.benchmark_name == "xlmerged":
-			sys_dict.update( {"benchmark": self.pdb_benchmark_map[sys_name]} )
 
 		return sys_dict
 
-	# def log_memory_usage( self, sys_name: str ):
-	# 	"""
-	# 	Log the device memory used during modeling.
-	# 	device must be in the following formar: cuda[0]
-	# 	Reset the CUDA memory stats after logging.
-	# 	"""
-	# 	if self.device == "cpu":
-	# 		raise valueError( "Pytorch does not provide " +
-	# 				"built-in functions to check CPU memory stats. " +
-	# 				"Change device to cuda[0/1]..." )
-	# 	else:
-	# 		device_num = int( self.device[-1] )
-	# 	# Get peak memory since last reset.
-	# 	max_allocated = torch.cuda.max_memory_reserved( device_num )
-	# 	max_reserved = torch.cuda.max_memory_reserved( device_num )
-	# 	self.logs["memory_allocated"][sys_name] = max_allocated
-	# 	self.logs["memory_reserved"][sys_name] = max_reserved
-
-
-	# def modify_topology( self, sys_name: str ):
-	# 	"""
-	# 	Add modeling objective and version to topology for each system.
-	# 	"""
-	# 	topo_dict = topology_dict()
-	# 	topo_dict.objective = f"{sys_name} {self.modeling_objective}"
-	# 	topo_dict.train.version = self.modeling_version
-	# 	topo_dict.train.device = self.device
-
-	# 	# if self.benchmark_name == "sabdab":
-	# 	# 	topo_dict.db_preset = "reduced_dbs"
-
-	# 	return topo_dict
-
-
-	# ## ------------------------------------------------------ ##
-	# ## ------------------------------------------------------ ##
-	# def run_modeling_for_benchmark( self ):
-	# 	"""
-	# 	Run the Integrative modeling pipeline for the entire benchmark.
-	# 	"""
-	# 	print( "\033[1mRunning modeling for the benchmark...\033[0m" )
-	# 	curr_dir = os.getcwd()
-	# 	for idx, sys_name in enumerate( self.benchmark["PDB ID"] ):
-	# 		print( "\n" + "-"*70 + "\n" + "-"*70 )
-	# 		print( "-"*25 + f" {idx}/{self.num_systems} --> {sys_name} " + "-"*25 )
-	# 		print( "\n" + "-"*70 + "\n" + "-"*70 )
-
-	# 		# 5e8e_B has a non-standard aa PCA.
-	# 		# All these failed due to H-chain mapped to Titin.
-	# 		if sys_name in self.logs["errored"]:
-	# 			continue
-	# 		# if sys_name in ["1kcs", "1f58", "2b1h", "5dmi", "1uj3",
-	# 		# 				"4i3r", "2qhr", "6aq7", "1osp", "3ujj",
-	# 		# 				"3sge", "4m1d", "5dmi", "5u3j", "6db7",
-	# 		# 				"6u6u", "6jep", "6q18", "7n4j", "7tp3",
-	# 		# 				"8x0t", "8fdo", "6xq0", "8yor"]:
-	# 		#             print( f"Skipping PDB ID: {sys_name}...\n" )
-
-	# 	    # 7xpc -> contains non-standard aa MSE.
-	# 	    # if sys_name in ["7xvk", "8st9"]:
-	# 	    #         continue
-
-	# 		sys_path = self.get_sys_path( sys_name )
-	# 		stat_file_path = self.get_stat_file_path( sys_name )
-
-	# 		if not os.path.exists( stat_file_path ):
-	# 			tic = time.time()
-	# 			topo_dict = self.modify_topology( sys_name = sys_name )
-	# 			device = topo_dict.train.device
-
-	# 			# torch.cuda.reset_peak_memory_stats( device = torch.device( device ) )
-	# 			self.run_modeling_for_system( sys_name = sys_name,
-	# 											topo_dict = topo_dict )
-	# 			toc = time.time()
-	# 			self.logs["time"][sys_name] = toc-tic
-	# 			self.log_memory_usage( sys_name = sys_name )
-
-	# 			write_json( self.logs, self.logs_file )
-	# 		else:
-	# 			print( f"Summary file already present for {sys_name}..." )
-
-	# 		# Return to base_dir.
-	# 		os.chdir( curr_dir )
-	# 		fasta_path = f"./benchmark/{sys_name}_fasta/"
-	# 		if os.path.exists( fasta_path ):
-	# 			run_subprocess( ["rm", f"{fasta_path}"] )
-
-
-	# def log_error( self, sys_name: str ):
-	# 	"""
-	# 	If an error occurs while modeling,
-	# 		Log the errorneous entry_id in the dataset sepcific metadata dir.
-	# 		log the traceback in the system dir.
-	# 	"""
-	# 	self.logs["errored"][sys_name] = None
-
-	# 	ver_path = self.get_modeling_version_path( sys_name )
-	# 	current_datetime = datetime.now()
-	# 	timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
-	# 	error_file = os.path.join( ver_path, f"error_init_pred_{timestamp}.txt" )
-	# 	w = open_file_handler( error_file, "w" )
-	# 	w.write( traceback.format_exc() )
-	# 	w.close()
-
-	# 	print( f"An error occured for system: {sys_name}. " +
-	# 			f"Check error log in {error_file}...\n" )
-
-
-
-	# def run_modeling_for_system( self, sys_name: str, topo_dict: mlc.ConfigDict ):
-	# 	"""
-	# 	Run the Integrative modeling pipeline for a give system.
-	# 	If summary file exists fo a run, do not run again.
-	# 	If an error occurs, log it to the modeling dir.
-	# 	Empty the CUDA cache after each run.
-	# 	"""
-
-	# 	# Directory containing input data for the modeled system.
-	# 	data_dir = os.path.join( self.base_dir,
-	# 							f"{self.benchmark_name}_benchmark/{sys_name}/" )
-	# 	# fasta_path = "./benchmark/"
-	# 	try:
-	# 		il_obj = IntegrativeLearning( 
-	# 				sys_name = sys_name,
-	# 				base_dir = self.base_dir,
-	# 				data_dir = data_dir,
-	# 				# fasta_path = fasta_path,
-	# 				sys_config_file =  f"sys_config_{sys_name}.json",
-	# 				modeling_dir_name = self.modeling_dir_name,
-	# 				topology_dict = topo_dict,
-	# 				)
-	# 		il_obj.disable_overwrite_warning = True
-	# 		il_obj.forward()
-	# 	except:
-	# 		self.log_error( sys_name = sys_name )
-
-	# 	torch.cuda.empty_cache()
-
-
-	# ## ------------------------------------------------------ ##
-	# ## ------------------------------------------------------ ##
-	# def get_summary_dict( self ):
-	# 	"""
-	# 	Return an empty summary dict containing all required keys.
-	# 	"""
-	# 	empty_dict = {k:[] for k in ["PDB ID", "XLR metric 0", "XLR metric last",
-	# 								"Viol0", "CCOM0", "Total length",
-	# 								"TP XLs", "FP XLs", "Auth Asym ID"]}
-	# 	return empty_dict
-
-
-	# def filter_benchmark( self ):
-	# 	"""
-	# 	Remove complexes that have >cutoff data satisfaction for
-	# 		the initial predicted structure.
-	# 	"""
-	# 	print( "\n\n" + "-"*70 )
-	# 	print( "\033[1mFiltering complexes based on data satisfaction...\033[0m" )
-	# 	print( "-"*70 + "\n" )
-
-	# 	# summary_dict = self.get_summary_dict()
-	# 	summary_dict = {k:[] for k in ["PDB ID", "XLR metric 0", "XLR metric last",
-	# 								"Viol0", "CCOM0", "Total length",
-	# 								"TP XLs", "FP XLs", "Auth Asym ID"]}
-
-	# 	for sys_name in self.benchmark["PDB ID"]:
-
-	# 		if sys_name in self.logs["errored"]:
-	# 			continue
-	# 		sys_dict = self.get_system_data( sys_name = sys_name )
-	# 		if sys_dict is None:
-	# 			continue
-
-	# 		for k in summary_dict:
-	# 			summary_dict[k].append( sys_dict[k] )
-
-	# 	df = pd.DataFrame( summary_dict )
-	# 	df.to_csv( self.selected_benchmark_file, index = False )
-
-
-
-	# def get_system_data( self, sys_name: str ) -> Dict:
-	# 	"""
-	# 	Get the following info for all complexes:
-	# 		PDB ID (sys_name)
-	# 		XL sstisfaction at epoch 0.
-	# 		XL sstisfaction at last 0.
-	# 		Total length of the system.
-	# 		No. of TP Inter-protein XLs.
-	# 		No. of FP Inter-protein XLs.
-	# 		Auth asym IDs.
-	# 	"""
-	# 	stats_dict = self.load_stat_file( sys_name )
-
-	# 	epoch0_xlr = stats_dict["metrics"]["xlr"][0]
-	# 	last_epoch_xlr = stats_dict["metrics"]["xlr"][-1]
-
-	# 	if epoch0_xlr > self.data_sat_cutoff:
-	# 		return None
-	# 	else:
-	# 		idx = self.benchmark.index[self.benchmark["PDB ID"] == sys_name].tolist()
-	# 		sys_dict = {
-	# 			"PDB ID": sys_name,
-	# 			"XLR metric 0": epoch0_xlr,
-	# 			"XLR metric last": last_epoch_xlr,
-	# 			"Viol0": stats_dict["loss"]["violation"][0],
-	# 			"CCOM0": stats_dict["loss"]["chain_center_of_mass"][0],
-	# 			"Total length": self.benchmark.loc[idx, "Total length"].tolist()[0],
-	# 			"TP XLs": self.benchmark.loc[idx, "Selected TP XLs"].tolist()[0],
-	# 			"FP XLs": self.benchmark.loc[idx, "Selected FP XLs"].tolist()[0],
-	# 			"Auth Asym ID": self.benchmark.loc[idx, "Auth Asym ID"].tolist()[0]
-	# 		}
-
-	# 		return sys_dict
-
 
 if __name__ == "__main__":
-	InitPrediction().forward()
+	parser = argparse.ArgumentParser(
+		description = "obtain openfold predictions for the specified benchmark."
+	)
+	parser.add_argument(
+		"-b", "--benchmark_name",
+		type = str, required = True,
+		help = "name of the benchmark. Allowed xlmerged/experiment..." )
+	parser.add_argument(
+		"-v", "--modeling_version",
+		type = int, required = False, default = 0,
+		 help = "an integer identifier for the mdeling run. Not strictly needed here." )
+	parser.add_argument(
+		"-c", "--cpu_cores", type = int,
+		required = False, default = 4,
+		 help = "no. of cpu cores to use for parallelizing MSA creation." )
+	parser.add_argument(
+		"-d", "--device",
+		type = str, required = False, default = "cuda:0",
+		 help = "device to be used for running OpenFold prediction." )
 
-
+	args = parser.parse_args()
+	InitPrediction(
+		benchmark_name = args.benchmark_name,
+		modeling_version = args.modeling_version,
+		device = args.device
+	).forward()
