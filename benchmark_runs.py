@@ -867,7 +867,7 @@ class BenchmarkModeling():
 		self.plot_per_epoch_distribution()
 		if self.enable_relax_validate:
 			if self.sys_conf_suff == "_tpfp":
-				self.plot_fpxl_ssatisfaction()
+				# self.plot_fpxl_ssatisfaction()
 				self.plot_tm_score_distribution()
 			# self.plot_dockq_score()
 			self.plot_molrobity_scores()
