@@ -1016,6 +1016,8 @@ class Comparison():
 				hue = "Method",
 				linewidth = 0.1
 			)
+			if metric == "dockq":
+				ax.axhline( 0.23, color = "red" )
 
 			ax.set_ylabel( f"{metric.capitalize()}", fontsize = 20 )
 			ax.set_xlabel( "Complex", fontsize = 20 )
