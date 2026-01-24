@@ -18,8 +18,8 @@ from openfold.config import model_config
 from topology import topology_dict
 
 from data_gathering import DataGathering
-from system_representation2 import SystemRepresentation
-from fit_to_data2 import FitToData
+from system_representation import SystemRepresentation
+from fit_to_data import FitToData
 from analysis.assay import Assay
 from utils.create_plots import ( create_plot_from_dict,
 								plot_per_epoch_xl_satisfcation,

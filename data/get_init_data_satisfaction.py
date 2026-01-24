@@ -13,7 +13,7 @@ import tqdm
 import torch
 
 from openfold_wrapper import IntegrativeLearning
-from system_representation2 import SystemRepresentation
+from system_representation import SystemRepresentation
 from loss import LossFunction
 from metrics import Metrics
 from topology import topology_dict
