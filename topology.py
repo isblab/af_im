@@ -113,45 +113,6 @@ config = mlc.ConfigDict(
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"rigid_type": "chains",
 		"num_recycles": 1,  # no. of recycling iterations for OpenFold.
-		"inference_mode": "eval",  # Run OpenFold inference in train or eval mode.
-		# Selectively activate dropouts for either the evoformer or structure_module only.
-		# 	this option is ignored when inference_mode = train.
-		"activate_dropouts": "none",  # evoformer/structure_module/none
-		"use_extra_msa": True,  # If True, use the extra MSA embedder, else disable it.
-		"use_template_embedder": True,  # If True, use template embedder else disable it.
-		# Subsample MSA feats
-		"subsampling": {
-			"enabled": False,
-			"type": "sequential",  # random/sequential
-			"params": {
-			# Randomly choses a neff value from the provided list.
-			"neff": [25],
-			"eff_cutoff": 0.8,
-			"cap_msa": True
-			}
-		},
-		# Subsample extra-MSA.
-		"extra_msa_subsampling": {
-			"enabled": False,
-			"params": {"neff": [25]}
-		},
-		"column_masking": {
-			"enabled": False,
-			"params": {
-			# Randomly choses a mask fraction from the provided list (Max 0.3).
-			"mask_frac": [0.3]
-			}
-		},
-		# "struct_noising": {
-		# 	"enabled": False,
-		# 	"params": {
-		# 		"noise_struct": True,
-		# 		"mu": [0.0],
-		# 		"sigma": [1.0]
-		# 	}
-		# },
-		"msa_xl_res_mask": False,
-		"no_templates": False # deprecated
 	},
 	"loss": {
 		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
@@ -255,20 +216,10 @@ config = mlc.ConfigDict(
 	"train": {
 		# Version for the modeling run.
 		"version": None,
-		"use_as_templates": False,  # Inject pose sampled structure via template embedder.
-		"add_to_existing_templates": False,  # If true, add the pose sampled struct ffeats to existing template feats.
-		"recycle_pose": True,  # Inject predicted structure via the recycling embedder.
-		"skip_pose_sampling": False,  # If True, skip pose sampling.
 		"sample_random_pose": False,  # If True, perform random pose sampling.
 		"init_coord": "zero",  # zero/ init
-		"init_rep": ["zero", "zero"],  # initialize MSA and Pair rep to - "init": as specified in init_rep; "zero": initializes to 0; "none" initialie to None.
-		"reinit_rep": ["zero", "zero"],  # prev_frame: reuses MSA/Pair rep from previous frame; init: initialize as in init_rep.
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes as in init_rep.
-		"reinit_step": "prev_frame",  # prev_frame/prev_step/init for all but 0th step
-		"fill_none": False,  # (deprecated) If skipping pose sampling, replace final_atom_positions with None.
 		"num_frames": 50, # max epochs for sampling.
-		"num_steps": 20, # max epochs for pose sampling.
-		"select_pose": "max",  # last: select pose from last step; max: select pose with max data satisfaction.
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"device": "cuda:0" # CUDA device to be used.
 	}

@@ -12,7 +12,6 @@ import pandas as pd
 from ml_collections import ConfigDict
 import matplotlib.pyplot as plt
 import torch
-# from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
 
 from openfold_wrapper import IntegrativeLearning
 
@@ -33,8 +32,7 @@ from utils.paths import (
 	get_relaxed_model_file,
 	get_native_struct_file,
 	get_init_struct_file )
-from utils.tools import usalign, get_alignment_score, dockq
-from experiment_hparams import experiment_hyperparameters
+from utils.tools import usalign, get_alignment_score
 from xlmerged_hparams import xlmerged_hyperparameters
 
 class BenchmarkModeling():
@@ -49,43 +47,14 @@ class BenchmarkModeling():
 		self.sys_conf_suff = ""
 		# No. of recyling iters for OpenFold.
 		self.num_recycles = 1
-		# If true, template embedder is enabled else disabled.
-		self.use_template_embedder = True
-		# If True, use the extra MSA embedder.
-		self.use_extra_msa = True
-		# OpenFold inference mode - train/eval.
-		self.inference_mode = "eval"  # train/eval
-		# Selectively activate dropouts for evoformer/structure_module.
-		self.activate_dropouts = "none" # evoformer/structure_module/none
 		# Maximum no. of epochs for fine-tuning.
 		self.num_frames = 50
-		# Max epochs for pose sampling.
-		self.num_steps = 20
-		# Select pose to be injected into OpenFold.
-		self.select_pose = "last"
-		# Disable template embeddings.
-		self.no_templates = False
-		self.skip_pose_sampling = False
 		# Sample rigid transformations at random.
 		self.sample_random_pose = False
-		# Inject pose sampled structure via template embedder.
-		self.use_as_templates = False
-		# If true, add the pose sampled struct ffeats to existing template feats.
-		self.add_to_existing_templates = False
-		# Inject predicted structure via the recycling embedder.
-		self.recycle_pose = True
 		# Initialize final_atom_positions to 0 or initial predicted structure.
 		self.init_coord = "zero"
-		# Initialize the MSA and Pair representations.
-		self.init_rep = ["zero", "zero"]
-		# Reinitialize MSA/Pair representations every frame.
-		self.reinit_rep = ["init", "init"]
 		# "init": Initialize final_atom_positions again; "prev_frame": use from previous epoch.
 		self.reinit_frame = "prev_frame"
-		# Reuse the final_atom_positions form previous epoch/ previous pose or initialize again.
-		self.reinit_step = "prev_step"
-		# If skipping pose sampling, use final_atom_positions=None.
-		self.fill_none = False
 		# Precision of the float values in the results.
 		self.prec = 4
 		# Set GPU to use.
@@ -123,43 +92,9 @@ class BenchmarkModeling():
 				"quantiles": {"xlr": 0.75, "violation": 0.25}
 			}
 		}
-		# Configs for MSA subsampling.
-		self.subsampling = {
-			"enabled": False,
-			"type": "sequential",  # random/sequential
-			"params": {
-			"neff": [25],
-			"eff_cutoff": 0.8,
-			"cap_msa": True
-			}
-		}
-		# Configs for extra MSA subsampling.
-		self.extra_msa_subsampling = {
-			"enabled": False,
-			"params": {"neff": [25]}
-		}
-		# Configs for MSA column masking.
-		self.column_masking = {
-			"enabled": False,
-			"params": {
-			"mask_frac": [0.3],
-			}
-		}
-		# Configs for structure noising.
-		# self.struct_noising = {
-		# 	"enabled": False,
-		# 	"params": {
-		# 	"noise_struct": True,
-		# 	"mu": [0.0],
-		# 	"sigma": [1.0],
-		# 	}
-		# }
-		# mask the cross-linked residues in MSA.
-		self.msa_xl_res_mask = False
 
 		self.topo_dict = topo_dict
 
-		self.dockq_dict = {}
 		self.tm_dict = {}
 
 
@@ -271,38 +206,11 @@ class BenchmarkModeling():
 			topo_dict.analysis.enable_relax_validate = self.enable_relax_validate
 			topo_dict.db_preset = self.db_preset
 			topo_dict.model.num_recycles = self.num_recycles
-			topo_dict.model.inference_mode = self.inference_mode
-			topo_dict.model.use_template_embedder = self.use_template_embedder
-			topo_dict.model.use_extra_msa = self.use_extra_msa
-			topo_dict.model.activate_dropouts = self.activate_dropouts
 			topo_dict.train.num_frames = self.num_frames
-			topo_dict.train.num_steps = self.num_steps
-			topo_dict.train.skip_pose_sampling = self.skip_pose_sampling
 			topo_dict.train.sample_random_pose = self.sample_random_pose
-			topo_dict.train.use_as_templates = self.use_as_templates
-			topo_dict.train.add_to_existing_templates = self.add_to_existing_templates
-			topo_dict.train.recycle_pose = self.recycle_pose
 			topo_dict.train.init_coord = self.init_coord
-			topo_dict.train.init_rep = self.init_rep
-			topo_dict.train.reinit_rep = self.reinit_rep
 			topo_dict.train.reinit_frame = self.reinit_frame
-			topo_dict.train.reinit_step = self.reinit_step
-			topo_dict.train.select_pose = self.select_pose
-			topo_dict.train.fill_none = self.fill_none
 			topo_dict.train.device = self.device
-
-			# Disable templates.
-			topo_dict.model.no_templates = self.no_templates
-
-			# MSA subsampling configs.
-			topo_dict.model.subsampling = self.subsampling
-			# Extra MSA subsampling configs.
-			topo_dict.model.extra_msa_subsampling = self.extra_msa_subsampling
-			# MSA column masking configs.
-			topo_dict.model.column_masking = self.column_masking
-			# Structure noising
-			# topo_dict.model.struct_noising = self.struct_noising
-			topo_dict.model.msa_xl_res_mask = self.msa_xl_res_mask
 
 			# Violation loss settings.
 			topo_dict.loss.violation.enabled = self.violation["enabled"]
@@ -388,331 +296,6 @@ class BenchmarkModeling():
 				)
 		il_obj.disable_overwrite_prompt = self.disable_overwrite_prompt
 		il_obj.forward()
-
-	################################################################################
-	################################################################################
-	def assess_fp_satisfaction( self ):
-		"""
-		For all selected good-scoring models, check if the FP
-			XLs have been satisfied or not.
-			Distnace between the FP XL residue pair is below the XL max bound.
-		For ambiguous cases, check if any copy satisfies the XL.
-		"""
-		print( "\n" + "-"*70 +
-			"\n\t\t\033[1m--> Assessing FP XL satisfaction <--\033[0m\n" +
-			"-"*70 )
-		fp_sat_dict = {k:[] for k in ["complexes", "fp_satisfied", "total_fp"]}
-		for sys_name in self.benchmark["PDB ID"]:
-			analysis_dict = self.load_analysis_dict( sys_name = sys_name )
-
-			# get chian IDs from the native structure.
-			# This is stored as a comma-separated str per entity.
-			native_chain_ids = self.benchmark[self.benchmark["PDB ID"] == sys_name]["Auth Asym ID"].tolist()[0]
-			native_chain_ids = native_chain_ids.split( "," )
-			sys_chains = self.get_sys_chains( native_chain_ids = native_chain_ids )
-
-			# Get the FP XLs.
-			fp_xls = self.get_fp_XLs( sys_name = sys_name )
-			# Get the modeled residues for all entities.
-			modeled_res_dict = self.get_modeled_residues( sys_name = sys_name )
-
-			if len( analysis_dict["selected_good_models"] ) == 0:
-				raise ValueError( "No selected good models found..." )
-
-			# per_model_fp_sat = []
-			aggregated_fp_sat = None
-			for model_id in analysis_dict["selected_good_models"]:
-				fp_satisfaction = self.check_fp_xl_satisfaction(
-						sys_name = sys_name,
-						model_id = model_id,
-						sys_chains = sys_chains,
-						modeled_res_dict = modeled_res_dict,
-						fp_xls = fp_xls )
-				if aggregated_fp_sat is None:
-					aggregated_fp_sat = fp_satisfaction.astype( int )
-				else:
-					aggregated_fp_sat = np.maximum( aggregated_fp_sat, fp_satisfaction.astype( int ) )
-				# if len( per_model_fp_sat ) == 0:
-				# 	per_model_fp_sat = fp_satisfaction
-				# else:
-				# 	per_model_fp_sat += fp_satisfaction
-			if aggregated_fp_sat is None:
-				aggregated_fp_sat = np.zeros( fp_xls.shape[0], dtype = int )
-
-			# per_model_fp_sat = np.where( per_model_fp_sat > 0, 1, 0 )
-			satisfied_count = int( np.count_nonzero( aggregated_fp_sat ) )
-			per_model_fp_sat = np.where( aggregated_fp_sat > 0, 1, 0 )
-			fp_sat_dict["complexes"].append( sys_name )
-			fp_sat_dict["fp_satisfied"].append( satisfied_count )
-			fp_sat_dict["total_fp"].append( fp_xls.shape[0] )
-			print( sys_name, " --> ", satisfied_count, "  ", fp_satisfaction.shape )
-		return fp_sat_dict
-
-
-	def get_sys_chains( self, native_chain_ids: List[str] ):
-		"""
-		Given the system chain IDs, create the system chain IDs starting from "A".
-		native_chain_ids is a list containing per entity chain IDs.
-			Multiple instances of an entity are separated by ":".
-		"""
-		sys_idx = 0
-		sys_chains = []
-		for chain_ids in native_chain_ids:
-			tmp = []
-			for id_ in chain_ids.split( ":" ):
-				chain_id = get_chain_id( idx = sys_idx )
-				tmp.append( chain_id )
-				sys_idx += 1
-			sys_chains.append( ":".join( tmp ) )
-		return sys_chains
-
-
-	def get_fp_XLs( self, sys_name: str ) -> pd.DataFrame:
-		"""
-		Parse the XLs .csv file for the given system
-			and return the FP XLs.
-		"""
-		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
-		data_dir = get_sys_data_dir_path(
-			base_dir = self.base_dir,
-			benchmark_name = self.benchmark_name,
-			sys_name = sys_name )
-
-		xl_file = os.path.join(
-			data_dir,
-			f"interprotein_xls{self.sys_conf_suff}.csv" )
-		xl_df = pd.read_csv( xl_file )
-		fp_xls = xl_df[xl_df["label"] == 0]
-		return fp_xls
-
-
-	def get_modeled_residues( self, sys_name: str ) -> Dict[int, np.array]:
-		"""
-		Parse the start-end residue positions for the modeled sequence.
-		Return dict contaiing residue positions from start to
-			end for all entity_ids.
-		"""
-		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
-		sys_config = self.get_sys_config( sys_name = sys_name )
-		sys_key = list( sys_config.keys() )[0]
-		modeled_res_dict = {}
-		for entity in sys_config[sys_key]["entity"]:
-			entity_id = int( entity["entity_id"] )
-			start = int( entity["start"] )
-			end = int( entity["end"] )
-
-			modeled_res_dict[entity_id] = np.arange( start, end + 1, 1 )
-		return modeled_res_dict
-
-
-	def check_fp_xl_satisfaction( self,
-			sys_name: str,
-			model_id: str,
-			sys_chains: List,
-			modeled_res_dict: Dict[int, np.array],
-			fp_xls: pd.DataFrame ):
-		"""
-		Load the structure file and get coordinates for all chains.
-		For each XL,
-			Get the protein name.
-			Identify the chain or chains (homomers).
-			Create all ambiguous chain pairs.
-			Compute distance between the XL residues.
-			FP XL satisfied if distance is within XL max bound.
-		"""
-		coords_dict = self.get_model_coords( sys_name = sys_name, model_id = model_id )
-		fp_satisfaction = []
-		for i in fp_xls.index:
-			prot1, res1, prot2, res2, _ = fp_xls.loc[i]
-
-			entity_id1 = int( prot1.split( "_" )[1] )
-			entity_id2 = int( prot2.split( "_" )[1] )
-
-			# print( modeled_res_dict.keys() )
-			positions1 = modeled_res_dict[entity_id1]
-			positions2 = modeled_res_dict[entity_id2]
-
-			res_idx1 = self.get_residue_position_in_struct(
-				modeled_pos = positions1, res = res1
-				)
-			res_idx2 = self.get_residue_position_in_struct(
-				modeled_pos = positions2, res = res2
-				)
-
-			ambiguous_chain_pairs = self.get_ambiguous_chain_pairs(
-				sys_chains = sys_chains,
-				entity_id1 = entity_id1,
-				entity_id2 = entity_id2
-			)
-			satisfied = self.compute_xl_distance(
-				sys_name = sys_name,
-				coords_dict = coords_dict,
-				ambiguous_chain_pairs = ambiguous_chain_pairs,
-				res_idx1 = res_idx1,
-				res_idx2 = res_idx2
-				)
-			fp_satisfaction.append( int( satisfied ) )
-		return np.array( fp_satisfaction )
-
-
-	def get_residue_position_in_struct( self,
-			modeled_pos: np.array, res: int ) -> np.array:
-		"""
-		Get the residue position in the structure (index)
-			given the modeled residue position.
-		Residue no. in the predicted structure start from 1 whereas
-			the XL file contains the residues as per the 'seq_id'.
-		So, the index of the XL residue in modeled sequence
-			is the required residue in the predicted structure.
-		"""
-		idx = np.where( modeled_pos == res )[0][0]
-		return idx
-
-
-	def get_model_coords( self, sys_name: str, model_id: str ):
-		"""
-		Given the model_id, extract coordinates for all
-			chains in the structure.
-		"""
-		ver_path = self.get_sys_modeling_version_path( sys_name )
-		analysis_dir_path = os.path.join( ver_path, "analysis" )
-		model_file = os.path.join(
-			analysis_dir_path,
-			f"relaxed_models/model_{model_id}.{self.struct_format}"
-		)
-		p = Parser( pdb_file = model_file )
-		for m in p.get_models():
-			coords_dict = p.get_coordinates( model = m )
-		return coords_dict
-
-
-	def get_ambiguous_chain_pairs( self,
-		sys_chains: List,
-		entity_id1: str, entity_id2: str ):
-		"""
-		Map each protein to the respective chain(s) and
-			create all prot1/2 chain pairs.
-		"""
-		entity_ids = np.arange( 1, len( sys_chains ) + 1, 1 )
-
-		idx1 = np.where( entity_ids == int( entity_id1 ) )[0][0]
-		idx2 = np.where( entity_ids == int( entity_id2 ) )[0][0]
-
-		chains1 = sys_chains[idx1].split( "-" )
-		chains2 = sys_chains[idx2].split( "-" )
-
-		ambiguous_chain_pairs = []
-		# We only use inter-protein XLs.
-		for c1 in chains1:
-			for c2 in chains2:
-				if c1 != c2:
-					ambiguous_chain_pairs.append( [c1, c2] )
-
-		return ambiguous_chain_pairs
-
-
-	def compute_xl_distance( self,
-			sys_name: str,
-			coords_dict: Dict[str, np.array],
-			ambiguous_chain_pairs: List[List],
-			res_idx1: int,
-			res_idx2: int ):
-		"""
-		For all given ambiguous chain pairs, compute
-			the distance between the given residues.
-		res1, res2 represent the 'seq_id' in the ground truth structure.
-		"""
-		sys_config = self.get_sys_config( sys_name = sys_name )
-		sys_key = list( sys_config.keys() )[0]
-		xl_max_bound = float( sys_config[sys_key]["data_gathering"]["xl_restraint"]["xl_max_bound"] )
-		satisfied = []
-		for amb_pair in ambiguous_chain_pairs:
-			chain1, chain2 = amb_pair
-			coord1 = coords_dict[chain1]
-			coord2 = coords_dict[chain2]
-
-			res1_xyz = coord1[res_idx1].reshape( 1, 3 )
-			res2_xyz = coord2[res_idx2].reshape( 1, 3 )
-			distance = np.linalg.norm( res1_xyz - res2_xyz )
-
-			satisfied.append( distance <= xl_max_bound )
-		return any( satisfied )
-
-	################################################################################
-	################################################################################
-	def remap_chains_in_native( self ):
-		"""
-		For running DockQ, the chain IDs in the native
-			and predicted structures must be the same.
-		We remap chains in the native structure as its cheaper
-			than in the prediction.
-		"""
-		for i, sys_name in enumerate( self.benchmark["PDB ID"] ):
-			native_chain_ids = self.benchmark.loc( "Auth Asym ID", i )
-			chain_ids = []
-			# Split the per-entity instances before obtaiing system chain IDs.
-			[chain_ids.extend( c.split( ":" ) ) for c in native_chain_ids]
-			sys_chains = self.get_sys_chains( native_chain_ids = chain_ids )
-
-			map_dict = dict( zip( chain_ids, sys_chains ) )
-			# TODO: STOPPED
-
-
-	def compute_dockq( self ):
-		"""
-		Compute the DockQ wrt the ground truth structure.
-		"""
-		print( "\n\033[1m--> Computing DockQ <--\033[0m]" )
-		if os.path.exists( self.dockq_dict_file ):
-			self.dockq_dict = read_json( self.dockq_dict_file )
-
-		for sys_name in self.benchmark["PDB ID"]:
-			if sys_name in self.dockq_dict:
-				continue
-			else:
-				self.dockq_dict[sys_name] = {
-					"init_struct": 0,
-					"selected_good_models": []
-					}
-				self.compute_per_sys_dockq( sys_name = sys_name )
-
-		write_json( self.dockq_dict, self.dockq_dict_file )
-
-
-	def compute_per_sys_dockq( self, sys_name: str ):
-		"""
-		Compute the DockQ for:
-			Initial predicted structure.
-			All selected good-scoring models.
-		"""
-		# data_dir = self.get_sys_data_dir_path( sys_name = sys_name )
-		data_dir = get_sys_data_dir_path(
-			base_dir = self.base_dir,
-			benchmark_name = self.benchmark_name,
-			sys_name = sys_name )
-		native_file = os.path.join( data_dir, f"{sys_name}.cif" )
-
-		init_struct_dir = os.path.join( data_dir, f"{sys_name}_output/predictions" )
-		init_model_file = glob.glob( f"{init_struct_dir}/*_unrelaxed.cif" )
-		if not init_model_file:
-			raise FileNotFoundError( f"Initial predicted structure not found for {sys_name}..." )
-		else:
-			init_model_file = init_model_file[0]
-
-		# Get DockQ for initial predicted structure.
-		init_struct_dockq = dockq( native_file = native_file, model_file = init_model_file )
-
-		self.dockq_dict[sys_name]["init_struct"] = init_struct_dockq
-
-		analysis_dict = self.load_analysis_dict( sys_name = sys_name )
-		selected_good_models = analysis_dict["selected_good_models"]
-
-		for i in selected_good_models:
-			model_file = os.path.join( 
-				self.get_sys_modeling_version_path( sys_name = sys_name ),
-				f"analysis/relaxed_models/model_{i}.{self.struct_format}" )
-			dockq = dockq( native_file = native_file, model_file = model_file )
-			self.dockq_dict[sys_name]["selected_good_models"].append( dockq )
 
 	################################################################################
 	################################################################################
@@ -866,10 +449,6 @@ class BenchmarkModeling():
 		print( "\n" + "-"*70 + "\n\t\t\t\033[1m--> Creating plots <--\033[0m\n" + "-"*70 )
 		self.plot_per_epoch_distribution()
 		if self.enable_relax_validate:
-			if self.sys_conf_suff == "_tpfp":
-				# self.plot_fpxl_ssatisfaction()
-				self.plot_tm_score_distribution()
-			# self.plot_dockq_score()
 			self.plot_molrobity_scores()
 
 
@@ -917,9 +496,6 @@ class BenchmarkModeling():
 				)
 
 			else:
-				# _ = self.get_dict_for_source(
-				# 	sys_name = sys_name,
-				# 	source = "all_sampled" )
 				epoch0_xl_satisfaction_list.append(
 					self.benchmark.iloc[i, 2]
 				)
@@ -964,7 +540,6 @@ class BenchmarkModeling():
 		else:
 			ax[r].tick_params( axis = "both" , labelsize = 20, length = 10, width = 4 )
 			ax[r].set_ylabel( ylabel, fontsize = 20 )
-
 
 	################################################################################
 	def plot_per_epoch_distribution( self ):
@@ -1168,11 +743,7 @@ class BenchmarkModeling():
 		ax.tick_params( axis = "both" , labelsize = 16, length = 8, width = 3 )
 		ax.set_xlim( 0 )
 		ax.set_ylim( 0 )
-		# self.create_violin( data = molprobity_score, ax = ax, r = None,
-		# 					color = "tab:blue", ylabel = "MolProbity score" )
-		# ax.scatter( complex_idx, resolution,
-		# 			color = "red", marker = "s", s = 70,
-		# 			alpha = 1, linewidth = 2  )
+
 		plt.tight_layout()
 		plt.savefig( self.molprob_plot_file, dpi = 300 )
 		plt.close()
@@ -1238,7 +809,6 @@ class BenchmarkModeling():
 		df = pd.DataFrame( flat_dict )
 		df.to_csv( self.results_file, index = False )
 
-
 	################################################################################
 	################################################################################
 	def create_required_paths( self ):
@@ -1271,14 +841,10 @@ class BenchmarkModeling():
 
 		# Dict containing the resolution of the experimental structure.
 		self.resolution_dict_file = os.path.join( self.meta_dir, "resolution_dict.json" )
-		# File to store DOckQ.
-		self.dockq_dict_file = os.path.join( self.benchmark_modeling_dir, f"dockq_dict.json" )
 		# File to store TM-score.
 		self.tm_dict_file = os.path.join( self.benchmark_modeling_dir, f"tm_dict.json" )
 		# File to write benchmark results to a csv file.
 		self.results_file = os.path.join( self.benchmark_modeling_dir, f"Results_v{self.modeling_version}.csv" )
-		self.fp_satisfaction_plot_file = os.path.join( self.benchmark_modeling_dir, f"fp_xl_satisfaction.png" )
-		self.dockq_plot_file = os.path.join( self.benchmark_modeling_dir, f"dockq_plot.png" )
 		self.tm_plot_file = os.path.join( self.benchmark_modeling_dir, f"tm_score_dist.png" )
 		self.molprob_plot_file = os.path.join( self.benchmark_modeling_dir, f"molprob_plot.png" )
 
@@ -1321,25 +887,6 @@ class BenchmarkModeling():
 		self.num_systems = self.benchmark.shape[0]
 
 
-	# def get_sys_path( self, sys_name: str ):
-	# 	sys_path = os.path.join( 
-	# 				os.path.abspath(
-	# 					f"{self.base_dir}/{self.modeling_dir_name}/{sys_name}"
-	# 					)
-	# 		)
-	# 	return sys_path
-
-
-	# def get_sys_data_dir_path( self, sys_name: str ):
-	# 	"""
-	# 	Return the path to the system directory.
-	# 	"""
-	# 	data_dir = os.path.join(
-	# 		self.base_dir,
-	# 		f"{self.benchmark_name}_benchmark/{sys_name}" )
-	# 	return data_dir
-
-
 	def get_sys_config( self, sys_name: str ):
 		"""
 		Return the sys_config dict.
@@ -1369,15 +916,6 @@ class BenchmarkModeling():
 		return ver_path
 
 
-	# def get_stat_file_path( self, sys_name: str ) -> pd.DataFrame:
-	# 	"""
-	# 	Return the path to the stats file for the given system.
-	# 	"""
-	# 	ver_path = self.get_sys_modeling_version_path( sys_name )
-	# 	stat_file_path = os.path.join( ver_path, "Stats.npy" )
-	# 	return stat_file_path
-
-
 	def load_stat_dict( self, sys_name: str ) -> Dict[str, Dict]:
 		"""
 		Load the stat file on memory.
@@ -1389,15 +927,6 @@ class BenchmarkModeling():
 			modeling_version = self.modeling_version )
 		stats_dict = np.load( stat_file_path, allow_pickle = True ).item()
 		return stats_dict
-
-
-	# def get_analysis_file_path( self, sys_name: str ) -> pd.DataFrame:
-	# 	"""
-	# 	Return the path to the analysis_dict file for the given system.
-	# 	"""
-	# 	ver_path = self.get_sys_modeling_version_path( sys_name )
-	# 	analysis_dict_file = os.path.join( ver_path, "analysis/analysis_dict.npy" )
-	# 	return analysis_dict_file
 
 
 	def load_analysis_dict( self, sys_name: str ) -> Dict[str, Dict]:

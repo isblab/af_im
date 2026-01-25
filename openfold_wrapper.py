@@ -221,10 +221,8 @@ class IntegrativeLearning():
 		"""
 		# Load the models and fit to data.
 		fit = FitToData( sys_name = self.sys_name,
-						# ofold_config = self.ofold_config,
 						topology = self.topology,
 						mode = self.pred_mode,
-						jax_params_path = self.topology.system_representation.jax_params_path,
 						feature_dict = feature_dict,
 						processed_feature_dict = processed_feature_dict,
 						gt_feature_dict = gt_feature_dict,
@@ -237,38 +235,29 @@ class IntegrativeLearning():
 		# If the stats file form simulation output doesn't already exist.
 		if os.path.exists( self.stats_file ):
 			stats_dict = np.load( self.stats_file, allow_pickle = True ).item()
-			stats_dict_pose = np.load( self.stats_pose_file, allow_pickle = True ).item()
 		else:
 			fit.forward()
 			# Store metrics metadata.
 			fit.store_metrics_metadata()
 			stats_dict = fit.stats_dict
-			stats_dict_pose = fit.stats_dict_pose
 
 			self.save_stats( stats_dict, stats_file = self.stats_file )
-			self.save_stats( stats_dict_pose, stats_file = self.stats_pose_file )
 
-		self.save_sampling_results( stats_dict = stats_dict, stats_full = True )
-		self.save_sampling_results( stats_dict = stats_dict_pose, stats_full = False )
+		self.save_sampling_results( stats_dict = stats_dict )
 
 		return fit
 
 
-	def save_sampling_results( self, stats_dict: Dict[str, Dict], stats_full: bool ):
+	def save_sampling_results( self, stats_dict: Dict[str, Dict] ):
 		"""
 		Create relevant plots for the sampling output and save summary metrics.
-		If stats_full, run for the full run, else for just pose sampling.
 		"""
 		loss_dict = copy.deepcopy( stats_dict["loss"] )
 		metrics_dict = copy.deepcopy( stats_dict["metrics"] )
 		metadata = copy.deepcopy( stats_dict["metadata"] )
 
-		if stats_full:
-			loss_plot_file = self.loss_plot_file
-			metrics_plot_file = self.metrics_plot_file
-		else:
-			loss_plot_file = self.loss_plot_pose_file
-			metrics_plot_file = self.metrics_plot_pose_file
+		loss_plot_file = self.loss_plot_file
+		metrics_plot_file = self.metrics_plot_file
 
 		if len( loss_dict ) != 0:
 			self.plot_metrics( loss_dict = loss_dict,
@@ -278,11 +267,10 @@ class IntegrativeLearning():
 		else:
 			print( f"Loss dict is empty. Skipping creating plots..." )
 
-		if stats_full:
-			self.write_summary(
-				loss_dict = loss_dict,
-				metrics_dict = metrics_dict,
-				metadata = metadata )
+		self.write_summary(
+			loss_dict = loss_dict,
+			metrics_dict = metrics_dict,
+			metadata = metadata )
 
 
 	def run_analysis( self ):
