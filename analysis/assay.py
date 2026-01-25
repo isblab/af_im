@@ -295,8 +295,6 @@ class Assay():
 		"""
 		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
 		violation = np.array( self.stats_dict["loss"]["violation"] )
-		ptm = np.array( self.stats_dict["confidence"]["ptm"] )
-		iptm = np.array( self.stats_dict["confidence"]["iptm"] )
 		global_satisfaction_array = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"]
 		global_satisfaction_array = global_satisfaction_array[good_models_index]
 
@@ -307,13 +305,9 @@ class Assay():
 		global_data_sat = total_satisfied/num_xls
 		per_model_xl_sat = xlr[good_models_index]
 		per_model_viol = violation[good_models_index]
-		per_model_ptm = ptm[good_models_index]
-		per_model_iptm = iptm[good_models_index]
 
 		self.analysis_dict["per_model_xl_sat"] = per_model_xl_sat
 		self.analysis_dict["per_model_viol"] = per_model_viol
-		self.analysis_dict["per_model_ptm"] = per_model_ptm
-		self.analysis_dict["per_model_iptm"] = per_model_iptm
 		self.analysis_dict["global_data_satisfaction"] = global_data_sat
 		print( "global data satisfaction = ", global_data_sat )
 
@@ -383,12 +377,8 @@ class Assay():
 		Create plots for all sampled vs good-scoring models
 			1. Distribution of violations
 			2. Distribution of xl satisfaction
-			3. istribution of pLDDT.
-			4. istribution of ipTM.
 		"""
 		self.data_satisfaction_violation_plot()
-		self.iptm_ptm_plot()
-		self.data_satisfaction_vs_iptm_plot()
 
 
 	def create_violin( self, data: List, ax, r: int, color: str, ylabel: str ):
@@ -441,81 +431,4 @@ class Assay():
 		plt.tight_layout()
 		plt.savefig( self.plot1_file, dpi = 300 )
 		plt.close()
-
-
-	def iptm_ptm_plot( self ):
-		"""
-		For all sampled and good-scoring models, plot the
-			distribution of ipTM and pTM.
-		"""
-		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 1, 2, figsize = ( 30, 20 ) )
-
-		as_ptm = self.stats_dict["confidence"]["ptm"]
-		gs_ptm = self.analysis_dict["per_model_ptm"]
-		self.create_violin( data = [as_ptm, gs_ptm], ax = ax, r = 0,
-							color = "orange", ylabel = "per model pTM" )
-		ax[0].set_ylim( -0.1, 1.1 )
-
-		as_iptm = self.stats_dict["confidence"]["iptm"]
-		gs_iptm = self.analysis_dict["per_model_iptm"]
-		self.create_violin( data = [as_iptm, gs_iptm], ax = ax, r = 1,
-							color = "orange", ylabel = "per model ipTM" )
-		ax[1].set_ylim( -0.1, 1.1 )
-
-		plt.tight_layout()
-		plt.savefig( self.plot2_file, dpi = 300 )
-		plt.close()
-
-
-	def data_satisfaction_vs_iptm_plot( self ):
-		"""
-		For all sampled and good-scoring models, plot the
-			data satisfaction vs the ipTM.
-		"""
-		plt.rcParams["font.family"] = "sans"
-		_, ax = plt.subplots( 1, 2, figsize = ( 20, 10 ) )
-
-		as_xl = self.stats_dict["metrics"]["xlr"]
-		as_iptm = self.stats_dict["confidence"]["iptm"]
-		ax[0].scatter( as_xl, as_iptm, c = "orange", s = 30.0 )
-		ax[0].set_title( "All sampled models", fontsize = 20 )
-		ax[0].set_xlabel( "XL satisfaction", fontsize = 16 )
-		ax[0].set_ylabel( "ipTM", fontsize = 16 )
-		ax[0].set_xlim( -0.1, 1.1 )
-		ax[0].set_ylim( -0.1, 1.1 )
-		ax[0].tick_params( axis = "both" , labelsize = 16, length = 8, width = 4 )
-
-		gs_xl = self.analysis_dict["per_model_xl_sat"]
-		gs_iptm = self.analysis_dict["per_model_iptm"]
-		ax[1].scatter( gs_xl, gs_iptm, c = "orange", s = 30.0 )
-		ax[1].set_title( "Good scoring models", fontsize = 20 )
-		ax[1].set_xlabel( "XL satisfaction", fontsize = 16 )
-		ax[1].set_ylabel( "ipTM", fontsize = 16 )
-		ax[1].set_xlim( -0.1, 1.1 )
-		ax[1].set_ylim( -0.1, 1.1 )
-		ax[1].tick_params( axis = "both" , labelsize = 16, length = 8, width = 4 )
-
-		plt.tight_layout()
-		plt.savefig( self.plot3_file, dpi = 300 )
-		plt.close()
-
-
-		# ax[0].violinplot( dataset = [as_viol, gs_viol], orientation = "vertical",
-		# 						showmeans = True, showextrema = True )
-		# ax[0].set_title( "Per model Violations", fontsize = 35 )
-		# ax[0].set_ylabel( "Per model Violations", fontsize = 35 )
-		# ax[0].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
-		# ax[0].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
-
-		# as_xl = self.stats_dict["metrics"]["xlr"]
-		# as_avg_xl = np.mean( as_xl )
-		# gs_xl = self.analysis_dict["per_model_xl_sat"]
-		# gs_avg_xl = np.mean( gs_xl )
-		# ax[1].violinplot( dataset = [as_xl, gs_xl], orientation = "vertical",
-		# 						showmeans = True, showextrema = True )
-		# # ax[1].set_title( "Per model XL satisfaction", fontsize = 35 )
-		# ax[1].set_ylabel( "Per model XL satisfaction", fontsize = 35 )
-		# ax[1].tick_params( axis = "both" , labelsize = 35, length = 10, width = 4 )
-		# ax[1].set_xticks( [1, 2], ["All sampled", "Good scoring"] )
 
