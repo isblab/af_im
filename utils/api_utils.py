@@ -281,6 +281,8 @@ class PdbRestApi():
 				entry_dict_exists = True
 			else:
 				entry_dict_exists = False
+		else:
+			entry_dict_exists = False
 
 		if self.entity_file is not None:
 			if os.path.exists( self.entity_file ):
