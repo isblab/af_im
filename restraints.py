@@ -28,11 +28,20 @@ class XlRestraint():
 													restraint_feature["total_xls"] )
 		elif self.config.type == "pseudo_huber":
 			print( "Using pseudo huber as XL restraint." )
-			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
+			return lambda: self.pseudo_huber( out, restraint_feature["xl_res_dict"],
 													xl_max_bound,
 													restraint_feature["total_xls"] )
-		elif self.config.type == "disto_xlr":
-			return lambda: self.disto_xl_restraint( out, **restraint_feature )
+		elif self.config.type == "softplus":
+			print( "Using softplus loss as XL restraint." )
+			return lambda: self.softplus_loss( out, restraint_feature["xl_res_dict"],
+													xl_max_bound,
+													restraint_feature["total_xls"] )
+		elif self.config.type == "gated_harmonic":
+			print( "Using gated_harmonic loss as XL restraint." )
+			return lambda: self.gated_harmonic_loss( out, restraint_feature["xl_res_dict"],
+													xl_max_bound,
+													restraint_feature["total_xls"] )
+
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
 
@@ -112,7 +121,7 @@ class XlRestraint():
 		# Adjust the length scales.
 		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
-		# agg_loss = torch.tensor( 0.0 ).to( D.device )
+		# Aggregate loss across all XLs.
 		agg_loss = torch.zeros( 1 ).to( D.device )
 		for xl_pair in xl_res_dict:
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
@@ -121,19 +130,18 @@ class XlRestraint():
 			xl_indices = ( 0, res_idx1, res_idx2 )
 
 			viols_mask = D[xl_indices] > scaled_xl_max_bound
-			# If all ambiguous pairs are violated.
+			# If any ambiguous pairs are violated.
 			if viols_mask.all():
 				# Get the minimum distance over all ambiguous pairs.
 				min_D = torch.min( D[xl_indices] )
 				diff = min_D - scaled_xl_max_bound
 				squared_diff = diff**2
-			# If any ambiguous pair is satisfied, the restraint is satisfied.
 			else:
+				# If any ambiguous pair is satisfied, the restraint is satisfied.
 				squared_diff = ( D[xl_indices]*0 ).sum()
-				# squared_diff = torch.tensor( 0.0, device = D.device )
 
 			agg_loss += squared_diff
-		
+
 		# Normalizing by the total no. of cross-linked residue pairs.
 		total_xls = torch.tensor( total_xls ).to( D.device )
 		denom = self.eps + total_xls
@@ -210,6 +218,137 @@ class XlRestraint():
 		total_xls = torch.tensor( total_xls ).to( D.device )
 		denom = self.eps + total_xls
 
+		loss = agg_loss/ denom
+
+		return loss
+
+
+	def softplus_loss( self, out: Dict[str, torch.Tensor],
+							xl_res_dict: torch.tensor,
+							xl_max_bound: float,
+							total_xls: int ) -> torch.Tensor:
+		"""
+		Using the softplus function to model the cross-linking data.
+		Softplus is a smooth approximation to ReLU and the steepness.
+			The steepness of the loss within max bound can be
+				controlled using the beta parameter.
+				Small beta -> more steeper
+				Large beta -> more flat.
+			L = 1/beta * log( 1 + exp( beta*( d - d_max ) ) )
+			d -> distance for the cross-linked residues in the predicted structure.
+			d_max -> XL max bound.
+		Here, I am using the "final_atom_positions" for the restraint.
+		Here we compute the loss per XL pair rather than all together in a single tensor.
+		The loss for each XL residue pair is the minimum over all ambiguous XL pairs.
+		Final loss is the mean over all XL pairs.
+
+		Input:
+		----------
+		out --> output dict from the model.
+		xl_res_dict --> dict with an index as key and the value corresponding to 
+						all ambiguous XL pairs for a residue pair.
+		xl_max_bound --> max distance between the cross-licked residues.
+
+		Returns:
+		----------
+		loss --> xl restraint loss.
+		"""
+		D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			length_scale = self.length_scale,
+			eps = self.eps )
+
+		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
+			print("NaN or Inf detected in final_atom_positions!")
+
+		# Adjust the length scales.
+		scaled_xl_max_bound = xl_max_bound / self.length_scale
+
+		# Aggregate loss across all XLs.
+		agg_loss = torch.zeros( 1 ).to( D.device )
+		for xl_pair in xl_res_dict:
+			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
+			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
+			# Indices for all ambiguous XLs for a cross-linked residue pair.
+			xl_indices = ( 0, res_idx1, res_idx2 )
+
+			# Min distance across all ambiguous XL pair.
+			min_D = min_D = torch.min( D[xl_indices] )
+			softplus = torch.nn.functional.softplus(
+				x = min_D - scaled_xl_max_bound,
+				beta = self.config.beta,
+				threshold = scaled_xl_max_bound
+			)
+
+			agg_loss += softplus
+
+		# Normalizing by the total no. of cross-linked residue pairs.
+		total_xls = torch.tensor( total_xls ).to( D.device )
+		denom = self.eps + total_xls
+		loss = agg_loss/ denom
+
+		return loss
+
+
+	def gated_harmonic_loss( self, out: Dict[str, torch.Tensor],
+							xl_res_dict: torch.tensor,
+							xl_max_bound: float,
+							total_xls: int ) -> torch.Tensor:
+		"""
+		Using a harmonic penalty weighted by a logistic function
+			(gated harmonic) to model the cross-linking restraint.
+		w = sigmoid( ( d - d_max )/beta )
+			beta controls the softness of the max bound.
+				Large beta -> Steeper penalty within the max bound
+					pulling it closer to the max bound.
+				Small beta -> Flatter penalty within the max bound
+					potentially allowing exploration.
+		L = w*( d - d_max )**2
+		Here, I am using the "final_atom_positions" for the restraint.
+		Here we compute the loss per XL pair rather than all together in a single tensor.
+		The loss for each XL residue pair is the minimum over all ambiguous XL pairs.
+		Final loss is the mean over all XL pairs.
+
+		Input:
+		----------
+		out --> output dict from the model.
+		xl_res_dict --> dict with an index as key and the value corresponding to 
+						all ambiguous XL pairs for a residue pair.
+		xl_max_bound --> max distance between the cross-licked residues.
+
+		Returns:
+		----------
+		loss --> xl restraint loss.
+		"""
+		D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			length_scale = self.length_scale,
+			eps = self.eps )
+
+		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
+			print("NaN or Inf detected in final_atom_positions!")
+
+		# Adjust the length scales.
+		scaled_xl_max_bound = xl_max_bound / self.length_scale
+
+		# Aggregate loss across all XLs.
+		agg_loss = torch.zeros( 1 ).to( D.device )
+		for xl_pair in xl_res_dict:
+			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
+			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
+			# Indices for all ambiguous XLs for a cross-linked residue pair.
+			xl_indices = ( 0, res_idx1, res_idx2 )
+
+			min_D = min_D = torch.min( D[xl_indices] )
+			# Sigmoid weight
+			w = torch.sigmoid( min_D - scaled_xl_max_bound )/self.config.beta
+			gated_harmonic = w*( min_D - scaled_xl_max_bound )**2
+
+			agg_loss += gated_harmonic
+
+		# Normalizing by the total no. of cross-linked residue pairs.
+		total_xls = torch.tensor( total_xls ).to( D.device )
+		denom = self.eps + total_xls
 		loss = agg_loss/ denom
 
 		return loss
