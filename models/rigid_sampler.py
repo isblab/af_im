@@ -50,7 +50,7 @@ def apply_transform(
 
 	"""
 	#coords_rot = torch.matmul( coords, R )
-	coords_rot = torch.einsum( "bnac,cj->bnaj", coords, R )
+	coords_rot = torch.einsum( "bnac,bcj->bnaj", coords, R )
 	coords_new = coords_rot + trans.unsqueeze( 0 ).unsqueeze( 0 )
 
 	return coords_new
@@ -59,17 +59,29 @@ def apply_transform(
 class RigidTransformation( nn.Module ):
 	"""
 	Learn a rigid transformation comprising a quaternion and a translation vector.
+	Adapted from openFold/model/.
 	"""
-	def __init__( self, n_coords: int, c_hidden: int, device: str ):
+	def __init__( self,
+		in_feats: int,
+		c_hidden: int,
+		clamp_translation: bool,
+		device: str ):
 		super().__init__()
+		self.clamp_translation = clamp_translation
 		self.rigid_transform = nn.Sequential(
-			nn.Linear( in_features = n_coords, out_features = c_hidden ),
+			nn.Linear( in_features = in_feats, out_features = c_hidden ),
 			nn.ReLU(),
-			nn.Linear( in_features = c_hidden, out_features = 16 ),
+			nn.Linear( in_features = c_hidden, out_features = c_hidden ),
 			nn.ReLU()
 			).to( device )
-		self.quaternion = nn.Linear( in_features = 16, out_features = 4, bias = False, device = device )
-		self.translation = nn.Linear( in_features = 16, out_features = 3, bias = False, device = device )
+		self.quaternion = nn.Linear(
+			in_features = c_hidden,
+			out_features = 4,
+			bias = False, device = device )
+		self.translation = nn.Linear(
+			in_features = c_hidden,
+			out_features = 3,
+			bias = False, device = device )
 
 	def forward( self, x: torch.Tensor ) -> Tuple[torch.Tensor, torch.Tensor]:
 		"""
@@ -86,9 +98,12 @@ class RigidTransformation( nn.Module ):
 		quat_norm = torch.norm( quat, dim = -1, keepdim = True ).clamp( 1e-8 )
 		quat = quat/ quat_norm
 		trans = self.translation( x )
+		if self.clamp_translation:
+			trans = torch.tanh( trans )
 		return quat, trans
 
-
+################################################################################
+################################################################################
 class PoseSampling( Model ):
 	"""
 	Predict and apply a rigid transformation to sample conformations of the
@@ -101,48 +116,93 @@ class PoseSampling( Model ):
 		self.model_config = model_config
 		self.device = device
 
-		self.rigid = RigidTransformation( n_coords = 3, c_hidden = 32, device = device )
+		if self.model_config.input_feats == "com":
+			in_feats = 3
+		elif self.model_config.input_feats == "uvd":
+			in_feats = 4
+		else:
+			raise ValueError( f"Unsupported input_feats specified. Use com/uvd..." )
+		self.rigid = RigidTransformation(
+			in_feats = in_feats,
+			c_hidden = self.model_config.c_hidden,
+			clamp_translation = self.model_config.clamp_translation,
+			device = device )
 
 		self.transformations = {k:[] for k in ["rotation", "translation"]}
 
 
-	#def predict( self, rigid_bodies: List[torch.Tensor],
-	#		 	init_mean_coords: torch.Tensor ):
+	def create_input_feats( self, rb_fixed: torch.Tensor, rb_moving: torch.Tensor ):
+		"""
+		Create input features given the coordinates for the fixed and moving rigid bodies.
+		rb_fixed -> [B, N, 37, 3]; rb_moving -> [B, N, 37, 3]
+		"""
+		if self.model_config.input_feats == "com":
+			# [B, 3]
+			feats = torch.mean( rb_moving, dim = ( 1, 2 ) )
+		elif self.model_config.input_feats == "uvd":
+			# Unit Vector-Distance -> [B, 3]
+			com_fixed = torch.mean( rb_fixed, dim = ( 1, 2 ) )
+			com_moving = torch.mean( rb_moving, dim = ( 1, 2 ) )
+
+			com_vec = com_fixed - com_moving
+			unit_vec = com_vec/torch.linalg.norm( com_vec )
+
+			com_dist = torch.sqrt(
+				torch.sum( ( com_fixed - com_moving )**2 )
+			)
+			feats = torch.cat( [unit_vec.reshape( -1 ), com_dist.reshape( -1 )] )
+			# [B, 4]
+			feats = feats.reshape( 1, -1 )
+			# print( com_fixed.shape, "  ", com_moving.shape, "  ", unit_vec.shape, "  ", feats.shape )
+			# exit()
+
+		return feats
+
+
 	def predict( self, out: Dict[str, torch.Tensor] ):
 		"""
-		Update the current positions by applying a Rigid Transformation.
+		Given the coordinates for the complex,
+			Split the complex into rigid bodies.
+			Keep one of the rigid bodies fixed (by default the 1st rigid body).
+			Obtain features for each rigid body.
+			Using the rigid body features as input to predict the rigid transformations.
+			Apply the rigid transformation to obtain the new conformation.
 		"""
 		final_atom_positions = out.pop( "final_atom_positions" )
-		# with torch.no_grad():
-		# 	if final_atom_positions is None:
-		# 		final_atom_positions = torch.zeros( [out["asym_id"].shape[1], 37, 3] )
+
 		final_atom_positions = final_atom_positions.to( self.device )
-		rigid_bodies, init_mean_coords = get_rigid_body(
+		rigid_bodies = get_rigid_body(
 			final_atom_positions = final_atom_positions,
 			asym_id = out["asym_id"],
 			rigid_type = self.model_config.rigid_type
 		)
 
-		# [B, 4] and [B, 3]
-		quat, trans = self.rigid( init_mean_coords )
+		tmp_q, tmp_t = [], []
+		rb_fixed = rigid_bodies[0]
+		transformed_positions = [rb_fixed]
+		for rb_moving in rigid_bodies[1:]:
+			feats = self.create_input_feats( rb_fixed = rb_fixed, rb_moving = rb_moving )
 
-		transformed_positions = []
-		for rb, q, t in zip( rigid_bodies, quat, trans ):
-			R = quat_to_rotmat( quat = q )
+			# [B, 4] and [B, 3]
+			quat, trans = self.rigid( feats )
+			R = quat_to_rotmat( quat = quat )
 
 			Rt_rb = apply_transform(
-				coords = rb.to( R.device ),
+				coords = rb_moving,
 				R = R,
-				trans = t )
+				trans = trans )
 			transformed_positions.append( Rt_rb )
+
+			# Keep track of rigid transformations.
+			with torch.no_grad():
+				tmp_q.append( quat.detach().cpu() )
+				tmp_t.append( trans.detach().cpu() )
 		transformed_positions = torch.cat( transformed_positions, dim = 1 )
 
 		out["final_atom_positions"] = transformed_positions*out["final_atom_mask"].unsqueeze( -1 ).to( self.device )
 
-		# Keep track of rigid transformations.
-		with torch.no_grad():
-			self.transformations["rotation"].append( quat.detach().cpu() )
-			self.transformations["translation"].append( trans.detach().cpu() )
+		self.transformations["rotation"].append( torch.cat( tmp_q, dim = 0 ) )
+		self.transformations["translation"].append( torch.cat( tmp_t, dim = 0 ) )
 
 		return out
 
@@ -153,7 +213,8 @@ class PoseSampling( Model ):
 		"""
 		return [self.rigid]
 
-
+################################################################################
+################################################################################
 class RandomPoseSampling():
 	"""
 	Randomly sample a rigid transformation - quaternion and translation.
@@ -204,10 +265,8 @@ class RandomPoseSampling():
 		"""
 		final_atom_positions = out.pop( "final_atom_positions" )
 		final_atom_positions = final_atom_positions.to( self.device )
-		# with torch.no_grad():
-		# 	if final_atom_positions is None:
-		# 		final_atom_positions = torch.zeros( [out["asym_id"].shape[1], 37, 3] )
-		rigid_bodies, init_mean_coords = get_rigid_body(
+
+		rigid_bodies = get_rigid_body(
 			final_atom_positions = final_atom_positions,
 			asym_id = out["asym_id"],
 			rigid_type = self.model_config.rigid_type

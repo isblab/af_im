@@ -47,12 +47,12 @@ def get_rigid_chains(
 		rb = final_atom_positions[:, idx, :, :]
 		rigid_bodies.append( rb )
 
-	init_mean_coords = []
-	for rb in rigid_bodies:
-		# [B, N, 37, 3] -> [B, 3]
-		init_mean_coords.append(
-			torch.mean( rb, dim = ( 1, 2 ) )
-			)
-	init_mean_coords  = torch.cat( init_mean_coords, dim = 0 )
-	return rigid_bodies, init_mean_coords
+	# init_mean_coords = []
+	# for rb in rigid_bodies:
+	# 	# [B, N, 37, 3] -> [B, 3]
+	# 	init_mean_coords.append(
+	# 		torch.mean( rb, dim = ( 1, 2 ) )
+	# 		)
+	# init_mean_coords  = torch.cat( init_mean_coords, dim = 0 )
+	return rigid_bodies #, init_mean_coords
 
