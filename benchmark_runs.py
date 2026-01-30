@@ -45,6 +45,10 @@ class BenchmarkModeling():
 		self.struct_format = "pdb"
 		# Suffix for modeling with TP+FP XLs.
 		self.sys_conf_suff = ""
+		# Input features for the model.
+		self.input_feats = "com"
+		# Hidden dim for the mdoel.
+		self.c_hidden = 16
 		# No. of recyling iters for OpenFold.
 		self.num_recycles = 1
 		# Maximum no. of epochs for fine-tuning.
@@ -84,7 +88,10 @@ class BenchmarkModeling():
 		# self.violation = {"enabled": True, "add_penalty": True, "weight": 1.0,
 		# 	"ev": {"intra_chain_dist": 2.0, "inter_chain_dist": 2.0, "weight": 1.0}
 		# }
-		self.xlr = {"enabled": True, "add_penalty": True, "weight": 1.0}
+		self.xlr = {
+			"enabled": True, "add_penalty": True,"type": "ub_harmonic",
+            "func_form": "mse", "beta": None, "weight": 1.0
+			}
 		# For analysis
 		self.model_selection = {
 			"quant_filter": {
@@ -200,6 +207,9 @@ class BenchmarkModeling():
 		if self.topo_dict == None:
 			topo_dict = topology_dict()
 			topo_dict.objective = f"{sys_name} {self.modeling_objective}"
+			topo_dict.model.input_feats = self.input_feats
+			topo_dict.model.c_hidden = self.c_hidden
+
 			topo_dict.train.version = self.modeling_version
 			topo_dict.train.device = self.device
 			topo_dict.analysis.enabled = self.enable_analysis
@@ -219,7 +229,10 @@ class BenchmarkModeling():
 
 			# XL restraint loss settings.
 			topo_dict.loss.xlr.enabled = self.xlr["enabled"]
+			topo_dict.loss.xlr.type = self.xlr["type"]
+			topo_dict.loss.xlr.func_form = self.xlr["func_form"]
 			topo_dict.loss.xlr.add_penalty = self.xlr["add_penalty"]
+			topo_dict.loss.xlr.beta = self.xlr["beta"]
 			topo_dict.loss.xlr.weight = self.xlr["weight"]
 
 			# Model selection.
@@ -985,7 +998,7 @@ if __name__ == "__main__":
 	# BenchmarkModeling().forward()
 
 	hyperparameters = xlmerged_hyperparameters
-	for v in [13]:
+	for v in [0]:
 		if f"experiment_{v}" in hyperparameters:
 			obj = BenchmarkModeling()
 			for k, v in hyperparameters[f"experiment_{v}"].items():

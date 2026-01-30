@@ -112,6 +112,11 @@ config = mlc.ConfigDict(
 		"long_sequence_inference": long_sequence_inference,
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
 		"rigid_type": "chains",
+		# com: centre of mass oe rigid body; uvd: uni vector-distance for the moving body wrt the fixed body.
+		"input_feats": "uvd",
+		"c_hidden": 16,
+		# Restrict the translation to +-1.
+		"clamp_translation": False,
 		"num_recycles": 1,  # no. of recycling iterations for OpenFold.
 	},
 	"loss": {
@@ -131,6 +136,7 @@ config = mlc.ConfigDict(
 			"type": "ub_harmonic", # ub_harmonic/pseudo_huber
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
+			"beta": 5.0,  # for softplus and gated_harmonic loss only.
 			"allow_xl_tolerance": False,
 			"length_scale": length_scale,
 			"weight": 1.0,
@@ -176,13 +182,16 @@ config = mlc.ConfigDict(
 			"scale_data": False
 		},
 		"structural_similarity": {
-			"tool": "usalign",  # usalign/mdanalysis
+			# "tool": "usalign",  # usalign/mdanalysis
 			"usalign_script": "USalign",
 			"mol": "prot",
 			"mm": 1,
 			"ter": 1,
 			"metric": "tm", # rmsd or tm-score
-			"similarity_cutoff": 0.7, # 4 A as per this cutoff (doi: 10.1002/prot.26818)
+			# TM cutoff from CombFold; 4 A as per this cutoff (doi: 10.1002/prot.26818)
+			"similarity_cutoff": 0.7,
+			# No. of CPU cores to be used for relaxation.
+			"cpu_cores": 50,
 			"clean_up": True
 		},
 		"relax":{
