@@ -165,16 +165,18 @@ class SystemRepresentation():
 		self.processed_feature_dict = tensor_tree_map( fetch_cur_batch, self.processed_feature_dict )
 
 		self.gt_feature_dict = self.get_feature_from_init_struct()
-		# if self.create_restraint_feats:
+		if self.create_restraint_feats:
 			# Add masks for excluded volume and sequence connectivity.
-			# intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
-			# connectivity_mask = self.get_sequence_connectivity_feats()
+			intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
+			connectivity_mask = self.get_sequence_connectivity_feats()
+			com = self.get_com_feats()
 
 			# Get the gt_features
-			# self.gt_feature_dict = self.get_feature_from_init_struct()
-			# self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
-			# self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
-			# self.gt_feature_dict["connectivity_mask"] = connectivity_mask
+			self.gt_feature_dict = self.get_feature_from_init_struct()
+			self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
+			self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
+			self.gt_feature_dict["connectivity_mask"] = connectivity_mask
+			self.gt_feature_dict["com"] = com
 
 	################################################################################
 	################################################################################
@@ -613,52 +615,71 @@ class SystemRepresentation():
 
 	################################################################################
 	################################################################################
-	# def get_excluded_volume_feats( self ):
-	# 	"""
-	# 	Create masks to account for:
-	# 		Only intrachain residue pairs.
-	# 		Only interchain residue pairs.
-	# 	Mask out all diagonal elements.
+	def get_excluded_volume_feats( self ) -> Tuple[torch.Tensor, torch.Tensor]:
+		"""
+		Create masks to account for:
+			Only intrachain residue pairs.
+			Only interchain residue pairs.
+		Mask out all diagonal elements.
 
-	# 	intra_ev_mask, inter_ev_mask -> [N, N] 
-	# 	"""
-	# 	asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+		intra_ev_mask, inter_ev_mask -> [N, N] 
+		"""
+		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
 
-	# 	N = asym_id.shape[0]
+		N = asym_id.shape[0]
 
-	# 	#ignore all diagonal element.
-	# 	diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
-	# 	diagonal_mask = diagonal_mask.int()
+		#ignore all diagonal element.
+		diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
+		diagonal_mask = diagonal_mask.int()
 
-	# 	intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
-	# 	intra_ev_mask *= diagonal_mask
-	# 	inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
-	# 	inter_ev_mask *= diagonal_mask
+		intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+		intra_ev_mask *= diagonal_mask
+		inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
+		inter_ev_mask *= diagonal_mask
 
-	# 	return intra_ev_mask, inter_ev_mask
+		return intra_ev_mask, inter_ev_mask
 
 
-	# def get_sequence_connectivity_feats( self ):
-	# 	"""
-	# 	Create a mask to ignore all but intrachain adjacent residues.
-	# 	Using an asymmetric mask to account for only ij pairs.
+	def get_sequence_connectivity_feats( self ) -> torch.Tensor:
+		"""
+		Create a mask to ignore all but intrachain adjacent residues.
+		Using an asymmetric mask to account for only ij pairs.
 
-	# 	connectivity_maks -> [N, N]
-	# 	"""
-	# 	residue_index = self.processed_feature_dict["residue_index"]
-	# 	asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+		connectivity_maks -> [N, N]
+		"""
+		residue_index = self.processed_feature_dict["residue_index"]
+		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
 
-	# 	N = asym_id.shape[0]
+		N = asym_id.shape[0]
 
-	# 	intra_chain_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
+		intra_chain_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
 
-	# 	# Adjacent residues in sequence.
-	# 	adjacent_mask = torch.zeros( [N, N] )
-	# 	adjacent_mask[residue_index, residue_index+1] = 1
+		# Adjacent residues in sequence.
+		adjacent_mask = torch.zeros( [N, N] )
+		adjacent_mask[residue_index, residue_index+1] = 1
 
-	# 	connectivity_mask = intra_chain_mask*adjacent_mask
+		connectivity_mask = intra_chain_mask*adjacent_mask
 
-	# 	return connectivity_mask
+		return connectivity_mask
+
+
+	def get_com_feats( self ):
+		"""
+		Obtain the centre of mass (COM) for the initial predicted structure.
+		We want the COM of the complex during simulation to be close to
+			that of the initial structure.
+			This prevents the chains from flying away.
+
+		com -> float
+		"""
+		# [N,37,3]
+		final_atom_positions = self.init_pred_dict["final_atom_positions"]
+		# [N,37]
+		atom_mask = self.init_pred_dict["final_atom_mask"][..., None]
+		masked_pos = final_atom_positions*atom_mask
+		com = masked_pos.sum( axis = (0, 1) )/ atom_mask.sum( axis = ( 0, 1 ) )
+		return com
+
 
 	################################################################################
 	################################################################################
