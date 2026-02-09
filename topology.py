@@ -120,16 +120,38 @@ config = mlc.ConfigDict(
 		"num_recycles": 1,  # no. of recycling iterations for OpenFold.
 	},
 	"loss": {
-		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
 		"violation": {
 			"enabled": True,
 			"add_penalty": True,
-			"violation_tolerance_factor": 12.0,
-			"clash_overlap_tolerance": 1.5,
-			"average_clashes": True,
+			"ev": {
+				"intra_enabled": False,
+				"inter_enabled": True,
+				# Distance between the Ca of intra-chain residues.
+				"intra_chain_dist": 4.0,
+				# Distance between the Ca of inter-chain residues.
+				"inter_chain_dist": 8.0,
+				"weight": 1.0,
+			},
+			"sc": {
+				"enabled": False,
+				# Ca-Ca distance for adjacent residues.
+				"inter_res_dist": 4.0,
+				"weight": 1.0,
+			},
+			"length_scale": length_scale,
 			"weight": 1.0,
 			"eps": eps
 		},
+		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
+		# "violation": {
+		# 	"enabled": True,
+		# 	"add_penalty": True,
+		# 	"violation_tolerance_factor": 12.0,
+		# 	"clash_overlap_tolerance": 1.5,
+		# 	"average_clashes": True,
+		# 	"weight": 1.0,
+		# 	"eps": eps
+		# },
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
@@ -142,6 +164,12 @@ config = mlc.ConfigDict(
 			"weight": 1.0,
 			"eps": eps
 		},
+		"com": {
+			"enabled": True,
+			"add_penalty": True,
+			"weight": 1e-1,
+			"eps": eps
+		}
 	},
 	"metrics": {
 		"xlr": {
@@ -226,7 +254,7 @@ config = mlc.ConfigDict(
 		# Version for the modeling run.
 		"version": None,
 		"sample_random_pose": False,  # If True, perform random pose sampling.
-		"init_coord": "zero",  # zero/ init
+		"init_coord": "init",  # zero/ init
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes as in init_rep.
 		"num_frames": 50, # max epochs for sampling.
 		"struct_format": "pdb", # output file format (pdb/cif).

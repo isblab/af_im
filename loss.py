@@ -22,6 +22,8 @@ from restraints import XlRestraint, final_pred_to_dist_map
 ###############################################################################
 def get_excluded_volume(
 	dist: torch.Tensor,
+	intra_enabled: bool,
+	inter_enabled: bool,
 	intra_ev_mask: torch.Tensor,
 	inter_ev_mask: torch.Tensor,
 	intra_chain_dist: float,
@@ -37,40 +39,23 @@ def get_excluded_volume(
 	intra_ev_mask = intra_ev_mask.to( dist.device )
 	inter_ev_mask = inter_ev_mask.to( dist.device )
 
-	#dist = final_pred_to_dist_map(
-	#	final_atom_pos = out["final_atom_positions"],
-	#	length_scale = length_scale,
-	#	eps = eps )
-
 	# Intrachain clashes.
-	diff_intra = torch.clamp( intra_chain_dist - dist, min = 0.0 )
-	intra_ev = torch.sum(
-		( diff_intra[intra_ev_mask.bool()] )**2
-		)/ ( torch.sum( intra_ev_mask ) + eps )
-	#masked_intra = dist[intra_ev_mask.bool()]
-	#intra_ev_viol = masked_intra < intra_chain_tolerance
-	#if intra_ev_viol.any():
-	#	intra_denom = torch.sum( intra_ev_mask )
-	#	intra_ev = torch.sum(
-	#		( masked_intra[intra_ev_viol] - intra_chain_tolerance )**2
-	#		)/ ( intra_denom + eps )
-	#else:
-	#	intra_ev = torch.tensor( [0.0], device = dist.device )
+	if intra_enabled:
+		diff_intra = torch.clamp( intra_chain_dist - dist, min = 0.0 )
+		intra_ev = torch.sum(
+			( diff_intra[intra_ev_mask.bool()] )**2
+			)/ ( torch.sum( intra_ev_mask ) + eps )
+	else:
+		intra_ev = torch.tensor( [0.0] ).to( dist.device )
 
 	# Interchain clashes.
-	diff_inter = torch.clamp( inter_chain_dist - dist, min = 0.0 )
-	inter_ev = torch.sum(
-		( diff_inter[inter_ev_mask.bool()] )**2
-		)/ ( torch.sum( inter_ev_mask ) + eps )
-	#masked_inter = dist[inter_ev_mask.bool()]
-	#inter_ev_viol = masked_inter < inter_chain_tolerance
-	#if inter_ev_viol.any():
-	#	inter_denom = torch.sum( inter_ev_mask )
-	#	inter_ev = torch.sum(
-	#		( masked_inter[inter_ev_viol] - inter_chain_tolerance )**2
-	#		)/ ( inter_denom + eps )
-	#else:
-	#	inter_ev = torch.tensor( [0.0], device = dist.device )
+	if inter_enabled:
+		diff_inter = torch.clamp( inter_chain_dist - dist, min = 0.0 )
+		inter_ev = torch.sum(
+			( diff_inter[inter_ev_mask.bool()] )**2
+			)/ ( torch.sum( inter_ev_mask ) + eps )
+	else:
+		inter_ev = torch.tensor( [0.0] ).to( dist.device )
 
 	loss = intra_ev + inter_ev
 
@@ -120,31 +105,36 @@ def get_sequence_connectivity(
 ###############################################################################
 ###############################################################################
 def get_violation_loss(
-		out: Dict[str, Any],
+		final_atom_positions: torch.Tensor,
 		gt_feature_dict: Dict[str, torch.Tensor],
 		config: mlc.ConfigDict ) -> torch.Tensor:
 	"""
 	Compute a violation loss accounting for excluded volume and sequence connectivity.
 	"""
 	dist = final_pred_to_dist_map(
-		final_atom_pos = out["final_atom_positions"],
+		final_atom_pos = final_atom_positions,
 		length_scale = config.length_scale,
 		eps = config.eps )
 
 	ev = get_excluded_volume(
 				dist = dist,
+				intra_enabled = config.ev.intra_enabled,
+				inter_enabled = config.ev.inter_enabled,
 				intra_ev_mask = gt_feature_dict["intra_ev_mask"],
 				inter_ev_mask = gt_feature_dict["inter_ev_mask"],
 				intra_chain_dist = config.ev.intra_chain_dist,
 				inter_chain_dist = config.ev.inter_chain_dist,
 				eps = config.eps )
 
-	sc = get_sequence_connectivity(
-				dist = dist,
-				connectivity_mask = gt_feature_dict["connectivity_mask"],
-				inter_res_dist = config.sc.inter_res_dist,
-				tolerance_sigma = config.sc.tolerance_sigma,
-				eps = config.eps )
+	if config.sc.enabled:
+		sc = get_sequence_connectivity(
+					dist = dist,
+					connectivity_mask = gt_feature_dict["connectivity_mask"],
+					inter_res_dist = config.sc.inter_res_dist,
+					tolerance_sigma = config.sc.tolerance_sigma,
+					eps = config.eps )
+	else:
+		sc = torch.tensor( [0.0] ).to( dist.device )
 
 	print( f"ev = {ev}\tsc = {sc}" )
 	loss = config.ev.weight*ev + config.sc.weight*sc
@@ -152,35 +142,24 @@ def get_violation_loss(
 
 ###############################################################################	
 ###############################################################################
-#def gaussian_distance_restraint(
-#	out: Dict[str, Any], batch: Dict[str, Any],
-#	length_scale: float,
-#	eps: float ) -> torch.Tensor:
-#	"""
-#	Soft gaussian restraint to penalize inter-residue distances.
-#	Mean and variance for all residue pairs derived from the
-#		initial predicted distogram.
-#	"""
-#	# # Mask to ignore intrachain distances.
-#	# asym_id = batch["asym_id"]
-#	# interchain_mask = asym_id != asym_id
+def get_com_loss(
+	final_atom_positions: torch.Tensor,
+	atom_mask: torch.Tensor,
+	gt_feature_dict: Dict[str, Any],
+	config: mlc.ConfigDict ) -> torch.Tensor:
+	"""
+	Restrain the COM fo the prediction to the COM of the ground truth COM.
+		Here, ground truth COM is the COM of the initial predicted complex.
+	"""
+	gt_com = gt_feature_dict["com"]
+	# [B, N, 37, 3] -> [B, 1]
+	masked_pos = final_atom_positions*atom_mask.unsqueeze( -1 )
+	pred_com = masked_pos.sum( dim = (1, 2) )/ atom_mask.sum( dim = ( 1, 2 ) )
 
-#	# [B, N, N]
-#	D = final_pred_to_dist_map(
-#		final_atom_pos = out["final_atom_positions"],
-#		length_scale = length_scale,
-#		eps = eps )
+	diff = pred_com - gt_com
+	loss = ( diff**2 ).sum( dim = -1 )
 
-#	# [B, N, N]
-#	mean = batch["distogram_mean"]
-#	var = batch["distogram_var"]
-
-#	assert D.shape == mean.shape, "Shape mismatch in GaussianDistanceRestraint"
-
-#	squared_diff = ( D - mean )**2
-#	loss = squared_diff/( var + eps )
-#	loss = torch.mean( loss )
-#	return loss
+	return loss
 
 ###############################################################################
 ###############################################################################
@@ -304,59 +283,6 @@ def get_violation_loss(
 #	com_loss = torch.mean( squared_diff )
 #	return com_loss
 
-###############################################################################
-###############################################################################
-#def rigid_chain_loss(
-#	final_atom_position: torch.Tensor,
-#	gt_distance_map: torch.Tensor,
-#	asym_id: torch.Tensor,
-#	length_scale: float,
-#	eps: float ):
-#	"""
-#	Penalize intrachain distance deviations from the ground truth structure.
-#	Thi smay help keep each chain as a rigid unit and prevent squishing.
-#	"""
-#	pred_dist_map = final_pred_to_dist_map(
-#		final_atom_pos = final_atom_position,
-#		length_scale = length_scale,
-#		eps = eps
-#		)
-#	gt_distance_map = gt_distance_map/length_scale
-
-#	intrachain_mask = asym_id == asym_id
-
-#	squared_diff = ( pred_dist_map*intrachain_mask - gt_distance_map*intrachain_mask )**2
-#	loss = torch.mean( squared_diff )
-
-#	return loss
-
-###############################################################################
-###############################################################################
-#class FapeLoss():
-#	# Just a wrapper for the OpenFold Fape loss.
-#	def __init__(  self, config ):
-#		self.name = "fape"
-#		self.config = config
-
-#	def get( self, out, batch ):
-#		return lambda: fape_loss(
-#								out,
-#								batch,
-#								self.config
-#								)
-
-#class SupervisedChiLoss():
-#	# Just a wrapper for the OpenFold Supervised Chi loss.
-#	def __init__(  self, config ):
-#		self.name = "supervised_chi"
-#		self.config = config
-
-#	def get( self, out, batch ):
-#		return lambda: supervised_chi_loss(
-#								out["sm"]["angles"],
-#								out["sm"]["unnormalized_angles"],
-#								**{**batch, **self.config},
-#								)
 
 # class ViolationLoss():
 # 	# Just a wrapper for the OpenFold Violation loss.
@@ -383,49 +309,19 @@ def get_violation_loss(
 #								**{**batch, **self.config},
 #								)
 
-#class CenterOfMassLoss():
-#	# Just a wrapper for the custom center of mass loss.
-#	def __init__(  self, config ):
-#		self.name = "center_of_mass"
-#		self.config = config
+class CenterOfMassLoss():
+	# Just a wrapper for the custom center of mass loss.
+	def __init__(  self, config ):
+		self.name = "com"
+		self.config = config
 
-#	def get( self, out, batch ):
-#		return lambda: com_loss(
-#					all_atom_pred_pos = out["all_atom_positions"],
-#					**{**batch, **self.config},
-#					)
-
-
-#class RigidChainLoss():
-#	# Custom loss to preserve intrachain distances.
-#	def __init__(  self, config ):
-#		self.name = "rigid_chain"
-#		self.config = config
-
-#	def get( self, out, batch ):
-#		return lambda: rigid_chain_loss(
-#						final_atom_position = out["final_atom_positions"],
-#						gt_distance_map = batch["distance_map"],
-#						asym_id = batch["asym_id"],
-#						length_scale = self.config.length_scale,
-#						eps = self.config.eps
-#						)
-
-
-#class GaussianDistanceRestraint():
-#	"""
-#	Restraint inter-residue distances based on the initial predicted distogram.
-#	"""
-#	def __init__(  self, config ):
-#		self.name = "gdr"
-#		self.config = config
-
-#	def get( self, out, batch ):
-#		return lambda: gaussian_distance_restraint(
-#						out = out, batch = batch,
-#						length_scale = self.config.length_scale,
-#						eps = self.config.eps )
-
+	def get( self, out, gt_feature_dict ):
+		return lambda: get_com_loss(
+					final_atom_positions = out["final_atom_positions"],
+					atom_mask = out["final_atom_mask"],
+					gt_feature_dict = gt_feature_dict,
+					config = self.config
+					)
 
 #class DistogramLoss():
 #	# Just a wrapper for the OpenFold Chain center of mass loss.
@@ -439,6 +335,18 @@ def get_violation_loss(
 #								**{**batch, **self.config},
 #								)
 
+# class ViolationLoss():
+# 	# Just a wrapper for the OpenFold violation loss.
+# 	def __init__(  self, config ):
+# 		self.name = "violation"
+# 		self.config = config
+
+# 	def get( self, out, gt_feature_dict ):
+# 		return lambda: violation_loss(
+#                 out["violation"],
+#                 **{**gt_feature_dict, **self.config},
+#             )
+
 class ViolationLoss():
 	# Just a wrapper for the custom violation loss.
 	def __init__(  self, config ):
@@ -446,23 +354,11 @@ class ViolationLoss():
 		self.config = config
 
 	def get( self, out, gt_feature_dict ):
-		return lambda: violation_loss(
-                out["violation"],
-                **{**gt_feature_dict, **self.config},
+		return lambda: get_violation_loss(
+				final_atom_positions = out["final_atom_positions"],
+				gt_feature_dict = gt_feature_dict,
+                config = self.config
             )
-
-# class ViolationLoss():
-# 	# Just a wrapper for the custom violation loss.
-# 	def __init__(  self, config ):
-# 		self.name = "violation"
-# 		self.config = config
-
-# 	def get( self, out, gt_feature_dict ):
-# 		return lambda: get_violation_loss(
-#                 out = out,
-# 				gt_feature_dict = gt_feature_dict,
-#                 config = self.config
-#             )
 
 
 #class ExcludedVolumeLoss():
@@ -531,25 +427,25 @@ class LossFunction( nn.Module ):
 		gt_feature_dict: Dict[str, torch.Tensor],
 		restraint_features: Dict[str, Any] ):
 		# AF2 losses require the atom14 representation.
-		atom37 = out["final_atom_positions"]
-		atom14 = atom37_to_atom14( atom37 = atom37, gt_feature_dict = gt_feature_dict )
+		# atom37 = out["final_atom_positions"]
+		# atom14 = atom37_to_atom14( atom37 = atom37, gt_feature_dict = gt_feature_dict )
 
-		if "violation" not in out.keys():
-			out["violation"] = find_structural_violations(
-				gt_feature_dict,
-				atom14,
-				# out["sm"]["positions"][-1],
-				**self.config.violation,
-			)
+		# if "violation" not in out.keys():
+		# 	out["violation"] = find_structural_violations(
+		# 		gt_feature_dict,
+		# 		atom14,
+		# 		# out["sm"]["positions"][-1],
+		# 		**self.config.violation,
+		# 	)
 
-		if "renamed_atom14_gt_positions" not in out.keys():
-			gt_feature_dict.update(
-				compute_renamed_ground_truth(
-					gt_feature_dict,
-					atom14
-					# out["sm"]["positions"][-1],
-				)
-			)
+		# if "renamed_atom14_gt_positions" not in out.keys():
+		# 	gt_feature_dict.update(
+		# 		compute_renamed_ground_truth(
+		# 			gt_feature_dict,
+		# 			atom14
+		# 			# out["sm"]["positions"][-1],
+		# 		)
+		# 	)
 
 		device = out["final_atom_positions"].device
 		# Iteratively calculate the loss for all included terms.
@@ -620,6 +516,9 @@ class LossFunction( nn.Module ):
 
 		if self.config.violation.enabled:
 			loss_fns.append( ViolationLoss( self.config.violation ) )
+
+		if self.config.com.enabled:
+			loss_fns.append( CenterOfMassLoss( self.config.com ) )
 		#if self.config.ev.enabled:
 		#	loss_fns.append( ExcludedVolumeLoss( self.config.ev ) )
 
