@@ -7,7 +7,6 @@ import openfold.np.residue_constants as rc
 
 def final_pred_to_dist_map(
 	final_atom_pos: torch.Tensor,
-	length_scale: int,
 	eps = float
 	) -> torch.Tensor:
 	"""
@@ -38,7 +37,4 @@ def final_pred_to_dist_map(
 	D = torch.sqrt( 
 					torch.sum( ( diff )**2, dim = -1 ) + eps
 					)
-
-	# Adjust the length scales.
-	scaled_D = D / length_scale
-	return scaled_D
+	return D

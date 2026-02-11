@@ -11,7 +11,6 @@ class XlRestraint():
 		self.name = "xlr"
 		self.config = config
 		self.allow_xl_tolerance = config.allow_xl_tolerance
-		self.length_scale = config.length_scale
 		self.eps = config.eps
 
 
@@ -48,7 +47,7 @@ class XlRestraint():
 
 	def get_violations_mask( self, D: Dict[str, torch.Tensor],
 							xl_res_mask: torch.tensor,
-							scaled_xl_max_bound: float ) -> torch.Tensor:
+							xl_max_bound: float ) -> torch.Tensor:
 		"""
 		Adjust the length sacales for the distance map and xl_max_bound.
 		Identify XL violations.
@@ -57,8 +56,7 @@ class XlRestraint():
 		----------
 		D --> Ca-distance map [B,N,N].
 		xl_res_mask --> binary mask indicating cross-linked residue pairs.
-		xl_max_bound --> max distance between the cross-licked residues 
-						scaled by self.length_scale.
+		xl_max_bound --> max distance between the cross-licked residues.
 
 		Returns:
 		----------
@@ -68,22 +66,22 @@ class XlRestraint():
 		D = D*xl_res_mask
 
 		# Identify Xl violations.
-		viols_mask = D > scaled_xl_max_bound
+		viols_mask = D > xl_max_bound
 		return viols_mask
 
 
 	def compute_distance_violation( self, D: torch.Tensor,
 									viols_mask: torch.Tensor,
-									scaled_xl_max_bound: float
+									xl_max_bound: float
 									) -> torch.Tensor:
 		"""
 		Calculate the difference between the predicted distances and 
 			the XL max bound for XL'd residue airs.
 		"""
 		if viols_mask.any():
-			diff = ( D[viols_mask] - scaled_xl_max_bound )**2
+			diff = ( D[viols_mask] - xl_max_bound )**2
 		else:
-			diff = D*0
+			diff = torch.tensor( 0.0, device = D.device )
 		return diff
 
 
@@ -112,14 +110,10 @@ class XlRestraint():
 		"""
 		D = final_pred_to_dist_map(
 			final_atom_pos = out["final_atom_positions"],
-			length_scale = self.length_scale,
 			eps = self.eps )
 
 		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
 			print("NaN or Inf detected in final_atom_positions!")
-
-		# Adjust the length scales.
-		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
 		# Aggregate loss across all XLs.
 		agg_loss = torch.zeros( 1 ).to( D.device )
@@ -127,18 +121,18 @@ class XlRestraint():
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
 			# Indices for all ambiguous XLs for a cross-linked residue pair.
-			xl_indices = ( 0, res_idx1, res_idx2 )
+			D_xl = D[0, res_idx1, res_idx2]
 
-			viols_mask = D[xl_indices] > scaled_xl_max_bound
+			viols_mask = D_xl > xl_max_bound
 			# If any ambiguous pairs are violated.
 			if viols_mask.all():
 				# Get the minimum distance over all ambiguous pairs.
-				min_D = torch.min( D[xl_indices] )
-				diff = min_D - scaled_xl_max_bound
+				min_D = torch.min( D_xl )
+				diff = min_D - xl_max_bound
 				squared_diff = diff**2
 			else:
 				# If any ambiguous pair is satisfied, the restraint is satisfied.
-				squared_diff = ( D[xl_indices]*0 ).sum()
+				squared_diff = ( D_xl*0 ).sum()
 
 			agg_loss += squared_diff
 
@@ -182,14 +176,10 @@ class XlRestraint():
 		----------
 		loss --> xl restraint loss.
 		"""
-		delta = self.config.huber_delta/ self.length_scale
+		delta = self.config.huber_delta
 		D = final_pred_to_dist_map(
 			final_atom_pos = out["final_atom_positions"],
-			length_scale = self.length_scale,
 			eps = self.eps )
-
-		# Adjust the length scales.
-		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
 		# agg_loss = torch.tensor( 0.0 ).to( D.device )
 		agg_loss = torch.zeros( 1 ).to( D.device )
@@ -197,19 +187,19 @@ class XlRestraint():
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
 			# Indices for all ambiguous XLs for a cross-linked residue pair.
-			xl_indices = ( 0, res_idx1, res_idx2 )
+			D_xl = D[0, res_idx1, res_idx2]
 
-			viols_mask = D[xl_indices] > scaled_xl_max_bound
+			viols_mask = D_xl > xl_max_bound
 			# If all ambiguous pairs are violated.
 			if viols_mask.all():
 				# Get the minimum distance over all ambiguous pairs.
-				min_D = torch.min( D[xl_indices] )
-				diff = min_D - scaled_xl_max_bound
+				min_D = torch.min( D_xl )
+				diff = min_D - xl_max_bound
 				a = torch.sqrt( 1 + ( diff/delta )**2 )
 				huber = delta**2*a - 1
 			# If any ambiguous pair is satisfied, the restraint is satisfied.
 			else:
-				huber = ( D[xl_indices]*0 ).sum()
+				huber = ( D_xl*0 ).sum()
 				# squared_diff = torch.tensor( 0.0, device = D.device )
 
 			agg_loss += huber
@@ -255,14 +245,10 @@ class XlRestraint():
 		"""
 		D = final_pred_to_dist_map(
 			final_atom_pos = out["final_atom_positions"],
-			length_scale = self.length_scale,
 			eps = self.eps )
 
 		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
 			print("NaN or Inf detected in final_atom_positions!")
-
-		# Adjust the length scales.
-		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
 		# Aggregate loss across all XLs.
 		agg_loss = torch.zeros( 1 ).to( D.device )
@@ -270,14 +256,14 @@ class XlRestraint():
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
 			# Indices for all ambiguous XLs for a cross-linked residue pair.
-			xl_indices = ( 0, res_idx1, res_idx2 )
+			D_xl = D[0, res_idx1, res_idx2]
 
 			# Min distance across all ambiguous XL pair.
-			min_D = min_D = torch.min( D[xl_indices] )
+			min_D = torch.min( D_xl )
 			softplus = torch.nn.functional.softplus(
-				x = min_D - scaled_xl_max_bound,
+				x = min_D - xl_max_bound,
 				beta = self.config.beta,
-				threshold = scaled_xl_max_bound
+				threshold = xl_max_bound
 			)
 
 			agg_loss += softplus
@@ -322,14 +308,10 @@ class XlRestraint():
 		"""
 		D = final_pred_to_dist_map(
 			final_atom_pos = out["final_atom_positions"],
-			length_scale = self.length_scale,
 			eps = self.eps )
 
 		if torch.isnan(out["final_atom_positions"]).any() or torch.isinf(out["final_atom_positions"]).any():
 			print("NaN or Inf detected in final_atom_positions!")
-
-		# Adjust the length scales.
-		scaled_xl_max_bound = xl_max_bound / self.length_scale
 
 		# Aggregate loss across all XLs.
 		agg_loss = torch.zeros( 1 ).to( D.device )
@@ -337,12 +319,12 @@ class XlRestraint():
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
 			# Indices for all ambiguous XLs for a cross-linked residue pair.
-			xl_indices = ( 0, res_idx1, res_idx2 )
+			D_xl = D[0, res_idx1, res_idx2]
 
-			min_D = min_D = torch.min( D[xl_indices] )
+			min_D = torch.min( D_xl )
 			# Sigmoid weight
-			w = torch.sigmoid( min_D - scaled_xl_max_bound )/self.config.beta
-			gated_harmonic = w*( min_D - scaled_xl_max_bound )**2
+			w = torch.sigmoid( ( min_D - xl_max_bound )/self.config.beta )
+			gated_harmonic = w*( min_D - xl_max_bound )**2
 
 			agg_loss += gated_harmonic
 
