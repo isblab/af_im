@@ -135,6 +135,7 @@ class Assay():
 		"""
 		Run the different analysis steps.
 		"""
+		self.burn_in()
 		model_ids = np.array( self.stats_dict["model_id"] )
 		protein_obj = self.stats_dict["protein"]
 
@@ -155,7 +156,8 @@ class Assay():
 			good_models_index = self.analysis_dict["good_models_index"]
 		print( "Good-scoring models = ", len( good_models ) )
 
-		# get model with max data satisfaction.
+		# Get model with max data satisfaction.
+		# TODO: extend for multiple data types later.
 		xlr = np.array( self.stats_dict["metrics"]["xlr"] )
 		max_data_sat_idx = np.argmax( xlr[good_models_index] )
 		max_data_sat_model = good_models[max_data_sat_idx]
@@ -193,7 +195,7 @@ class Assay():
 			print( "\n--> Running AMBER relaxation <--" )
 			if not "relax" in self.analysis_dict:
 				ts = time.perf_counter()
-				subset_protein_obj = {k: protein_obj[k] for k in protein_obj if k in selected_model_index}
+				subset_protein_obj = {k: protein_obj[k] for k in protein_obj if k in selected_good_models}
 				relax_dict = self.run_amber_relaxation(
 					good_models = selected_good_models,
 					protein_obj = subset_protein_obj
@@ -224,6 +226,32 @@ class Assay():
 			self.write_molprobity_output_to_csv( molprob_dict = molprob_dict )
 		else:
 			print( "AMBER relaxation and Molprobity validation have been disabled..." )
+
+	################################################################################
+	################################################################################
+	def burn_in( self ):
+		"""
+		Remove an initial set of models (burn in), assumed to be obviously bad.
+		The stat_dict contains the following:
+			model_id, time_per_frame, loss, metrics, protein, transformations, metadata
+		"""
+		burn_in_frac = self.analysis_config.burn_in_frac
+		if burn_in_frac is not None:
+			burn_in = int( burn_in_frac*len( self.stats_dict["model_id"] ) )
+			print( f"Burn in initial {burn_in} models..." )
+		else:
+			print( "No burn-in..." )
+			burn_in = 0
+
+		self.stats_dict["model_id"] = self.stats_dict["model_id"][burn_in:]
+		for k in ["loss", "metrics"]:
+			for m in self.stats_dict[k]:
+				self.stats_dict[k][m] = self.stats_dict[k][m][burn_in:]
+		# TODO: make it more generic.
+		self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"] = self.stats_dict["metadata"]["xlr"]["xl_satisfaction_array"][burn_in:,:]
+		# This si stored as a dict with model_id's as keys.
+		for model_id in range( burn_in ):
+			self.stats_dict["protein"].pop( model_id )
 
 	################################################################################
 	################################################################################
