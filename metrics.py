@@ -10,7 +10,67 @@ import torch
 from utils.metric_utils import final_pred_to_dist_map
 
 
+class Excludedvolume():
+	def __init__( self, config: Dict, restraint_features: Dict ):
+		"""
+		Compute the no. of intra/inter-chain clashes.
+		"""
+		self.name = "ev"
+		self.config = config
+		self.restraint_features = restraint_features
 
+	def forward( self, out: Dict[str, torch.Tensor] ):
+		"""
+		"""
+		D = self.get_predicted_distance_map( out )
+		if self.config.intra_enabled:
+			intra_clashes = self.get_intra_chain_clashes()
+		else:
+			intra_clashes = 0
+		if self.config.inter_enabled:
+			inter_clashes = self.get_inter_chain_clashes()
+		else:
+			intra_clashes = 0
+		total_clashes = intra_clashes + inter_clashes
+		return total_clashes
+
+
+	def get_predicted_distance_map(
+			self, out: Dict[str, torch.Tensor]
+		) -> None:
+		"""
+		Get the predicted distance map.
+		"""
+		self.D = final_pred_to_dist_map(
+			final_atom_pos = out["final_atom_positions"],
+			eps = self.config.eps
+		)
+
+	def get_intra_chain_clashes( self ):
+		"""
+		Get the no. of inter-chain clashes.
+		"""
+		intra_ev_mask = self.restraint_features["intra_ev_mask"]
+		intra_chain_dist = self.config.inter_chain_dist
+		viols = self.D[intra_ev_mask.bool()] < intra_chain_dist
+
+		intra_clashes = torch.sum( viols )
+		return intra_clashes
+
+
+	def get_inter_chain_clashes( self ):
+		"""
+		Get the no. of inter-chain clashes.
+		"""
+		inter_ev_mask = self.restraint_features["inter_ev_mask"]
+		inter_chain_dist = self.config.inter_chain_dist
+		viols = self.D[inter_ev_mask.bool()] < inter_chain_dist
+
+		inter_clashes = torch.sum( viols )
+		return inter_clashes
+
+###############################################################################	
+###############################################################################
 class XlMetrics():
 	def __init__( self, config: Dict, restraint_features: Dict ):
 		"""
@@ -18,13 +78,13 @@ class XlMetrics():
 		Check what all XLs are satisfied.
 		"""
 		self.name = "xlr"
-		self.length_scale = config.length_scale
+		# self.length_scale = config.length_scale
 		self.eps = config.eps
 		xl_max_bound = restraint_features["xl_max_bound"]
 		if config.allow_xl_tolerance:			
 			xl_sat_tolerance = restraint_features["xl_sat_tolerance"]
 			xl_max_bound = xl_max_bound+xl_sat_tolerance
-		self.xl_max_bound = xl_max_bound/ self.length_scale
+		self.xl_max_bound = xl_max_bound
 		# A dict containing all ambiguous pairs for each cross-linked residue pair.
 		self.xl_res_dict = restraint_features["xl_res_dict"]
 		# Total XL pairs.
@@ -49,14 +109,14 @@ class XlMetrics():
 		return xl_metric
 
 
-	def get_predicted_distance_map( self, out: Dict[str, torch.Tensor]
-									) -> None:
+	def get_predicted_distance_map( self,
+		out: Dict[str, torch.Tensor]
+		) -> None:
 		"""
 		Get the predicted distance map.
 		"""
 		self.D = final_pred_to_dist_map(
 			final_atom_pos = out["final_atom_positions"],
-			length_scale = self.length_scale,
 			eps = self.eps
 		)
 
@@ -140,7 +200,7 @@ class Metrics():
 
 	def store_metadata( self, metric_name: str, metric_instance ):
 		"""
-		Store metadata for all metrics.
+		Store metadata for metrics.
 		XL data:
 			XL satisfaction array for all models.
 			Global XL satisfaction.
@@ -149,8 +209,6 @@ class Metrics():
 		"global_satisfaction": metric_instance.compute_global_xl_satisfaction(),
 		"xl_satisfaction_array": metric_instance.xl_satisfaction_array
 		}
-
-
 
 	def metrics_included( self ) -> List:
 		"""
@@ -162,6 +220,10 @@ class Metrics():
 				XlMetrics( self.config.xlr,
 							self.restraint_features["xl_restraint"] )
 			)
+		if self.config.ev.enabled:
+			included_metrics.append(
+				Excludedvolume( self.config.ev,
+							self.restraint_features["ev"] )
+			)
 
 		return included_metrics
-
