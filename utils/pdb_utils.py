@@ -58,6 +58,38 @@ def get_chain_id( idx: int ) -> str:
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
+def amino_acid_radii():
+	"""
+	Dict containing the tokenized amino acid and their corresponding radii.
+	Radii taken form -> Table-3: https://doi.org/10.1038/s41598-020-61205-w
+	Tokenization taken from openfold/np/residue_constants.py
+	"""
+	radii = {
+		0: 3.2,    # Ala
+		1: 3.65,   # Cys, also U
+		2: 4.04,   # Asp, also B
+		3: 4.63,   # Glu, also Z
+		4: 4.99,   # Phe
+		5: 1.72,   # Gly
+		6: 4.73,   # His
+		7: 3.94,   # ile
+		8: 5.02,   # Lys
+		9: 4.24,   # Leu
+		10: 4.47,  # Met
+		11: 4.04,  # Asn
+		12: 3.61,  # pro
+		13: 4.64,  # Gln
+		14: 5.6,   # Arg
+		15: 3.39,  # Ser
+		16: 3.56,  # Thr
+		17: 3.55,  # Val
+		18: 5.38,  # Trp
+		19: 5.36,  # Tyr
+		20: 4.0    # X, J, O
+	}
+
+####################################################################################
+####----------------------------------------------------------------------------####
 def aa_3_to_1( aa ):
 	"""
 	Converts 3-letter amino acid names to symbols
