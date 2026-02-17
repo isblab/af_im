@@ -452,6 +452,7 @@ class IntegrativeLearning():
 			global satisfaction for all metrics.
 		Write the results to a csv file.
 		"""
+		# TODO: make this more generic.
 		df_dict = {"labels": []}
 		df_dict["labels"] = ["epoch0", "last_epoch", "avg", "avg_first_0.1",
 								"avg_last_0.1"]
@@ -460,6 +461,7 @@ class IntegrativeLearning():
 			f"{k}_global_satisfaction" for k in metrics_dict.keys()
 			] )
 		num_global_labels = len( df_dict["labels"] ) - num_per_epoch_labels
+		total_labels = len( df_dict["labels"] )
 
 		df_dict.update( {k:[] for k in loss_dict.keys()} )
 		last_n = math.ceil( self.topology.train.num_frames*0.9 )
@@ -473,14 +475,17 @@ class IntegrativeLearning():
 							round( np.mean( v[:first_n] ), self.prec ),
 							round( np.mean( v[last_n:] ), self.prec )]
 							)
-			df_dict[k].extend( "" for i in range( num_global_labels ) )
 
 		df_dict.update( {
 			f"{k}_metric":[] for k in metrics_dict.keys()
 			} )
 		for k, v in metrics_dict.items():
-			global_sat = round( metadata[k]["global_satisfaction"], self.prec )
-			print( f"Global {k} satisfaction = ", global_sat )
+			if k not in metadata:
+				global_sat = 0
+				print( f"No global satisfaction metric for {k}..." )
+			else:
+				global_sat = round( metadata[k]["global_satisfaction"], self.prec )
+				print( f"Global {k} satisfaction = ", global_sat )
 			df_dict[f"{k}_metric"].extend(
 							[v[0],
 							v[-1],
@@ -489,24 +494,28 @@ class IntegrativeLearning():
 							np.mean( v[last_n:] ),
 							global_sat
 							] )
-
+		# df_dict[k].extend( "" for i in range( num_global_labels ) )
+		for k in df_dict:
+			if len( df_dict[k] ) < total_labels:
+				diff = total_labels - len( df_dict[k] )
+				df_dict[k].extend( "" for i in range( diff ) )
 		df = pd.DataFrame( df_dict )
 		df.to_csv( self.summary_file, index = False )
 
 
 if __name__ == "__main__":
-	sys_name = "8wtd"
+	sys_name = "3ojm"
 	topology_dict = topology_dict()
 	base_dir = os.path.join( os.path.abspath( "./benchmark/" ) )
 	# Directory containing input data for the modeled system.
 	data_dir = os.path.join( base_dir,
-							f"pairrep_benchmark/{sys_name}/" )
+							f"xlmerged_benchmark/{sys_name}/" )
 	modeling_dir_name = "modeling"
 
 	IntegrativeLearning( sys_name = sys_name,
 						base_dir = base_dir,
 						data_dir = data_dir,
-						sys_config_file = f"sys_config_{sys_name}.json",
+						sys_config_file = f"sys_config_{sys_name}_tpfp.json",
 						modeling_dir_name = modeling_dir_name,
 						topology_dict = topology_dict
 						).forward()
