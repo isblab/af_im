@@ -9,9 +9,10 @@ import os, pickle as pkl
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 import seaborn as sns
 
-from utils.utils import open_file_handler
+from utils.utils import open_file_handler, read_json
 from utils.paths import (
 	get_meta_dir_path,
 	get_sys_data_dir_path,
@@ -435,6 +436,141 @@ def plot_confidence_metrics_for_benchmark():
 	plt.savefig( pae_plot_file, dpi = 399 )
 	plt.close()
 
+################################################################################
+################################################################################
+def analyze_boltz2_preds():
+	"""
+	Compare the data satisfaction for Boltz2 guided and unguided predictions.
+	"""
+	boltz2_guided_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/comparison/guided/"
+	guided_logs_file = os.path.join( boltz2_guided_dir, "Logs.json" )
+	boltz2_unguided_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/comparison/unguided_boltz2/"
+	unguided_logs_file = os.path.join( boltz2_unguided_dir, "Logs.json" )
+
+	guided_logs = read_json( guided_logs_file )
+	unguided_logs = read_json( unguided_logs_file )
+
+	for metric, label in zip( ["data_satisfaction", "dockq"], ["XL satisfaction", "DockQ"] ):
+		stats = {}
+		for k1 in ["guided", "unguided"]:
+			stats[k1] = {}
+			for k2 in ["avg", "max"]:
+				stats[k1][k2] = []
+
+		for sys_name in guided_logs[metric]["boltz2"]:
+			data_sat = guided_logs[metric]["boltz2"][sys_name]
+			stats["guided"]["avg"].append( np.mean( data_sat ) )
+			stats["guided"]["max"].append( np.max( data_sat ) )
+
+			data_sat = unguided_logs[metric]["boltz2"][sys_name]
+			stats["unguided"]["avg"].append( np.mean( data_sat ) )
+			stats["unguided"]["max"].append( np.max( data_sat ) )
+		
+		_, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
+		plt.rcParams["font.family"] = "sans-serif"
+		ax[0].plot( [0,1], [0,1], c = "red" )
+		ax[0].scatter( stats["guided"]["avg"], stats["unguided"]["avg"] )
+		ax[0].set_xlabel( "Guided Boltz2", fontsize = 10 )
+		ax[0].set_ylabel( "Unguided Boltz2", fontsize = 10 )
+		ax[0].set_title( f"Avg {label}", fontweight = "bold", fontsize = 12 )
+
+		ax[1].plot( [0,1], [0,1], c = "red" )
+		ax[1].scatter( stats["guided"]["max"], stats["unguided"]["max"] )
+		ax[1].set_xlabel( "Guided Boltz2", fontsize = 10 )
+		ax[1].set_ylabel( "Unguided Boltz2", fontsize = 10 )
+		ax[1].set_title( f"Max {label}", fontweight = "bold", fontsize = 12 )
+
+		plot_file = os.path.join( side_analysis_dir, f"{metric}_boltz2_guided_unguided.png" )
+		plt.tight_layout()
+		plt.savefig( plot_file, dpi = 300 )
+		plt.close()
+
+
+################################################################################
+################################################################################
+def competing_method_plots():
+	"""
+	Given predictions from AlphaLink2, GRASP, Boltz-2, plot
+		Avg data satisfaction.
+		Avg DockQ
+	"""
+	comparison_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/comparison/guided"
+	logs_file = os.path.join( comparison_dir, "Logs.json" )
+
+	logs = read_json( logs_file )
+
+	# print( [f.name for f in fm.fontManager.ttflist if "Arial" in f.name] )
+
+	print( logs.keys() )
+	for met in ["max", "avg"]:
+		print( f"\n Using {met}..." )
+		for label, k, c in zip( ["XL satisfaction", "DockQ"], ["data_satisfaction", "dockq"], [0.75, 0.23] ):
+			metric = logs[k]
+			complexes = list( metric["grasp"].keys() )
+			metric_dict = {}
+			num_pred = {}
+			for m in ["alphalink2", "grasp", "boltz2"]:
+				metric_dict[m] = []
+				num_pred[m] = []
+				for sys_name in metric[m].keys():
+					if met == "max":
+						met_val = round( np.max( metric[m][sys_name] ), 3 )
+					elif met == "avg":
+						met_val = round( np.mean( metric[m][sys_name] ), 3 )
+					metric_dict[m].append( met_val )
+					num_pred[m].append( len( metric[m][sys_name] ) )
+
+				if k == "dockq":
+					print( k, "  ", m, " -- ", np.sum( np.where( np.array( metric_dict[m] ) > 0.23, 1, 0 ) ) )
+				elif k == "data_satisfaction":
+					print( k, "  ", m, " -- ", np.sum( np.where( np.array( metric_dict[m] ) > 0.75, 1, 0 ) ) )
+			fig, ax = plt.subplots( 1, 1, figsize = ( 20, 8 ) )
+			# plt.rcParams["font.family"] = "Arial"
+			plt.rcParams["font.family"] = "sans-serif"
+			x = np.arange( 0, len( complexes), 1 )
+			ax.scatter(x, metric_dict["alphalink2"], marker = "o", s = 50, label = "AlphaLink2" )
+			ax.scatter(x, metric_dict["grasp"], marker = "o", s = 50, label = "GRASP" )
+			ax.scatter(x, metric_dict["boltz2"], marker = "o", s = 50, label = "Boltz2" )
+			ax.axhline( c, color = "red" )
+			# ax.bar( x-width, avg_dockq["alphalink2"], width )
+			# ax.bar( x, avg_dockq["grasp"], width )
+			# ax.bar( x+width, avg_dockq["boltz2"], width )
+			ax.set_xticks( x )
+			ax.tick_params(axis = "both", width = 2, length = 5 )
+			ax.set_xticklabels( complexes, rotation = 90, fontsize = 12 )
+			ax.set_xlabel( "PDB IDs", fontweight = "bold", fontsize = 12 )
+			ax.set_ylabel( f"Max {label}", fontweight = "bold", fontsize = 12 )
+			# plt.show()
+			plt.tight_layout()
+			plt.legend()
+			file = os.path.join( side_analysis_dir, f"{met}_{k}_competing_methods.png" )
+			plt.savefig( file, dpi = 300 )
+			plt.close()
+
+	width = 0.25
+	fig, ax = plt.subplots( 1, 1, figsize = ( 20, 8 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+	x = np.arange( 0, len( complexes), 1 )
+
+	ax.bar( x-width, num_pred["alphalink2"], width, label = "AlphaLink2" )
+	ax.bar( x, num_pred["grasp"], width, label = "GRASP" )
+	ax.bar( x+width, num_pred["boltz2"], width, label = "Boltz2" )
+	ax.axhline( 1, c = "red" )
+	ax.set_yticks( np.arange( 1, 26, 5 ) )
+	ax.tick_params(axis = "both", width = 2, length = 5 )
+	ax.set_xticks( x )
+	ax.set_xticklabels( complexes, rotation = 90, fontsize = 12 )
+	ax.set_xlabel( "PDB IDs", fontweight = "bold", fontsize = 12 )
+	ax.set_ylabel( "No. of unique structures predicted", fontweight = "bold", fontsize = 12 )
+	# plt.show()
+	plt.tight_layout()
+	plt.legend()
+	file = os.path.join( side_analysis_dir, f"ensemble_competing_methods.png" )
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+
+
 
 if __name__ == "__main__":
 	# plot_dist_max_data_sat()
@@ -442,5 +578,7 @@ if __name__ == "__main__":
 	# sampled_rotations()
 	# compare_max_data_satisfaction()
 	# remap_chains_in_native()
-	plot_confidence_metrics_for_benchmark()
+	# plot_confidence_metrics_for_benchmark()
+	analyze_boltz2_preds()
+	competing_method_plots()
 	print( "May the Force be with you..." )
