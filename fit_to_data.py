@@ -12,7 +12,7 @@ from openfold.data import feature_pipeline
 from openfold.np import protein
 
 from models.rigid_sampler import PoseSampling, RandomPoseSampling
-
+from models.rigid_body import get_rigid_body
 from loss import LossFunction
 from metrics import Metrics
 from optimizer import Optimizer
@@ -50,6 +50,12 @@ class FitToData():
 		# Stats for the full run (pose sampling + recycling).
 		self.stats_dict = defaultdict( dict )
 		self.loss_fn = LossFunction( self.topology["loss"], self.device )
+		# TODO: remove all features that are ot needed..
+		# TODO: merge restraint_features and gt_features.
+		self.processed_feature_dict["restraint_features"]["ev"] = {
+			"intra_ev_mask": self.gt_feature_dict["intra_ev_mask"],
+			"inter_ev_mask": self.gt_feature_dict["inter_ev_mask"]
+		}
 		self.metrics_fn = Metrics( self.topology["metrics"], self.processed_feature_dict["restraint_features"] )
 
 
@@ -106,6 +112,7 @@ class FitToData():
 				that would exist while training in mini-batches but does not exist in our case.
 		****
 		"""
+		# TODO: no longer needed.
 		print( "\nAdding singleton batch dim to all tensors..." )
 		
 		with torch.no_grad():
@@ -211,6 +218,7 @@ class FitToData():
 		Prepare inputs for pose sampling.
 		Run pose sampling.
 		"""
+		# TODO: fix redundancy in adding/removing from device.
 		# Add batch dim.
 		self.add_batch_dim()
 
@@ -278,7 +286,21 @@ class FitToData():
 			Backpropagate.
 		"""
 		print( "\n\033[1mInitiate pose sampling now...\033[0m" )
+
+		rigid_bodies = get_rigid_body(
+			final_atom_positions = out["final_atom_positions"],
+			asym_id = out["asym_id"],
+			rigid_type = self.topology.model.rigid_type
+		)
+		# We assume the 1st rigid body to be fixed.
+		fixed_body_len = rigid_bodies[0].shape[1]
+		# Get the coarse-grained length of fixed body.
+		k = self.topology.model.cg_kernel
+		cg_len = int( ( ( fixed_body_len + 2*0 - k )/k ) + 1 )
+
+		# The feature dim equals the length of the length of coarse-grained fixed rigid body.
 		model = PoseSampling(
+			in_feats = cg_len,
 			model_config = self.topology.model,
 			device = self.device )
 		model.to( self.device )
@@ -286,9 +308,10 @@ class FitToData():
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
 
+
 		for frame in range( self.topology.train.num_frames ):
 			t_s = time.perf_counter()
-			print( f"\nPose sampling step: {frame} --------------------------" )
+			print( f"\nPose sampling frame: {frame} --------------------------" )
 
 			out = self.reinit_coords( out = out )
 
@@ -303,20 +326,21 @@ class FitToData():
 				last_frame = True
 			else:
 				last_frame = False
-			metrics_dict = self.metrics_fn.forward(
-				out = out, last_epoch = last_frame )
-			self.update_data_metric_dict(
-				metrics_dict = metrics_dict )
 
 			optimizer.zero_grad()
 			cum_loss.backward()
 			optimizer.step()
 
+			metrics_dict = self.metrics_fn.forward(
+				out = out,
+				last_epoch = last_frame )
+			self.update_data_metric_dict(
+				metrics_dict = metrics_dict )
+
+			self.remove_from_device( out )
 			# Remove computed violations.
 			if "violation" in out:
 				out.pop( "violation" )
-
-			self.remove_from_device( out )
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
