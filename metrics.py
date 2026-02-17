@@ -10,7 +10,7 @@ import torch
 from utils.metric_utils import final_pred_to_dist_map
 
 
-class Excludedvolume():
+class ExcludedvolumeMetric():
 	def __init__( self, config: Dict, restraint_features: Dict ):
 		"""
 		Compute the no. of intra/inter-chain clashes.
@@ -19,10 +19,11 @@ class Excludedvolume():
 		self.config = config
 		self.restraint_features = restraint_features
 
+
 	def forward( self, out: Dict[str, torch.Tensor] ):
 		"""
 		"""
-		D = self.get_predicted_distance_map( out )
+		self.get_predicted_distance_map( out )
 		if self.config.intra_enabled:
 			intra_clashes = self.get_intra_chain_clashes()
 		else:
@@ -30,14 +31,14 @@ class Excludedvolume():
 		if self.config.inter_enabled:
 			inter_clashes = self.get_inter_chain_clashes()
 		else:
-			intra_clashes = 0
+			inter_clashes = 0
 		total_clashes = intra_clashes + inter_clashes
 		return total_clashes
 
 
 	def get_predicted_distance_map(
 			self, out: Dict[str, torch.Tensor]
-		) -> None:
+		):
 		"""
 		Get the predicted distance map.
 		"""
@@ -49,24 +50,27 @@ class Excludedvolume():
 	def get_intra_chain_clashes( self ):
 		"""
 		Get the no. of inter-chain clashes.
+		The mask considers both ij and ji pairs.
+			Divide by 2 to account for double-counting.
 		"""
 		intra_ev_mask = self.restraint_features["intra_ev_mask"]
-		intra_chain_dist = self.config.inter_chain_dist
+		intra_chain_dist = self.config.intra_chain_dist
 		viols = self.D[intra_ev_mask.bool()] < intra_chain_dist
 
-		intra_clashes = torch.sum( viols )
+		intra_clashes = torch.sum( viols )/2
 		return intra_clashes
-
 
 	def get_inter_chain_clashes( self ):
 		"""
 		Get the no. of inter-chain clashes.
+		The mask considers both ij and ji pairs.
+			Divide by 2 to account for double-counting.
 		"""
 		inter_ev_mask = self.restraint_features["inter_ev_mask"]
 		inter_chain_dist = self.config.inter_chain_dist
 		viols = self.D[inter_ev_mask.bool()] < inter_chain_dist
 
-		inter_clashes = torch.sum( viols )
+		inter_clashes = torch.sum( viols )/2
 		return inter_clashes
 
 ###############################################################################	
@@ -222,7 +226,7 @@ class Metrics():
 			)
 		if self.config.ev.enabled:
 			included_metrics.append(
-				Excludedvolume( self.config.ev,
+				ExcludedvolumeMetric( self.config.ev,
 							self.restraint_features["ev"] )
 			)
 
