@@ -2,7 +2,7 @@
 This script contains general purpose accessory functions.
 """
 from typing import List, Tuple, Dict, TextIO, Optional, Any
-import json, subprocess, traceback, time
+import json, os, shutil, subprocess, traceback, time
 from datetime import datetime
 from io import StringIO
 import numpy as np
@@ -193,6 +193,41 @@ def read_fasta_from_response( response: requests.Response ) -> Dict:
 		idx += 1
 
 	return fasta_dict
+
+
+def create_dir( dir_path: str ):
+	"""
+	Create a directory.
+
+	Input:
+	----------
+	dir_path: path to the directory to be created.
+
+	Returns:
+	----------
+	None
+	"""
+	os.makedirs( dir_path, exist_ok = True )
+
+
+def remove_dir( dir_path: str ):
+	"""
+	Remove a directory.
+
+	Input:
+	----------
+	dir_path: path to the directory to be removed.
+
+	Returns:
+	----------
+	None
+	"""
+	if os.path.exists( dir_path ):
+		shutil.rmtree( dir_path )
+	else:
+		raise FileNotFoundError(
+			f"The provided directory path - {dir_path} - does not exist..."
+		)
 
 
 def run_subprocess( command: List,
