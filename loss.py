@@ -4,17 +4,17 @@ import ml_collections as mlc
 import torch
 from torch import nn
 
-from openfold.utils.rigid_utils import Rotation, Rigid
-from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
-from openfold.utils.loss import ( find_structural_violations, 
-								compute_renamed_ground_truth,
-								supervised_chi_loss,
-								violation_loss,
-								chain_center_of_mass_loss, distogram_loss
-								)
+# from openfold.utils.rigid_utils import Rotation, Rigid
+# from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
+# from openfold.utils.loss import ( find_structural_violations, 
+# 								compute_renamed_ground_truth,
+# 								supervised_chi_loss,
+# 								violation_loss,
+# 								chain_center_of_mass_loss, distogram_loss
+# 								)
 from openfold.utils.tensor_utils import batched_gather
 
-from mod_openfold import fape_loss
+# from mod_openfold import fape_loss
 from restraints import XlRestraint, final_pred_to_dist_map
 
 
@@ -26,48 +26,57 @@ def get_excluded_volume(
 	inter_enabled: bool,
 	intra_ev_mask: torch.Tensor,
 	inter_ev_mask: torch.Tensor,
-	intra_chain_dist: float,
-	inter_chain_dist: float,
+	allowed_res_dist: torch.Tensor,
+	clash_tolerance: float,
 	beta: float,
 	eps: float ) -> torch.Tensor:
 	"""
 	Loss to penalize steric clashes between residues,
 		both intra and inter-chain (excluded volume).
-	
-	intra_chain_dist -> distance between intrachain Ca-atoms to consider a clash.
-	inter_chain_dist -> distance between interchain Ca-atoms to consider a clash.
-	"""
-	intra_ev_mask = intra_ev_mask.to( dist.device )
-	inter_ev_mask = inter_ev_mask.to( dist.device )
+	Residue pairs within allowed_res_dist+clash_tolerance are
+		considered for EV loss to account for near-clashes.
 
+	dist -> [N, N]
+	intra_ev_mask -> [N, N] mask for intrachain residues.
+	inter_ev_mask -> [N, N] mask for interchain residues.
+	allowed_res_dist -> [N, N] allowed distance between the Ca-atoms of two residues.
+	"""
+	violated_dist_mask = dist <= allowed_res_dist+clash_tolerance
+	violated_dist = allowed_res_dist - dist
 	# Intrachain clashes.
 	if intra_enabled:
-		diff_intra = torch.nn.functional.softplus(
-			intra_chain_dist - dist,
-			beta = beta,
-			threshold = inter_chain_dist
-		)
-		# diff_intra = torch.clamp( intra_chain_dist - dist, min = 0.0 )
-		intra_ev = torch.sum(
-			( diff_intra[intra_ev_mask.bool()] )**2
-			)/ ( torch.sum( intra_ev_mask ) + eps )
+		violated_intra_pairs = violated_dist_mask & intra_ev_mask.bool()
+		if violated_intra_pairs.any():
+			intra_viols = violated_dist[violated_intra_pairs]
+
+			diff_intra = torch.nn.functional.softplus(
+				intra_viols,
+				beta = beta )
+			denom = violated_intra_pairs.sum() + eps
+			intra_ev = diff_intra.sum()/denom
+			# Avoid double counting.
+			intra_ev = intra_ev/2
+		else:
+			intra_ev = dist.new_tensor( 0.0, requires_grad = True )
 	else:
-		intra_ev = torch.tensor( 0.0, device = dist.device )
+		intra_ev = dist.new_tensor( 0.0, requires_grad = True )
 
 	# Interchain clashes.
 	if inter_enabled:
-		diff_inter = torch.nn.functional.softplus(
-			inter_chain_dist - dist,
-			beta = beta,
-			threshold = inter_chain_dist
-		)
-
-		# diff_inter = torch.clamp( inter_chain_dist - dist, min = 0.0 )
-		inter_ev = torch.sum(
-			( diff_inter[inter_ev_mask.bool()] )**2
-			)/ ( torch.sum( inter_ev_mask ) + eps )
+		violated_inter_pairs = violated_dist_mask & inter_ev_mask.bool()
+		if violated_inter_pairs.any():
+			inter_viols = violated_dist[violated_inter_pairs]
+			diff_inter = torch.nn.functional.softplus(
+				inter_viols,
+				beta = beta )
+			denom = violated_inter_pairs.sum() + eps
+			inter_ev = diff_inter.sum()/denom
+			# Avoid double counting.
+			inter_ev = inter_ev/2
+		else:
+			inter_ev = dist.new_tensor( 0.0, requires_grad = True )
 	else:
-		inter_ev = torch.tensor( 0.0, device = dist.device )
+		inter_ev = dist.new_tensor( 0.0, requires_grad = True )
 
 	loss = intra_ev + inter_ev
 
@@ -105,7 +114,7 @@ def get_sequence_connectivity(
 ###############################################################################
 def get_violation_loss(
 		final_atom_positions: torch.Tensor,
-		gt_feature_dict: Dict[str, torch.Tensor],
+		batch: Dict[str, torch.Tensor],
 		config: mlc.ConfigDict ) -> torch.Tensor:
 	"""
 	Compute a violation loss accounting for excluded volume and sequence connectivity.
@@ -118,22 +127,22 @@ def get_violation_loss(
 				dist = dist,
 				intra_enabled = config.ev.intra_enabled,
 				inter_enabled = config.ev.inter_enabled,
-				intra_ev_mask = gt_feature_dict["intra_ev_mask"],
-				inter_ev_mask = gt_feature_dict["inter_ev_mask"],
-				intra_chain_dist = config.ev.intra_chain_dist,
-				inter_chain_dist = config.ev.inter_chain_dist,
+				intra_ev_mask = batch["intra_ev_mask"],
+				inter_ev_mask = batch["inter_ev_mask"],
+				allowed_res_dist = batch["allowed_res_dist"],
+				clash_tolerance = config.ev.clash_tolerance,
 				beta = config.ev.beta,
 				eps = config.eps )
 
 	if config.sc.enabled:
 		sc = get_sequence_connectivity(
 					dist = dist,
-					connectivity_mask = gt_feature_dict["connectivity_mask"],
+					connectivity_mask = batch["connectivity_mask"],
 					inter_res_dist = config.sc.inter_res_dist,
 					tolerance_sigma = config.sc.tolerance_sigma,
 					eps = config.eps )
 	else:
-		sc = torch.tensor( [0.0] ).to( dist.device )
+		sc = dist.new_tensor( 0.0, requires_grad = True )
 
 	print( f"ev = {ev}\tsc = {sc}" )
 	loss = config.ev.weight*ev + config.sc.weight*sc
@@ -144,13 +153,13 @@ def get_violation_loss(
 def get_com_loss(
 	final_atom_positions: torch.Tensor,
 	atom_mask: torch.Tensor,
-	gt_feature_dict: Dict[str, Any],
+	batch: Dict[str, Any],
 	config: mlc.ConfigDict ) -> torch.Tensor:
 	"""
 	Restrain the COM fo the prediction to the COM of the ground truth COM.
 		Here, ground truth COM is the COM of the initial predicted complex.
 	"""
-	gt_com = gt_feature_dict["com"]
+	gt_com = batch["com"]
 	# [B, N, 37, 3] -> [B, 1]
 	masked_pos = final_atom_positions*atom_mask.unsqueeze( -1 )
 	pred_com = masked_pos.sum( dim = (1, 2) )/ atom_mask.sum( dim = ( 1, 2 ) )
@@ -168,25 +177,13 @@ class CenterOfMassLoss():
 		self.name = "com"
 		self.config = config
 
-	def get( self, out, gt_feature_dict ):
+	def get( self, out, batch ):
 		return lambda: get_com_loss(
 					final_atom_positions = out["final_atom_positions"],
 					atom_mask = out["final_atom_mask"],
-					gt_feature_dict = gt_feature_dict,
+					batch = batch,
 					config = self.config
 					)
-
-#class DistogramLoss():
-#	# Just a wrapper for the OpenFold Chain center of mass loss.
-#	def __init__(  self, config ):
-#		self.name = "distogram"
-#		self.config = config
-
-#	def get( self, out, batch ):
-#		return lambda: distogram_loss(
-#								logits = out["distogram_logits"],
-#								**{**batch, **self.config},
-#								)
 
 # class ViolationLoss():
 # 	# Just a wrapper for the OpenFold violation loss.
@@ -206,10 +203,10 @@ class ViolationLoss():
 		self.name = "violation"
 		self.config = config
 
-	def get( self, out, gt_feature_dict ):
+	def get( self, out, batch ):
 		return lambda: get_violation_loss(
 				final_atom_positions = out["final_atom_positions"],
-				gt_feature_dict = gt_feature_dict,
+				batch = batch,
                 config = self.config
             )
 
@@ -242,9 +239,9 @@ class LossFunction( nn.Module ):
 		self.loss_fns_included  =self.loss_included()
 
 
-	def forward( self, out: Dict[str, Any],
-		gt_feature_dict: Dict[str, torch.Tensor],
-		restraint_features: Dict[str, Any] ):
+	def forward( self,
+		out: Dict[str, Any],
+		batch: Dict[str, Any] ):
 		# AF2 losses require the atom14 representation.
 		# atom37 = out["final_atom_positions"]
 		# atom14 = atom37_to_atom14( atom37 = atom37, gt_feature_dict = gt_feature_dict )
@@ -272,9 +269,9 @@ class LossFunction( nn.Module ):
 		for obj in self.loss_fns_included:
 			loss_name = obj.name
 			if loss_name == "xlr":
-				loss_fns[loss_name] = obj.get( out, restraint_features["xl_restraint"] )
+				loss_fns[loss_name] = obj.get( out, batch["xl_restraint"] )
 			else:
-				loss_fns[loss_name] = obj.get( out, gt_feature_dict )
+				loss_fns[loss_name] = obj.get( out, batch )
 
 
 		cum_loss = torch.tensor( [0] ).to( device )
@@ -289,8 +286,6 @@ class LossFunction( nn.Module ):
 				loss = loss.new_tensor( 0., requires_grad = True )
 			# If add_penalty is False, the loss will not be included for backprop.
 			if self.config[loss_name]["add_penalty"]:
-
-				# cum_loss = cum_loss + adaptive_weight[loss_name] * weight * loss
 				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
 
@@ -299,32 +294,14 @@ class LossFunction( nn.Module ):
 		return cum_loss, losses
 
 
-
 	def loss_included( self ):
 		"""
 		Loss terms to be included in the full loss function.
 		"""
 		loss_fns = []
-		#if self.config.fape.enabled:
-		#	loss_fns.append( FapeLoss( self.config.fape ) )
-		
-		#if self.config.supervised_chi.enabled:
-		#	loss_fns.append( SupervisedChiLoss( self.config.supervised_chi ) )
 
 		#if self.config.violation.enabled:
 		#	loss_fns.append( ViolationLoss( self.config.violation ) )
-
-		#if self.config.chain_center_of_mass.enabled:
-		#	loss_fns.append( ChainCenterOfMassLoss( self.config.chain_center_of_mass ) )
-
-		#if self.config.distogram.enabled:
-		#	loss_fns.append( DistogramLoss( self.config.distogram ) )
-
-		#if self.config.rigid_chain.enabled:
-		#	loss_fns.append( RigidChainLoss( self.config.rigid_chain ) )
-
-		#if self.config.gdr.enabled:
-		#	loss_fns.append( GaussianDistanceRestraint( self.config.gdr ) )
 
 		if self.config.violation.enabled:
 			loss_fns.append( ViolationLoss( self.config.violation ) )
