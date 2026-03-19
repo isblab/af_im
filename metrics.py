@@ -11,13 +11,17 @@ from utils.metric_utils import final_pred_to_dist_map
 
 
 class ExcludedvolumeMetric():
-	def __init__( self, config: Dict, restraint_features: Dict ):
+	def __init__( self, config: Dict, batch: Dict ):
 		"""
 		Compute the no. of intra/inter-chain clashes.
 		"""
 		self.name = "ev"
 		self.config = config
-		self.restraint_features = restraint_features
+		self.batch = batch
+
+		self.intra_ev_mask = batch["intra_ev_mask"]
+		self.inter_ev_mask = batch["inter_ev_mask"]
+		self.allowed_res_dist = self.batch["allowed_res_dist"]
 
 
 	def forward( self, out: Dict[str, torch.Tensor] ):
@@ -53,9 +57,9 @@ class ExcludedvolumeMetric():
 		The mask considers both ij and ji pairs.
 			Divide by 2 to account for double-counting.
 		"""
-		intra_ev_mask = self.restraint_features["intra_ev_mask"]
-		intra_chain_dist = self.config.intra_chain_dist
-		viols = self.D[intra_ev_mask.bool()] < intra_chain_dist
+		# intra_chain_dist = self.config.intra_chain_dist
+		# viols = self.D[self.intra_ev_mask.bool()] < intra_chain_dist
+		viols = ( self.D < self.allowed_res_dist )[self.intra_ev_mask.bool()]
 
 		intra_clashes = torch.sum( viols )/2
 		return intra_clashes
@@ -66,9 +70,8 @@ class ExcludedvolumeMetric():
 		The mask considers both ij and ji pairs.
 			Divide by 2 to account for double-counting.
 		"""
-		inter_ev_mask = self.restraint_features["inter_ev_mask"]
-		inter_chain_dist = self.config.inter_chain_dist
-		viols = self.D[inter_ev_mask.bool()] < inter_chain_dist
+		viols = ( self.D < self.allowed_res_dist )[self.inter_ev_mask.bool()]
+		# viols = self.D[self.inter_ev_mask.bool()] < inter_chain_dist
 
 		inter_clashes = torch.sum( viols )/2
 		return inter_clashes
@@ -76,7 +79,7 @@ class ExcludedvolumeMetric():
 ###############################################################################	
 ###############################################################################
 class XlMetrics():
-	def __init__( self, config: Dict, restraint_features: Dict ):
+	def __init__( self, config: Dict, batch: Dict ):
 		"""
 		Calculate the percentage of XLs satisfied.
 		Check what all XLs are satisfied.
@@ -84,15 +87,15 @@ class XlMetrics():
 		self.name = "xlr"
 		# self.length_scale = config.length_scale
 		self.eps = config.eps
-		xl_max_bound = restraint_features["xl_max_bound"]
+		xl_max_bound = batch["xl_max_bound"]
 		if config.allow_xl_tolerance:			
-			xl_sat_tolerance = restraint_features["xl_sat_tolerance"]
+			xl_sat_tolerance = batch["xl_sat_tolerance"]
 			xl_max_bound = xl_max_bound+xl_sat_tolerance
 		self.xl_max_bound = xl_max_bound
 		# A dict containing all ambiguous pairs for each cross-linked residue pair.
-		self.xl_res_dict = restraint_features["xl_res_dict"]
+		self.xl_res_dict = batch["xl_res_dict"]
 		# Total XL pairs.
-		self.total_xls = restraint_features["total_xls"]
+		self.total_xls = batch["total_xls"]
 
 		# Used for keeping track of all satisfied XLs across all epochs.
 		self.xl_satisfaction_array = np.array( [] )
@@ -176,9 +179,9 @@ class XlMetrics():
 
 
 class Metrics():
-	def __init__( self, config: mlc.ConfigDict, restraint_features: Dict ):
+	def __init__( self, config: mlc.ConfigDict, batch: Dict ):
 		self.config = config
-		self.restraint_features = restraint_features
+		self.batch = batch
 
 		self.included_metrics = self.metrics_included()
 
@@ -222,12 +225,12 @@ class Metrics():
 		if self.config.xlr.enabled:
 			included_metrics.append(
 				XlMetrics( self.config.xlr,
-							self.restraint_features["xl_restraint"] )
+							self.batch["xl_restraint"] )
 			)
 		if self.config.ev.enabled:
 			included_metrics.append(
 				ExcludedvolumeMetric( self.config.ev,
-							self.restraint_features["ev"] )
+							self.batch )
 			)
 
 		return included_metrics
