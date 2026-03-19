@@ -14,8 +14,10 @@ import Bio
 from Bio.PDB import (
 	PDBParser, MMCIFParser,
 	MMCIFIO, PDBIO,
+	Select,
 	Structure, Model, Residue )
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+import freesasa
 import modelcif
 import modelcif.model
 import modelcif.dumper
@@ -30,7 +32,7 @@ from openfold.np import residue_constants
 from openfold.data import feature_pipeline
 from openfold.np import protein
 
-from utils.utils import open_file_handler
+from utils.utils import open_file_handler, remove_dir
 
 # warnings.filterwarnings("ignore")
 
@@ -58,9 +60,9 @@ def get_chain_id( idx: int ) -> str:
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
-def amino_acid_radii():
+def amino_acid_radii() -> Dict[int, float]:
 	"""
-	Dict containing the tokenized amino acid and their corresponding radii.
+	Returns a dictionary mapping tokenized amino acids to their radii.
 	Radii taken form -> Table-3: https://doi.org/10.1038/s41598-020-61205-w
 	Tokenization taken from openfold/np/residue_constants.py
 	"""
@@ -87,6 +89,7 @@ def amino_acid_radii():
 		19: 5.36,  # Tyr
 		20: 4.0    # X, J, O
 	}
+	return radii
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
@@ -148,29 +151,6 @@ def aa_3_to_1( aa ):
 	return symbol
 
 
-
-# def pdb_to_cif_gemmi( pdb_file_path: str, cif_file_path: str ):
-# 	"""
-# 	Convert a .pdb file to a .cif file.
-
-# 	Input:
-# 	----------
-# 	pdb_file_path --> Path to the .pdb file.
-# 	cif_file_path --> Path to the .cif file.
-
-# 	Returns:
-# 	----------
-# 	None
-# 	"""
-# 	struct = gemmi.read_structure( pdb_file_path )
-
-# 	cif_doc = struct.make_mmcif_document()
-
-# 	w = open_file_handler( cif_file_path, "w" )
-# 	w.write( cif_doc.as_string() )
-
-
-
 def pdb_to_cif_bio( pdb_file_path: str, cif_file_path: str ):
 	"""
 	Convert a .pdb file to a .cif file.
@@ -190,7 +170,6 @@ def pdb_to_cif_bio( pdb_file_path: str, cif_file_path: str ):
 	cif = MMCIFIO()
 	cif.set_structure( struct )
 	cif.save( cif_file_path )
-
 
 
 def get_distance_map( coords1: np.array, coords2: np.array ):
@@ -438,6 +417,21 @@ class MmcifDictParser():
 
 #################### Biopython PDB/CIF Parser ####################
 ##--------------------------------------------------------------##
+class ChainSelect( Select ):
+	"""
+    Selects a specific chain from a structure when writing a PDB file.
+
+    This class subclasses Bio.PDB.Select and overrides the "accept_chain"
+		method to allow only the specified chain to be written to the output
+		structure
+	"""
+	def __init__( self, chain_id: str ):
+		self.chain_id = chain_id
+	
+	def accept_chain( self, chain ):
+		return chain.get_id() == self.chain_id
+
+
 class Parser():
 	"""
 	A parser class to read from the simulation output file.
@@ -446,8 +440,17 @@ class Parser():
 	def __init__( self, pdb_file: str ):
 		self.pdb_file = pdb_file
 
+		self._ensure_file_exists()
 		# Biopython Structure object.
 		self.structure = self.get_structure()
+
+
+	def _ensure_file_exists( self ):
+		"""
+		Raises an error if the input pdb_file path does not exist.
+		"""
+		if not os.path.isfile( self.pdb_file ):
+			raise FileNotFoundError( f"{self.pdb_file} does not exist or is not a file..." )
 
 
 	def get_model_ids( self ) -> List:
@@ -642,6 +645,131 @@ def remap_chains_cif(
 	io = MMCIFIO()
 	io.set_dict( mmcif_dict )
 	io.save( remapped_file )
+
+
+############################## SASA ##############################
+##--------------------------------------------------------------##
+class SASA():
+	"""
+	Obtain surface exposed residues for each chain in a complex.
+	"""
+	def __init__( self,
+		pdb_file: str,
+		chain_file_prefix: str,
+		tmp_dir_path: str,
+		):
+		self.pdb_file = pdb_file
+		# Prefix for the file name of a chain from the complex.
+		self.chain_file_prefix = chain_file_prefix
+		# Temp dir to store the struct of the chains.
+		self.tmp_dir_path = tmp_dir_path
+
+		self.structure = None
+
+
+	def forward( self ) -> Dict[str, Dict[int, float]]:
+		"""
+		Create a temp dir.
+		Get chain IDs from the input pdb file.
+		Split the complex into monomers.
+		Compute SASA for each chain.
+		"""
+		self.create_tmp_dir()
+
+		self.init_structure()
+		sasa = self.compute_sasa()
+
+		self.remove_tmp_dir()
+		return sasa
+
+
+	def create_tmp_dir( self ):
+		"""
+		Create a temporary dir to store structure for the
+			chains in a complex.
+		"""
+		os.makedirs( self.tmp_dir_path, exist_ok = True )
+
+
+	def remove_tmp_dir( self ):
+		"""
+		Remove the temporary dir.
+		"""
+		remove_dir( dir_path = self.tmp_dir_path )
+
+
+	def init_structure( self ):
+		"""
+		Initialize the BioPython Structure object.
+		"""
+		parser = Parser( pdb_file = self.pdb_file )
+		self.structure = parser.get_structure()
+
+
+	def get_chain_ids( self ):
+		"""
+		Return the chain IDs from the structure.
+		"""
+		chain_ids = []
+		# Only parse the 1st model in case of multi-model input.
+		model = self.structure[0]
+		for chain in model:
+			chain_ids.append( chain.id )
+		return chain_ids
+
+
+	def split_complex_to_monomers( self ) -> Dict[str, str]:
+		"""
+		Split a multi-chain structure into individual chains and
+			temporarily save on disk.
+		Returns a dict that maps the chain to the corresponding file path.
+		"""
+		chain_to_file = {}
+		chain_ids = self.get_chain_ids()
+
+		for chain_id in chain_ids:
+			file = os.path.join( self.tmp_dir_path, f"{self.chain_file_prefix}_{chain_id}.pdb" )
+			chain_to_file[chain_id] = file
+			io = PDBIO()
+			io.set_structure( self.structure )
+			io.save( file, ChainSelect( chain_id = chain_id ) )
+		return chain_to_file
+
+
+	def compute_sasa( self ) -> Dict[str, Dict[int, float]]:
+		"""
+		Use fresasa to compute the per-residue SASA for each chain in
+			the complex.
+		The complex must first be split into individual chains to obtain
+			the SASA for each chain in isolation.
+		freesasa computes per-atom surface area.
+			For per-residue surface area we sum the area for all atoms in a residue.
+				MDTraj does the same
+					(https://www.mdtraj.org/1.9.5/examples/solvent-accessible-surface-area.html).
+			"""
+		chain_to_file = self.split_complex_to_monomers()
+		sasa = {}
+
+		for chain_id, file in chain_to_file.items():
+			sasa[chain_id] = {}
+
+			struct = freesasa.Structure( file )
+			result = freesasa.calc( struct )
+			chain_sasa = {}
+			for i in range( struct.nAtoms() ):
+				resi = struct.residueNumber( i )
+				c_id = struct.chainLabel( i )
+				area = result.atomArea( i )
+
+				if c_id !=  chain_id:
+					raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
+						"freesasa derived chain ID does not match that from the input struct file..."
+					)
+				res = int( resi )
+				chain_sasa[res] = chain_sasa.get( res, 0.0 ) + area
+
+			sasa[chain_id] = chain_sasa
+		return sasa
 
 ################### AF2 module to save PDB/CIF ###################
 ##--------------------------------------------------------------##
