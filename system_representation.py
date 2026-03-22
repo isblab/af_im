@@ -2,7 +2,7 @@
 Craete input features for running OpenFold.
 Obtain initial prediction.
 """
-from typing import Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any
 import io, os, pathlib, shutil, pickle as pkl
 import numpy as np
 import ml_collections as mlc
@@ -19,7 +19,7 @@ from openfold.utils.tensor_utils import tensor_tree_map
 from mod_openfold import parse, process_mmcif, np_example_to_features
 
 from utils.utils import open_file_handler, parse_nested_dict, run_subprocess
-from utils.pdb_utils import prep_output
+from utils.pdb_utils import prep_output, amino_acid_radii, SolventAccessibleSurfaceArea
 
 
 def list_files_with_extensions( dir, extensions ):
@@ -65,7 +65,6 @@ class SystemRepresentation():
 		self.long_sequence_inference = sys_rep_config.long_sequence_inference
 		self.use_deepspeed_evoformer_attention = sys_rep_config.use_deepspeed_evoformer_attention
 		self.skip_relaxation = sys_rep_config.skip_relaxation
-
 		self.databases_n_tools = sys_rep_config.databases_n_tools
 
 		self.fasta_dir = fasta_dir
@@ -73,22 +72,23 @@ class SystemRepresentation():
 		self.ofold_output_dir = ofold_output_dir
 		self.device = device
 
-		# Initialize a dict to store file paths.
-		self.file_paths = {}
-
 		seed_worker()
 
-		#Will be created downstream.
-		self.feature_dict = None
-		self.processed_feature_dict = None
-		self.init_pred_dict = None
-
+		# Will be created downstream.
+		self.feature_dict = {}
+		self.processed_feature_dict = {}
+		self.init_pred_dict = {}
+		# Initialize a dict to store file paths.
+		self.file_paths = {}
+		# Initialize a dict to store restraint feats from the init struct.
+		self.restraint_feat_init_struct = {}
 
 	def forward( self ):
 		"""
 		Obtain the required features for an input required by OpenFold.
 		We use the initial predicted structure as a pseudo ground truth structure.
 		"""
+		# TODO: save *.pkl.gz.
 		# Initialize the dict containing the file paths.
 		self.file_paths = self.create_required_paths()
 		os.makedirs( self.file_paths["ofold_pred_dir"], exist_ok = True )
@@ -164,19 +164,21 @@ class SystemRepresentation():
 		fetch_cur_batch = lambda t: t[..., cycle_no]
 		self.processed_feature_dict = tensor_tree_map( fetch_cur_batch, self.processed_feature_dict )
 
-		self.gt_feature_dict = self.get_feature_from_init_struct()
-		if self.create_restraint_feats:
-			# Add masks for excluded volume and sequence connectivity.
-			intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
-			connectivity_mask = self.get_sequence_connectivity_feats()
-			com = self.get_com_feats()
+		self.get_restraint_feats_from_init_struct()
+		# self.gt_feature_dict = {}
+		# self.gt_feature_dict = self.get_feature_from_init_struct()
+		# if self.create_restraint_feats:
+		# 	# Add masks for excluded volume and sequence connectivity.
+		# 	intra_ev_mask, inter_ev_mask = self.get_excluded_volume_feats()
+		# 	connectivity_mask = self.get_sequence_connectivity_feats()
+		# 	com = self.get_com_feats()
 
 			# Get the gt_features
-			self.gt_feature_dict = self.get_feature_from_init_struct()
-			self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
-			self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
-			self.gt_feature_dict["connectivity_mask"] = connectivity_mask
-			self.gt_feature_dict["com"] = com
+			# self.gt_feature_dict = self.get_feature_from_init_struct()
+			# self.gt_feature_dict["intra_ev_mask"] = intra_ev_mask
+			# self.gt_feature_dict["inter_ev_mask"] = inter_ev_mask
+			# self.gt_feature_dict["connectivity_mask"] = connectivity_mask
+			# self.gt_feature_dict["com"] = com
 
 	################################################################################
 	################################################################################
@@ -612,24 +614,73 @@ class SystemRepresentation():
 		gt_feats["residue_index"] = data["residue_index"]
 		return gt_feats
 
+	################################################################################
+	################################################################################
+	def get_restraint_feats_from_init_struct( self ):
+		"""
+		Compute the following restraint features from the initial structure:
+			Excluded volume (EV) mask
+				Intra-chain EV mask
+				Inter-chain EV mask
+				Allowed distance between two residues
+			Sequence connectivity mask
+			Center of mass (COM) for the complex
+			Surface residue mask
+		"""
+		# Add masks for excluded volume and sequence connectivity.
+		intra_ev_mask, inter_ev_mask, allowed_res_dist = self.get_excluded_volume_feats()
+		connectivity_mask = self.get_sequence_connectivity_feats()
+		com = self.get_com_feats()
+		surface_residue_mask = self.get_surface_exposed_residues()
+
+		self.restraint_feat_init_struct.update({
+			"intra_ev_mask": intra_ev_mask,
+			"inter_ev_mask": inter_ev_mask,
+			"allowed_res_dist": allowed_res_dist,
+			"connectivity_mask": connectivity_mask,
+			"com": com,
+			"surface_residue_mask": surface_residue_mask
+			})
+
+
+	def get_aa_radii( self ) -> torch.Tensor:
+		"""
+		Given the tokenized sequence, obtain the radii for each residue.
+		aatype -> tokenized amino acid.
+		"""
+		aatype = self.processed_feature_dict["aatype"].detach()
+		radii_dict = amino_acid_radii()
+
+		# A tensor containing the radii for all residues in the system.
+		# 	[N]; N -> no. of residues in the system.
+		residue_radii = torch.tensor( [radii_dict[aa.item()] for aa in aatype] ).reshape( -1 )
+		return residue_radii
 
 	################################################################################
-	################################################################################
-	def get_excluded_volume_feats( self ) -> Tuple[torch.Tensor, torch.Tensor]:
+	def get_excluded_volume_feats( self ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 		"""
 		Create masks to account for:
 			Only intrachain residue pairs.
 			Only interchain residue pairs.
+		Also compute the allowed distance between residues based
+			on their radii.
 		Mask out all diagonal elements.
+		This considers both ij and ji pairs.
 
 		intra_ev_mask, inter_ev_mask -> [N, N] 
+			N -> no. of residues in the system.
 		"""
-		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
+		residue_radii = self.get_aa_radii()
 
+		# Distance between the amino acids as the sum of the radii.
+		# 	[N] -> [N, N]
+		allowed_res_dist = residue_radii.unsqueeze( 0 ) + residue_radii.unsqueeze( 1 )
+
+		asym_id = torch.from_numpy( self.feature_dict["asym_id"] )
 		N = asym_id.shape[0]
 
-		#ignore all diagonal element.
-		diagonal_mask = torch.ones( ( N, N) ) - np.eye( N )
+		# ignore all diagonal element.
+		diagonal_mask = torch.ones( ( N, N) ) - torch.eye( N )
 		diagonal_mask = diagonal_mask.int()
 
 		intra_ev_mask = ( asym_id[None, :] == asym_id[:, None] ).int()
@@ -637,9 +688,9 @@ class SystemRepresentation():
 		inter_ev_mask = ( asym_id[None, :] != asym_id[:, None] ).int()
 		inter_ev_mask *= diagonal_mask
 
-		return intra_ev_mask, inter_ev_mask
+		return intra_ev_mask, inter_ev_mask, allowed_res_dist
 
-
+	################################################################################
 	def get_sequence_connectivity_feats( self ) -> torch.Tensor:
 		"""
 		Create a mask to ignore all but intrachain adjacent residues.
@@ -662,7 +713,7 @@ class SystemRepresentation():
 
 		return connectivity_mask
 
-
+	################################################################################
 	def get_com_feats( self ):
 		"""
 		Obtain the centre of mass (COM) for the initial predicted structure.
@@ -680,6 +731,36 @@ class SystemRepresentation():
 		com = masked_pos.sum( axis = (0, 1) )/ atom_mask.sum( axis = ( 0, 1 ) )
 		return com
 
+	################################################################################
+	def get_surface_exposed_residues( self ) -> Dict[int, torch.Tensor]:
+		"""
+		Obtain surface exposed residue using freesasa.
+		To consider a residue as surface exposed:
+		SASA: we use a cutoff of 5 Å^2.
+			DOI: https://doi.org/10.1371/journal.pcbi.1003321
+		RSA: we use a cutoff of 20%.
+		"""
+		init_model_file = self.get_init_model_path()
+		tmp_dir_path = os.path.join( self.file_paths["ofold_pred_dir"], "tmp" )
+		sasa = SolventAccessibleSurfaceArea(
+			pdb_file = init_model_file,
+			chain_file_prefix = self.sys_name,
+			tmp_dir_path = tmp_dir_path,
+			calc_rsa = True,
+			calc_sasa = False
+		).forward()
+
+		surface_residue_mask = {}
+		asym_id = self.init_pred_dict["asym_id"]
+		unique_asym_ids = torch.unique( torch.tensor( asym_id ) )
+		for i, chain_id in enumerate( sasa ):
+			a_id = unique_asym_ids[i].item()
+			# [N]; N -> no. of residues
+			per_chain_sa = torch.tensor( list( sasa[chain_id].values() ) ).reshape( -1 )
+			# surface_residue_mask.append( torch.where( per_chain_sasa >= 5, 1, 0 ) )
+			surface_residue_mask[a_id] = torch.where( per_chain_sa >= 20, 1, 0 ) # RSA
+
+		return surface_residue_mask
 
 	################################################################################
 	################################################################################
