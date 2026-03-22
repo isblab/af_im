@@ -17,11 +17,10 @@ class ExcludedvolumeMetric():
 		"""
 		self.name = "ev"
 		self.config = config
-		self.batch = batch
 
 		self.intra_ev_mask = batch["intra_ev_mask"]
 		self.inter_ev_mask = batch["inter_ev_mask"]
-		self.allowed_res_dist = self.batch["allowed_res_dist"]
+		self.allowed_res_dist = batch["allowed_res_dist"]
 
 
 	def forward( self, out: Dict[str, torch.Tensor] ):
@@ -71,6 +70,7 @@ class ExcludedvolumeMetric():
 			Divide by 2 to account for double-counting.
 		"""
 		viols = ( self.D < self.allowed_res_dist )[self.inter_ev_mask.bool()]
+		# viols = ( self.D < 8.0 )[self.inter_ev_mask.bool()]
 		# viols = self.D[self.inter_ev_mask.bool()] < inter_chain_dist
 
 		inter_clashes = torch.sum( viols )/2
