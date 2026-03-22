@@ -36,47 +36,45 @@ def get_excluded_volume(
 	Residue pairs within allowed_res_dist+clash_tolerance are
 		considered for EV loss to account for near-clashes.
 
-	dist -> [N, N]
-	intra_ev_mask -> [N, N] mask for intrachain residues.
-	inter_ev_mask -> [N, N] mask for interchain residues.
-	allowed_res_dist -> [N, N] allowed distance between the Ca-atoms of two residues.
+	dist -> [1, N, N]
+	intra_ev_mask -> [1, N, N] mask for intrachain residues.
+	inter_ev_mask -> [1, N, N] mask for interchain residues.
+	allowed_res_dist -> [1, N, N] allowed distance between the Ca-atoms of two residues.
 	"""
 	violated_dist_mask = dist <= allowed_res_dist+clash_tolerance
+	# violated_dist_mask = dist <= 8.0+clash_tolerance
 	violated_dist = allowed_res_dist - dist
 	# Intrachain clashes.
 	if intra_enabled:
 		violated_intra_pairs = violated_dist_mask & intra_ev_mask.bool()
-		if violated_intra_pairs.any():
-			intra_viols = violated_dist[violated_intra_pairs]
+		# if violated_intra_pairs.any():
+		intra_viols = violated_dist[violated_intra_pairs]
 
-			diff_intra = torch.nn.functional.softplus(
-				intra_viols,
-				beta = beta )
-			denom = violated_intra_pairs.sum() + eps
-			intra_ev = diff_intra.sum()/denom
-			# Avoid double counting.
-			intra_ev = intra_ev/2
-		else:
-			intra_ev = dist.new_tensor( 0.0, requires_grad = True )
+		diff_intra = torch.nn.functional.softplus(
+			intra_viols,
+			beta = beta )
+		denom = intra_ev_mask.sum() + eps
+		intra_ev = diff_intra.sum()/denom
+		# else:
+		# 	intra_ev = dist.new_tensor( 0.0 )
 	else:
-		intra_ev = dist.new_tensor( 0.0, requires_grad = True )
+		intra_ev = dist.new_tensor( 0.0 )
 
 	# Interchain clashes.
 	if inter_enabled:
 		violated_inter_pairs = violated_dist_mask & inter_ev_mask.bool()
-		if violated_inter_pairs.any():
-			inter_viols = violated_dist[violated_inter_pairs]
-			diff_inter = torch.nn.functional.softplus(
-				inter_viols,
-				beta = beta )
-			denom = violated_inter_pairs.sum() + eps
-			inter_ev = diff_inter.sum()/denom
-			# Avoid double counting.
-			inter_ev = inter_ev/2
-		else:
-			inter_ev = dist.new_tensor( 0.0, requires_grad = True )
+		print( violated_inter_pairs.sum() )
+		# if violated_inter_pairs.any():
+		inter_viols = violated_dist[violated_inter_pairs]
+		diff_inter = torch.nn.functional.softplus(
+			inter_viols,
+			beta = beta )
+		denom = inter_ev_mask.sum() + eps
+		inter_ev = diff_inter.sum()/denom
+		# else:
+		# 	inter_ev = dist.new_tensor( 0.0 )
 	else:
-		inter_ev = dist.new_tensor( 0.0, requires_grad = True )
+		inter_ev = dist.new_tensor( 0.0 )
 
 	loss = intra_ev + inter_ev
 
@@ -236,33 +234,13 @@ class LossFunction( nn.Module ):
 		self.config = config
 		self.device = device
 
-		self.loss_fns_included  =self.loss_included()
+		self.loss_running = {}
+		self.loss_fns_included  = self.loss_included()
 
 
 	def forward( self,
 		out: Dict[str, Any],
 		batch: Dict[str, Any] ):
-		# AF2 losses require the atom14 representation.
-		# atom37 = out["final_atom_positions"]
-		# atom14 = atom37_to_atom14( atom37 = atom37, gt_feature_dict = gt_feature_dict )
-
-		# if "violation" not in out.keys():
-		# 	out["violation"] = find_structural_violations(
-		# 		gt_feature_dict,
-		# 		atom14,
-		# 		# out["sm"]["positions"][-1],
-		# 		**self.config.violation,
-		# 	)
-
-		# if "renamed_atom14_gt_positions" not in out.keys():
-		# 	gt_feature_dict.update(
-		# 		compute_renamed_ground_truth(
-		# 			gt_feature_dict,
-		# 			atom14
-		# 			# out["sm"]["positions"][-1],
-		# 		)
-		# 	)
-
 		device = out["final_atom_positions"].device
 		# Iteratively calculate the loss for all included terms.
 		loss_fns = {}
@@ -274,7 +252,7 @@ class LossFunction( nn.Module ):
 				loss_fns[loss_name] = obj.get( out, batch )
 
 
-		cum_loss = torch.tensor( [0] ).to( device )
+		cum_loss = torch.tensor( [0.0] ).to( device )
 		losses = {}
 
 		for loss_name, loss_fn in loss_fns.items():
@@ -283,9 +261,16 @@ class LossFunction( nn.Module ):
 
 			if torch.isnan( loss ) or torch.isinf( loss ):
 				print( f"{loss_name} loss is NaN. Skipping..." )
-				loss = loss.new_tensor( 0., requires_grad = True )
+				loss = loss.new_tensor( 0.0, requires_grad = True )
+
+			# if loss_name not in self.loss_running:
+			# 	self.loss_running[loss_name] = loss.detach()
+			# else:
+			# 	self.loss_running[loss_name] = 0.9*self.loss_running[loss_name] + 0.1*loss.detach()
+
 			# If add_penalty is False, the loss will not be included for backprop.
 			if self.config[loss_name]["add_penalty"]:
+				# loss = ( loss/( self.loss_running[loss_name] + 1e-8 ) )
 				cum_loss = cum_loss + weight * loss
 			losses[loss_name] = loss.detach().clone()
 
