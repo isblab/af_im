@@ -649,7 +649,7 @@ def remap_chains_cif(
 
 ############################## SASA ##############################
 ##--------------------------------------------------------------##
-class SASA():
+class SolventAccessibleSurfaceArea():
 	"""
 	Obtain surface exposed residues for each chain in a complex.
 	"""
@@ -657,10 +657,16 @@ class SASA():
 		pdb_file: str,
 		chain_file_prefix: str,
 		tmp_dir_path: str,
+		calc_rsa: bool = True,
+		calc_sasa: bool = False
 		):
 		self.pdb_file = pdb_file
 		# Prefix for the file name of a chain from the complex.
 		self.chain_file_prefix = chain_file_prefix
+		# If True, compute RSA.
+		self.calc_rsa = calc_rsa
+		# If true SASA.
+		self.calc_sasa = calc_sasa
 		# Temp dir to store the struct of the chains.
 		self.tmp_dir_path = tmp_dir_path
 
@@ -677,10 +683,17 @@ class SASA():
 		self.create_tmp_dir()
 
 		self.init_structure()
-		sasa = self.compute_sasa()
+		if self.calc_sasa and self.calc_rsa:
+			raise ValueError( "Can only compute one of RSA or SASA..." )
+		if self.calc_sasa:
+			surface_area = self.compute_sasa()
+		elif self.calc_rsa:
+			surface_area = self.compute_rsa()
+		else:
+			raise ValueError( f"At least one of calc_rsa or calc_sasa must be True..." )
 
 		self.remove_tmp_dir()
-		return sasa
+		return surface_area
 
 
 	def create_tmp_dir( self ):
@@ -770,6 +783,40 @@ class SASA():
 
 			sasa[chain_id] = chain_sasa
 		return sasa
+
+
+	def compute_rsa( self ) -> Dict[str, Dict[int, float]]:
+		"""
+		Use fresasa to compute the per-residue RSA for each chain in
+			the complex.
+		The complex must first be split into individual chains to obtain
+			the SASA for each chain in isolation.
+			"""
+		chain_to_file = self.split_complex_to_monomers()
+		rsa = {}
+
+		for chain_id, file in chain_to_file.items():
+			rsa[chain_id] = {}
+
+			struct = freesasa.Structure( file )
+			result = freesasa.calc( struct )
+
+			residue_areas = result.residueAreas()
+			for chain in residue_areas:
+				# if c_id !=  chain_id:
+				# 	raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
+				# 		"freesasa derived chain ID does not match that from the input struct file..."
+				# 	)
+
+				chain_rsa = {}
+				for resi in residue_areas[chain]:
+					residue = residue_areas[chain][resi]
+					rsa_total = residue.relativeTotal
+					res = int( resi )
+					chain_rsa[res] = rsa_total*100
+
+			rsa[chain_id] = chain_rsa
+		return rsa
 
 ################### AF2 module to save PDB/CIF ###################
 ##--------------------------------------------------------------##
