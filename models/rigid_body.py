@@ -3,7 +3,7 @@ Given an AF2 prediction, define rigid bodies
 	Split chains into rigid bodies.
 	Based on pLDDT and/or PAE.
 """
-from typing import List, Tuple
+from typing import Dict
 
 import torch
 
@@ -28,7 +28,7 @@ def get_rigid_body(
 def get_rigid_chains(
 	final_atom_positions: torch.Tensor,
 	asym_id: torch.Tensor
-	) -> Tuple[List[torch.Tensor], torch.Tensor]:
+	) -> Dict[int, torch.Tensor]:
 	"""
 	Split the chains in the predicted
 		structure into rigid bodies.
@@ -38,21 +38,16 @@ def get_rigid_chains(
 	final_atom_posistion -> [1, N, 37, 3]
 	"""
 	assert len( final_atom_positions.shape ) == 4, f"Incorrect shape for final_atom_positions {final_atom_positions.shape}"
-	rigid_bodies = []
+	rigid_bodies = {}
 	unique_asym_ids = torch.unique( asym_id )
 
 	# asym_id -> [B, N]
 	for a_id in unique_asym_ids:
+		a_id = a_id.item()
 		idx = torch.where( a_id == asym_id )[1]
 		rb = final_atom_positions[:, idx, :, :]
-		rigid_bodies.append( rb )
+		rigid_bodies[a_id] = rb
+		# rigid_bodies.append( rb )
 
-	# init_mean_coords = []
-	# for rb in rigid_bodies:
-	# 	# [B, N, 37, 3] -> [B, 3]
-	# 	init_mean_coords.append(
-	# 		torch.mean( rb, dim = ( 1, 2 ) )
-	# 		)
-	# init_mean_coords  = torch.cat( init_mean_coords, dim = 0 )
-	return rigid_bodies #, init_mean_coords
+	return rigid_bodies
 
