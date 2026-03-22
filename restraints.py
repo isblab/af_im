@@ -25,21 +25,21 @@ class XlRestraint():
 			return lambda: self.upper_bound_harmonic( out, restraint_feature["xl_res_dict"],
 													xl_max_bound,
 													restraint_feature["total_xls"] )
-		elif self.config.type == "pseudo_huber":
-			print( "Using pseudo huber as XL restraint." )
-			return lambda: self.pseudo_huber( out, restraint_feature["xl_res_dict"],
-													xl_max_bound,
-													restraint_feature["total_xls"] )
+		# elif self.config.type == "pseudo_huber":
+		# 	print( "Using pseudo huber as XL restraint." )
+		# 	return lambda: self.pseudo_huber( out, restraint_feature["xl_res_dict"],
+		# 											xl_max_bound,
+		# 											restraint_feature["total_xls"] )
 		elif self.config.type == "softplus":
 			print( "Using softplus loss as XL restraint." )
 			return lambda: self.softplus_loss( out, restraint_feature["xl_res_dict"],
 													xl_max_bound,
 													restraint_feature["total_xls"] )
-		elif self.config.type == "gated_harmonic":
-			print( "Using gated_harmonic loss as XL restraint." )
-			return lambda: self.gated_harmonic_loss( out, restraint_feature["xl_res_dict"],
-													xl_max_bound,
-													restraint_feature["total_xls"] )
+		# elif self.config.type == "gated_harmonic":
+		# 	print( "Using gated_harmonic loss as XL restraint." )
+		# 	return lambda: self.gated_harmonic_loss( out, restraint_feature["xl_res_dict"],
+		# 											xl_max_bound,
+		# 											restraint_feature["total_xls"] )
 
 		else:
 			raise Exception( "At least one of the XL restraint types must be enabled..." )
@@ -222,8 +222,8 @@ class XlRestraint():
 		Softplus is a smooth approximation to ReLU and the steepness.
 			The steepness of the loss within max bound can be
 				controlled using the beta parameter.
-				Small beta -> more steeper
-				Large beta -> more flat.
+				Small beta -> more flat
+				Large beta -> more steeper.
 			L = 1/beta * log( 1 + exp( beta*( d - d_max ) ) )
 			d -> distance for the cross-linked residues in the predicted structure.
 			d_max -> XL max bound.
@@ -237,7 +237,7 @@ class XlRestraint():
 		out --> output dict from the model.
 		xl_res_dict --> dict with an index as key and the value corresponding to 
 						all ambiguous XL pairs for a residue pair.
-		xl_max_bound --> max distance between the cross-licked residues.
+		xl_max_bound --> max distance between the cross-linked residues.
 
 		Returns:
 		----------
@@ -251,7 +251,8 @@ class XlRestraint():
 			print("NaN or Inf detected in final_atom_positions!")
 
 		# Aggregate loss across all XLs.
-		agg_loss = torch.zeros( 1 ).to( D.device )
+		# agg_loss = torch.zeros( 1 ).to( D.device )
+		agg_loss = []
 		for xl_pair in xl_res_dict:
 			res_idx1 = torch.tensor( xl_res_dict[xl_pair]["res1"] ).to( D.device )
 			res_idx2 = torch.tensor( xl_res_dict[xl_pair]["res2"] ).to( D.device )
@@ -262,16 +263,20 @@ class XlRestraint():
 			min_D = torch.min( D_xl )
 			softplus = torch.nn.functional.softplus(
 				x = min_D - xl_max_bound,
-				beta = self.config.beta,
-				threshold = xl_max_bound
+				beta = self.config.beta
 			)
 
-			agg_loss += softplus
+			# agg_loss += softplus
+			agg_loss.append( softplus )
+		# total_xls = torch.tensor( total_xls ).to( D.device )
+		agg_loss = torch.stack( agg_loss )
 
+		# Select the TopK smallest violation; assuming the large ones will mostly be FP XLs.
+		num_tp_xls = max( 1, int( total_xls*0.9 ) )
+		topk_loss, _ = torch.topk( agg_loss, k = num_tp_xls, largest = False )
 		# Normalizing by the total no. of cross-linked residue pairs.
-		total_xls = torch.tensor( total_xls ).to( D.device )
 		denom = self.eps + total_xls
-		loss = agg_loss/ denom
+		loss = topk_loss.sum()/ denom
 
 		return loss
 
