@@ -26,7 +26,6 @@ class FitToData():
 					mode: str,
 					feature_dict: Dict[str, np.ndarray],
 					processed_feature_dict: Dict[str, torch.Tensor],
-					gt_feature_dict: Dict[str, torch.Tensor],
 					init_pred_dict: Dict[str, Any],
 					modeling_output_dir: str,
 					prec: int,
@@ -39,7 +38,6 @@ class FitToData():
 		self.device = device
 		self.feature_dict = feature_dict
 		self.processed_feature_dict = processed_feature_dict
-		self.gt_feature_dict = gt_feature_dict
 		self.init_pred_dict = init_pred_dict
 		self.modeling_output_dir = modeling_output_dir
 
@@ -47,16 +45,8 @@ class FitToData():
 		# Set the seeds.
 		self.seed_worker()
 
-		# Stats for the full run (pose sampling + recycling).
-		self.stats_dict = defaultdict( dict )
-		self.loss_fn = LossFunction( self.topology["loss"], self.device )
-		# TODO: remove all features that are ot needed..
-		# TODO: merge restraint_features and gt_features.
-		self.processed_feature_dict["restraint_features"]["ev"] = {
-			"intra_ev_mask": self.gt_feature_dict["intra_ev_mask"],
-			"inter_ev_mask": self.gt_feature_dict["inter_ev_mask"]
-		}
-		self.metrics_fn = Metrics( self.topology["metrics"], self.processed_feature_dict["restraint_features"] )
+		# Log the required metrics - loss, restraint satisfaction, etc..
+		self.stats_dict = {} # defaultdict( dict )
 
 
 	def forward( self ):
@@ -64,6 +54,8 @@ class FitToData():
 		"""
 		self.create_required_paths()
 		self.create_required_dir()
+
+		self.init_stats_dict()
 
 		# Load OpenFold configs file.
 		self.ofold_config = model_config(
@@ -84,7 +76,7 @@ class FitToData():
 		Create the required file paths.
 		"""
 		# PDB file contaiing all predicted models.
-		self.ensemble_file = os.path.join( self.modeling_output_dir, f"{self.sys_name}_output_models" )
+		self.ensemble_file_prefix = os.path.join( self.modeling_output_dir, f"{self.sys_name}_output_models" )
 		# Directory to store each predicted model as separate PDB file.
 		self.ensemble_dir = os.path.join( self.modeling_output_dir, f"{self.sys_name}_ensemble" )		
 
@@ -95,13 +87,38 @@ class FitToData():
 		"""
 		os.makedirs( self.ensemble_dir, exist_ok = True )
 
+
+	def init_stats_dict( self ):
+		"""
+		Stores the following data:
+			model_id -> list contaiing the model_id for each conformation.
+			time_per_frame: time taken for each frame.
+			loss: dict containing per-epoch values for all loss terms.
+			metrics: dict containing per-epoch values for all metrics.
+			metadata: dict to store metadata for the metrics.
+			protein: list of Protein objects obtained per epoch.
+			transformations: dict to store the rotation and translation predicted per epoch.
+		"""
+		for k in ["model_id", "time_per_frame"]:
+			self.stats_dict[k] = []
+
+		for k in ["loss", "metrics", "metadata", "protein"]:
+			self.stats_dict[k] = {}
+
+		self.stats_dict["transformations"] = {
+			"rotation": [], "translation": []
+		}
+
+
 	################################################################################
 	################################################################################
-	def add_batch_dim( self ) -> None:
+	def prep_batch( self ) -> Dict[str, Any]:
 		"""
 		Adds a singleton batch dimension to all tensors.
+		Subset the required restraint and ground truth features.
 
 		****
+		Not needed anymore.
 		This is needed because downstream functions (multi_chain_permutation_align)
 			assume that the tensors always have a batch dimension (which will be there while training).
 		The reasoning to add a batch dim is speculative.
@@ -112,100 +129,98 @@ class FitToData():
 				that would exist while training in mini-batches but does not exist in our case.
 		****
 		"""
-		# TODO: no longer needed.
 		print( "\nAdding singleton batch dim to all tensors..." )
 		
 		with torch.no_grad():
+			# Remove all from device for now.
 			self.feature_dict = parse_nested_dict( self.feature_dict, "add_dim" )
+			self.remove_from_device( self.feature_dict )
 
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, action = "to_tensor" )
 			self.processed_feature_dict = parse_nested_dict( self.processed_feature_dict, "add_dim" )
-
-			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, action = "to_tensor" )
-			self.gt_feature_dict = parse_nested_dict( self.gt_feature_dict, action = "add_dim" )
-			self.gt_feature_dict["residue_index"] = self.gt_feature_dict["residue_index"].to( torch.int64 )
+			self.remove_from_device( self.processed_feature_dict )
 
 			self.init_pred_dict = parse_nested_dict( self.init_pred_dict, action = "to_tensor" )
+			self.init_pred_dict = parse_nested_dict( self.init_pred_dict, action = "add_dim" )
+			self.remove_from_device( self.init_pred_dict )
 
-			for k in self.init_pred_dict:
-				if k != "sm":
-					self.init_pred_dict[k] = self.init_pred_dict[k].unsqueeze( 0 )
-				else:
-					# For sm output, 0th dim is the SM recycling dim.
-					for m in self.init_pred_dict["sm"]:
-						self.init_pred_dict["sm"][m] = self.init_pred_dict["sm"][m].unsqueeze( 1 )
+		# Create a clone that can be modified every frame as specified.
+		batch = {}
+		for k in ["aatype", "asym_id", "entity_id"]:
+			v = self.processed_feature_dict[k]
+			batch[k] = v.clone().to( self.device )
+		batch["residue_index"] = self.processed_feature_dict["residue_index"].to(
+			dtype = torch.float32
+			).to( self.device )
+		restraint_features = self.processed_feature_dict.pop( "restraint_features" )
+		self.add_to_device( restraint_features )
+		for k in restraint_features:
+			batch[k] = copy.copy( restraint_features[k] )
+		del restraint_features
+		return batch
 
 
 	def add_to_device( self, dict_: Dict ):
 		"""
 		Add all tensors to device.
+		Modifies the input dict inplace.
 		"""
 		dict_ = parse_nested_dict( dict_, "add_to_device", self.device )
 
 
 	def remove_from_device( self, dict_: Dict ):
 		"""
-		Add all tensors to device.
+		Detach all tensors from device.
+		Modifies the input dict inplace.
 		"""
 		dict_ = parse_nested_dict( dict_, "detach" )
 
 	################################################################################
 	################################################################################
+	def init_loss_n_metrics( self, batch: Dict[str, Any] ):
+		"""
+		Initialize the loss and metrics modules.
+		"""
+		self.loss_fn = LossFunction( self.topology["loss"], self.device )
+		self.metrics_fn = Metrics( self.topology["metrics"], batch )
+
+
 	def init_coords( self ):
 		"""
-		final_atom_positions can be obtained
-			From an initial predicted structure.
-			An all-0's tensor.
+		Using final_atom_positions From an
+			initial predicted structure.
 		"""
-		n = self.processed_feature_dict["asym_id"].shape[1]
-
-		print( f"\tItializing final_atom-positions: init_coord = {self.topology.train.init_coord}..." )
-		# Skip using the initial predicted structure.
-		if self.topology.train.init_coord == "zero":
-			final_atom_positions = torch.zeros( [1, n, 37, 3] )
-			plddt = torch.zeros( [1, n] )
-			out = {
-				"final_atom_positions": final_atom_positions.to( self.device ),
-				# These two are already on device.
-				"final_atom_mask": self.processed_feature_dict["atom37_atom_exists"],
-				"asym_id": self.processed_feature_dict["asym_id"],
-				"plddt": plddt.to( self.device )
-			}
-		elif self.topology.train.init_coord == "init":
-			out = {}
-			for k in ["final_atom_positions", "final_atom_mask", "asym_id", "plddt"]:
-				out[k] = self.init_pred_dict[k].clone().to( self.device )
-			# out = copy.deepcopy( self.init_pred_dict )
-		else:
-			raise ValueError( f"Incorrect value for init_coord. Allowed zero/init..." )
-
-		self.add_to_device( out )
+		print( f"\tInitializing final_atom-positions..." )
+		out = {}
+		for k in ["final_atom_positions", "final_atom_mask", "asym_id", "plddt"]:
+			out[k] = self.init_pred_dict[k].clone().to( self.device )
 		return out
 
 
-	def reinit_coords( self, out: torch.tensor
+	def reinit_coords( self, out: Dict[str, torch.tensor]
 		) -> Dict[str, torch.tensor]:
 		"""
 		Every frame, one can reuse the prediction in the following ways,
 			At every frame,
 				previous frame.
-				initialize again as specified by init_coord.
+				initialize to coordinates from the initial structure.
 		
 		Inputs:
 		----------
-		out --> dict output from AF2/OpenFold. See SystemRepresentation for details.
+		out --> dict output from AF2/OpenFold. See self.init_ccords and SystemRepresentation.
 
 		Returns:
 		----------
 		out --> out dict with final_atom_positions initialized as specified in the topology.
 		"""
 		print( f"Reinitializing final_atom-positions: reinit_frame = {self.topology.train.reinit_frame}..." )
+
 		if self.topology.train.reinit_frame == "init":
 			del out
 			out = self.init_coords()
 		elif self.topology.train.reinit_frame == "prev_frame":
 			# Return the existing final_atom_positions to be used in the next frame.
-			pass
+			self.remove_from_device( out )
 		else:
 			raise ValueError( f"Incorrect value for reinit_frame. Allowed init/prev_frame..." )
 
@@ -213,14 +228,16 @@ class FitToData():
 		return out
 
 
-	def fit( self ) -> None:
+	def fit( self ):
 		"""
 		Prepare inputs for pose sampling.
 		Run pose sampling.
 		"""
 		# TODO: fix redundancy in adding/removing from device.
 		# Add batch dim.
-		self.add_batch_dim()
+		batch = self.prep_batch()
+
+		self.init_loss_n_metrics( batch = batch )
 
 		# Craete a SaveModel object.
 		save_model_obj = SaveModels( title = self.sys_name, 
@@ -229,21 +246,7 @@ class FitToData():
 		# Initialize the System object.
 		save_model_obj.initialize_system()
 
-		self.add_to_device( self.processed_feature_dict )
-		restraint_features = self.processed_feature_dict.pop( "restraint_features" )
-		# Add gt_features to device.
-		self.add_to_device( self.gt_feature_dict )
-
-		# Create a clone that can be modified every frame as specified.
-		batch = {}
-		for k in self.processed_feature_dict:
-			v = self.processed_feature_dict[k]
-			batch[k] = v.clone()
-			if torch.is_tensor( v ) and torch.is_floating_point( v ):
-				batch[k] = batch[k].to( dtype = torch.float32 )
-
 		t_start = time.perf_counter()
-
 		# Keep track of moel_id's.
 		self.stats_dict["model_id"] = []
 		# Note the time per frame.
@@ -251,16 +254,15 @@ class FitToData():
 
 		out = self.init_coords()
 
-		# rng_state = torch.random.get_rng_state()
 		if self.topology.train.sample_random_pose:
 			out = self.predict_pose_random(
 				out = out,
-				restraint_features = restraint_features,
+				batch = batch,
 				save_model_obj = save_model_obj )
 		else:
 			out = self.predict_pose(
 				out = out,
-				restraint_features = restraint_features,
+				batch = batch,
 				save_model_obj = save_model_obj )
 
 		t_end = time.perf_counter()
@@ -273,74 +275,73 @@ class FitToData():
 	################################################################################
 	def predict_pose( self,
 		out: Dict[str, Any],
-		restraint_features: Dict[str, Any],
+		batch: Dict[str, Any],
 		save_model_obj: SaveModels ) -> Dict[str, Any]:
 		"""
-		Run pose sampling for N frames/
+		Run pose sampling for N frames.
 		For N iterations (frames)
-		Run pose sampler
-				Define rigid bodies (either by chain or based on pLDDT and/or PAE).
-				Predict a rigid tranformation using a neural network.
-				Apply the rigid transformation.
-			Compute loss.
-			Backpropagate.
+			Run pose sampler
+					Define rigid bodies.
+					Predict a rigid tranformation using a neural network.
+					Apply the rigid transformation.
+				Compute loss.
+				Backpropagate.
 		"""
 		print( "\n\033[1mInitiate pose sampling now...\033[0m" )
 
-		rigid_bodies = get_rigid_body(
-			final_atom_positions = out["final_atom_positions"],
-			asym_id = out["asym_id"],
-			rigid_type = self.topology.model.rigid_type
-		)
-		# We assume the 1st rigid body to be fixed.
-		fixed_body_len = rigid_bodies[0].shape[1]
-		# Get the coarse-grained length of fixed body.
-		k = self.topology.model.cg_kernel
-		cg_len = int( ( ( fixed_body_len + 2*0 - k )/k ) + 1 )
-
 		# The feature dim equals the length of the length of coarse-grained fixed rigid body.
 		model = PoseSampling(
-			in_feats = cg_len,
 			model_config = self.topology.model,
 			device = self.device )
 		model.to( self.device )
 
 		# Initialize the specified optimizer.
 		optimizer = Optimizer( self.topology.optimizer ).forward( model.params() )
-
+		# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+		# 	optimizer, mode = "min", factor = 0.5, patience = 500, min_lr = 1e-6)
+		# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+		# 	optimizer, T_max = self.topology.train.num_frames, eta_min = 1e-6 )
 
 		for frame in range( self.topology.train.num_frames ):
 			t_s = time.perf_counter()
 			print( f"\nPose sampling frame: {frame} --------------------------" )
-
 			out = self.reinit_coords( out = out )
 
-			out = model.predict( out = out )
+			out = model.predict( out = out, batch = batch )
 
 			cum_loss, losses = self.loss_fn.forward( out,
-				self.gt_feature_dict,
-				restraint_features )
-			self.update_loss_dict( losses )
+				batch )
+
+			optimizer.zero_grad()
+			cum_loss.backward()
+			# Gradient clipping.
+			if self.topology.train.max_norm is not None:
+				torch.nn.utils.clip_grad_norm_(
+					model.params()[0].parameters(),
+					max_norm = self.topology.train.max_norm
+					)
+			optimizer.step()
+			# scheduler.step( losses["unscaled_loss"] )
 
 			if frame == self.topology.train.num_frames-1:
 				last_frame = True
 			else:
 				last_frame = False
 
-			optimizer.zero_grad()
-			cum_loss.backward()
-			optimizer.step()
-
 			metrics_dict = self.metrics_fn.forward(
 				out = out,
 				last_epoch = last_frame )
+
+			self.update_loss_dict( losses )
+			self.update_grad_norm( model = model )
+
 			self.update_data_metric_dict(
 				metrics_dict = metrics_dict )
 
 			self.remove_from_device( out )
-			# Remove computed violations.
-			if "violation" in out:
-				out.pop( "violation" )
+			# # Remove computed violations.
+			# if "violation" in out:
+			# 	out.pop( "violation" )
 
 			# Add predicted model to the ensemble.
 			unrelaxed_protein  = self.get_protein_object( outputs = out )
@@ -367,7 +368,7 @@ class FitToData():
 
 	def predict_pose_random( self,
 		out: Dict[str, Any],
-		restraint_features: Dict[str, Any],
+		batch: Dict[str, Any],
 		save_model_obj: SaveModels
 		) -> Dict[str, Any]:
 		"""
@@ -388,11 +389,11 @@ class FitToData():
 			out = model.predict( out = out )
 
 			cum_loss, losses = self.loss_fn.forward( out,
-				self.gt_feature_dict,
-				restraint_features )
+				# self.gt_feature_dict,
+				batch )
 			self.update_loss_dict( losses )
 
-			if frame == self.topology.train.num_frame-1:
+			if frame == self.topology.train.num_frames-1:
 				last_frame = True
 			else:
 				last_frame = False
@@ -431,12 +432,33 @@ class FitToData():
 
 	################################################################################
 	################################################################################
+	def update_grad_norm( self, model: PoseSampling ):
+		"""
+		Keep a tab on the gradient norm.
+		"""
+		total_norm = 0.0
+		for module in model.params():
+			for p in module.parameters():
+				if p.grad is not None:
+					total_norm += p.grad.data.norm( 2 ).item() ** 2
+		total_norm = total_norm ** 0.5
+
+		# Given "loss" is updated first, so the key exists.
+		if not "grad_norm" in self.stats_dict["loss"]:
+			self.stats_dict["loss"]["grad_norm"] = [total_norm]
+		else:
+			self.stats_dict["loss"]["grad_norm"].append( total_norm )
+		print( f"Grad norm: {total_norm:.3f}" )
+
+
 	def update_loss_dict( self, losses: Dict[str, torch.Tensor] ):
 		"""
 		Keep a tab on the loss per frame/step for all individual loss 
 			terms and the cumulative loss.
+		||g|| = sqrt( sum_i L2norm( g_i ) )
+			g -> gradient norm; g_i -> gradient for each parameter.
 		"""
-		if "loss" not in self.stats_dict:
+		if self.stats_dict["loss"] == {}:
 			self.stats_dict["loss"] = {k: [] for k in losses.keys()}
 
 		str_ = ""
@@ -453,7 +475,7 @@ class FitToData():
 		"""
 		Save per frame/step metric values for all individual merics in stats_dict.
 		"""
-		if "metrics" not in self.stats_dict:
+		if self.stats_dict["metrics"] == {}:
 			self.stats_dict["metrics"] = {k: [] for k in metrics_dict.keys()}
 
 		str_ = ""
@@ -471,16 +493,17 @@ class FitToData():
 		Store all predicted rigid transformations in the stats_dict every frame.
 		"""
 		if "transformations" not in self.stats_dict:
-			self.stats_dict["transformations"].update( 
-				{k: [] for k in ["rotation", "translation"]} )
+			self.stats_dict["transformations"] = {
+				"rotation": [], "translation": []
+			}
 
 		# For M pose sampling steps -> [M, B, 4].
 		rot = torch.stack( transformations_dict["rotation"] ).cpu().numpy()
 		# For M pose sampling steps -> [M, B, 3].
-		trans = torch.stack( transformations_dict["rotation"] ).cpu().numpy()
+		trans = torch.stack( transformations_dict["translation"] ).cpu().numpy()
 
 		self.stats_dict["transformations"]["rotation"].append( rot )
-		self.stats_dict["transformations"]["rotation"].append( trans )
+		self.stats_dict["transformations"]["translation"].append( trans )
 
 	################################################################################
 	################################################################################
@@ -529,5 +552,5 @@ class FitToData():
 		"""
 		Save to PDB or CIF file.
 		"""
-		save_model.save( save_model.system, self.ensemble_file )
+		save_model.save( save_model.system, self.ensemble_file_prefix )
 
