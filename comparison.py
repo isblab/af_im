@@ -7,7 +7,7 @@ Compare the performance of our method with GRASP and AlphaLink2
 	4. Fraction of models satisfying an XL.
 """
 from typing import List, Tuple, Dict, Any, Iterator
-import os, glob
+import os, glob, argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -85,15 +85,16 @@ class Comparison():
 	"""
 	Compare the performance of our method with GRASP and AlphaLink2.
 	"""
-	def __init__( self ):
+	def __init__( self, benchmark_name: str ):
 		# IMP_DL version to be considered.
-		self.modeling_version = 16
+		self.modeling_version = 0
 		self.model_type = {
 			"imp_dl": True,
 			"grasp": True,
-			"alphalink2": False,
+			"alphalink2": True,
 			"boltz2": True
 		}
+		self.benchmark_name = benchmark_name
 		# USalign script.
 		self.usalign_script = "USalign"
 		self.logs = {}
@@ -146,16 +147,15 @@ class Comparison():
 		"""
 		self.base_dir = BASE_DIR
 		# self.base_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/"
-		self.benchmark_name = "xlmerged"
 		self.modeling_dir_name = f"{self.benchmark_name}_modeling"
 
 		# Our method name.
 		self.imp_dl = f"imp_dl_{self.modeling_version}"
 
 		# Dir containing GRASP/AlphaLink2 preds for the benchmark.
-		self.grasp_output_dir = os.path.join( self.base_dir, "Grasp" )
-		self.alink2_output_dir = os.path.join( self.base_dir, "Alphalink2" )
-		self.boltz2_output_dir = os.path.join( self.base_dir, "Boltz2" )
+		self.grasp_output_dir = os.path.join( self.base_dir, f"Grasp/{self.benchmark_name}/" )
+		self.alink2_output_dir = os.path.join( self.base_dir, f"Alphalink2/{self.benchmark_name}/" )
+		self.boltz2_output_dir = os.path.join( self.base_dir, f"Boltz2/{self.benchmark_name}/" )
 
 		# Dir to store the results of the analysis in this script.
 		self.output_dir = os.path.join( self.base_dir, "comparison" )
@@ -623,16 +623,16 @@ class Comparison():
 						struct_file = model_file,
 						remapped_file = remapped_file )
 
-			# for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
-				# if sys_name not in self.selected_models["alphalink2"]:
-				# 	continue
-			# 	remapped_file = os.path.join(
-			# 		self.dockq_tmp_dir,
-			# 		f"{sys_name}_alphalink2_{model_id}.pdb" )
-			# 	if not os.path.exists( remapped_file ):
-			# 		remap_chains_pdb(
-			# 			struct_file = model_file,
-			# 			remapped_file = remapped_file )
+			for model_id, model_file in self.get_alphalink2_model_file( sys_name = sys_name ):
+				if sys_name not in self.selected_models["alphalink2"]:
+					continue
+				remapped_file = os.path.join(
+					self.dockq_tmp_dir,
+					f"{sys_name}_alphalink2_{model_id}.pdb" )
+				if not os.path.exists( remapped_file ):
+					remap_chains_pdb(
+						struct_file = model_file,
+						remapped_file = remapped_file )
 
 	################################################################################
 	################################################################################
@@ -667,7 +667,7 @@ class Comparison():
 
 			if self.model_type["alphalink2"]:
 				if sys_name not in self.logs["dockq"]["alphalink2"]:
-					dockq = self.compute_per_sys_tm_alphalink2( sys_name = sys_name )
+					dockq = self.compute_per_sys_dockq_alphalink2( sys_name = sys_name )
 					self.logs["dockq"]["alphalink2"][sys_name] = dockq
 
 			if self.model_type["boltz2"]:
@@ -1036,4 +1036,13 @@ class Comparison():
 
 
 if __name__ == "__main__":
-	Comparison().forward()
+	parser = argparse.ArgumentParser(
+		description = "Analysis of predicted structures from GRASP, AlphaLink2, Boltz2 for the specified benchmark."
+	)
+	parser.add_argument(
+		"-b", "--benchmark",
+		type = str, required = True,
+		help = "name of the benchmark to use." )
+	args = parser.parse_args()
+
+	Comparison( args.benchmark ).forward()

@@ -405,22 +405,23 @@ class DataGathering():
 		sys_len = self.get_sys_len( system_dict )
 		# Create a 0-matrix for the XL-residue mask [r,r].
 		# 	r -> total no. of residues.
-		# xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
+		xl_res_mask = torch.zeros( ( sys_len, sys_len ) )
 
-		# r1 = xl_amb_df["res1"]
-		# r2 = xl_amb_df["res2"]
+		for xl in xl_amb_dict_sys:
+			r1 = xl_amb_dict_sys[xl]["res1"]
+			r2 = xl_amb_dict_sys[xl]["res2"]
 
 		# Above diagonal.
-		# xl_res_mask[r1, r2] = 1
+		xl_res_mask[r1, r2] = 1
 		# Below diagonal.
-		# xl_res_mask[r2, r1] = 1
+		xl_res_mask[r2, r1] = 1
 
 		# contact_map = xl_res_mask.clone()
 		# distogram = self.get_distogram( contact_map, xl_config.xl_max_bound )
 		# distogram = distogram*xl_res_mask.squeeze( 0 ).unsqueeze( -1 )
 
 		self.restraint_features["xl_restraint"] = {}
-		# self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
+		self.restraint_features["xl_restraint"]["xl_res_mask"] = xl_res_mask
 		self.restraint_features["xl_restraint"]["xl_res_dict"] = xl_amb_dict_sys
 		self.restraint_features["xl_restraint"]["xl_max_bound"] = xl_max_bound
 		self.restraint_features["xl_restraint"]["total_xls"] = len( xl_amb_dict_sys )
