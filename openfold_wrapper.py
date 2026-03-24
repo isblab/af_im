@@ -120,9 +120,11 @@ class IntegrativeLearning():
 			"-"*23 + "\n" + "-"*70 + "\n" )
 		( feature_dict,
    		processed_feature_dict,
-		gt_feature_dict,
+		restraint_feat_init_struct,
 		init_pred_dict ) = self.run_system_representation()
 
+		# Update the restraint_features dict.
+		restraint_features.update( restraint_feat_init_struct )
 		# Add restraint features to system features dict.
 		processed_feature_dict["restraint_features"] = restraint_features
 
@@ -132,7 +134,7 @@ class IntegrativeLearning():
 		fit = self.run_fit_to_data(
 			feature_dict =feature_dict,
 			processed_feature_dict = processed_feature_dict,
-			gt_feature_dict = gt_feature_dict,
+			# gt_feature_dict = gt_feature_dict,
 			init_pred_dict = init_pred_dict )
 
 		print( "\n" + "-"*70 + "\n" +"-"*26 +
@@ -200,18 +202,18 @@ class IntegrativeLearning():
 
 		feature_dict = sys_rep_obj.feature_dict
 		processed_feature_dict = sys_rep_obj.processed_feature_dict
-		gt_feature_dict = sys_rep_obj.gt_feature_dict
+		restraint_feat_init_struct = sys_rep_obj.restraint_feat_init_struct
 		init_pred_dict = sys_rep_obj.init_pred_dict
 		# Move back to base dir.
 		os.chdir( init_dir )
 		return ( feature_dict, processed_feature_dict,
-			gt_feature_dict, init_pred_dict )
+			restraint_feat_init_struct, init_pred_dict )
 
 
 	def run_fit_to_data( self,
 			feature_dict: Dict[str, np.ndarray],
 			processed_feature_dict: Dict[str, torch.Tensor],
-			gt_feature_dict: Dict[str, torch.Tensor],
+			# gt_feature_dict: Dict[str, torch.Tensor],
 			init_pred_dict: Dict[str, Any]
 			) -> FitToData:
 		"""
@@ -225,7 +227,7 @@ class IntegrativeLearning():
 						mode = self.pred_mode,
 						feature_dict = feature_dict,
 						processed_feature_dict = processed_feature_dict,
-						gt_feature_dict = gt_feature_dict,
+						# gt_feature_dict = gt_feature_dict,
 						init_pred_dict = init_pred_dict,
 						modeling_output_dir = self.modeling_output_dir,
 						prec = self.prec,
@@ -399,10 +401,12 @@ class IntegrativeLearning():
 			if os.path.exists( self.modeling_output_dir ):
 				overwrite = input( "Output directory:" +
 					  f" {self.modeling_output_dir} exists. Wanna continue (Y or n)? " )
-				if overwrite:
+				if overwrite == "Y":
 					pass
-				else:
+				elif overwrite == "n":
 					sys.exit()
+				else:
+					raise ValueError( "Invalid input..." )
 			else:
 				os.makedirs( self.modeling_output_dir, exist_ok = True )
 
