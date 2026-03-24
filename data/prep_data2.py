@@ -170,6 +170,8 @@ class Metadata():
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_pinderS_benchmark()
 		elif self.benchmark_name == "afmb":
 			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_afmb_benchmark()
+		elif self.benchmark_name in ["noisy", "sparse"]:
+			self.benchmark_pdb_ids_list = ["6s8v", "8i4g", "8hxq", "8wtd"]
 		# elif self.benchmark_name == "rigid":
 		# 	self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
 		elif self.benchmark_name == "experiment":
