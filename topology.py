@@ -108,28 +108,40 @@ config = mlc.ConfigDict(
 		}
 	},
 	"model": {
-		"name": "pose_recycling",
+		"name": "pose_sampling",
 		"long_sequence_inference": long_sequence_inference,
 		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
+		# Currently only splits by chain.
 		"rigid_type": "chains",
-		# com: centre of mass oe rigid body; uvd: uni vector-distance for the moving body wrt the fixed body.
-		"input_feats": "uvd",
-		"c_hidden": 16,
-		# Restrict the translation to +-1.
-		"clamp_translation": False,
+		# If True predict omgea else predict a quaternion.
+		"use_axis_angle": False,
+		# K for selecting the TopK closest interafce residue pairs.
+		"hist_bins": 16,
+		"hist_range": [0, 50],
+		# Step size for rotation when using axis-angle.
+		"rot_step_size": 0.1,
+		# Step size for translation.
+		"trans_step_size": 0.1,
+		# For feature creation, use the updated conformation.
+		"sequential_update": False,
 		"num_recycles": 1,  # no. of recycling iterations for OpenFold.
 	},
 	"loss": {
+		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
 		"violation": {
 			"enabled": True,
 			"add_penalty": True,
 			"ev": {
 				"intra_enabled": False,
 				"inter_enabled": True,
-				# Distance between the Ca of intra-chain residues.
-				"intra_chain_dist": 4.0,
-				# Distance between the Ca of inter-chain residues.
-				"inter_chain_dist": 8.0,
+				# # Distance between the Ca of intra-chain residues.
+				# "intra_chain_dist": 4.0,
+				# # Distance between the Ca of inter-chain residues.
+				# "inter_chain_dist": 8.0,
+				# Tolerance distance to consider a clash.
+				"clash_tolerance": 4.0,
+				# Controls the smoothness of softplus around the boundary.
+				"beta": 0.5,
 				"weight": 1.0,
 			},
 			"sc": {
@@ -142,7 +154,6 @@ config = mlc.ConfigDict(
 			"weight": 1.0,
 			"eps": eps
 		},
-		# For each loss, enabled allows loss computation and add_penalty allows it be used for backprop.
 		# "violation": {
 		# 	"enabled": True,
 		# 	"add_penalty": True,
@@ -155,23 +166,33 @@ config = mlc.ConfigDict(
 		"xlr": {
 			"enabled": True,
 			"add_penalty": True,
-			"type": "ub_harmonic", # ub_harmonic/pseudo_huber
+			"type": "softplus", # ub_harmonic/pseudo_huber
 			"func_form": "mse",   # mse, rmse
 			"huber_delta": 5,
-			"beta": 5.0,  # for softplus and gated_harmonic loss only.
+			"beta": 0.5,  # for softplus and gated_harmonic loss only.
 			"allow_xl_tolerance": False,
 			"length_scale": length_scale,
 			"weight": 1.0,
 			"eps": eps
 		},
 		"com": {
-			"enabled": True,
-			"add_penalty": True,
+			"enabled": False,
+			"add_penalty": False,
 			"weight": 1e-1,
 			"eps": eps
 		}
 	},
 	"metrics": {
+		"ev": {
+			"enabled": True,
+			"intra_enabled": False,
+			"inter_enabled": True,
+			# Distance between the Ca of intra-chain residues.
+			"intra_chain_dist": 4.0,
+			# Distance between the Ca of inter-chain residues.
+			"inter_chain_dist": 8.0,
+			"eps": eps
+		},
 		"xlr": {
 			"enabled": True,
 			"allow_xl_tolerance": False,
@@ -186,6 +207,7 @@ config = mlc.ConfigDict(
 		"enable_relax_validate": True,
 		# Metrics to include for model_selection.
 		"assessment_metrics": ["loss-violation", "metrics-xlr"],
+		"burn_in_frac": 0.2,
 		"model_selection": {
 			"method": {
 				"kmeans": {
@@ -257,6 +279,7 @@ config = mlc.ConfigDict(
 		"init_coord": "init",  # zero/ init
 		"reinit_frame": "prev_frame",  # "prev_frame": reuses final_atom_positions from previous epoch; "init": initializes as in init_rep.
 		"num_frames": 50, # max epochs for sampling.
+		"max_norm": 1.0,
 		"struct_format": "pdb", # output file format (pdb/cif).
 		"device": "cuda:0" # CUDA device to be used.
 	}

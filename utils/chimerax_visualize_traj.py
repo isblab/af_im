@@ -115,15 +115,23 @@ def chimerax_pdb_to_gif(
 if __name__ == "__main__" or __name__.startswith( "ChimeraX_sandbox_" ):
 	# chimerax --nogui --script "pdb_to_movie_chimerax.py"
 	# 	TODO for later: Problem in encoding in --nogui mode.
-	base_path = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/experiment_modeling/"
-	# base_path = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/xlmerged_modeling/"
+	# base_path = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/experiment_modeling/"
+	base_path = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/xlmerged_modeling/"
+	benchmark_file = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/xlmerged_metadata/selected_xlmerged_benchmark.csv"
+
+	with open( benchmark_file, "r" ) as f:
+		pdb_ids = []
+		for line in f.readlines():
+			line = line.strip().split( "," )
+			pdb_ids.append( line[0] )
+
 	make_a = "gif"
-	for sys_name in ["4rhz"]: # , "7xvo", "8wtd", "7r3z", "8sbb"]:
+	for sys_name in pdb_ids: # , "7xvo", "8wtd", "7r3z", "8sbb"]:
 	# for sys_name in ["5gru", "4ut6", "7r3z", "7xae", "7xvo", "7qaj", "7zch", "7yd3", "7yk3", "8c3l",
 	# 				"8bzr", "8ct8", "8eho", "8cxj", "8gt0", "8f7d", "8dml", "8grj", "8g9p", "8gzy",
 	# 				"8g0q", "8i2f", "8i4g", "8i9q", "8j1n", "8hxq", "8hm3", "8hkh", "8opr", "8pq7",
 	# 				"8sbb", "8q6r", "8tft", "8wtd", "7qot", "8weo", "8vyl"]:
-		for ver in [19.2, 19.3]:
+		for ver in [2]:
 			print( f"Version = {ver}" )
 			pdb_file = os.path.join(
 				base_path, f"{sys_name}/version_{ver}/{sys_name}_output_models.pdb"

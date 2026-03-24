@@ -5,8 +5,34 @@ Cotains the configs for an experiment.
 xlmerged_hyperparameters = {
 
     ## -------------------------------------------------------------------------------- ##
+    "experiment_2.1": {
+        "modeling_objective": "Pose sampling with uvd features. gated_harmonic loss. Using custom violation loss.",
+        "benchmark_name": "xlmerged",
+        "modeling_version": 2.1,
+		"input_feats": "uvd",
+		"c_hidden": 16,
+        "sys_conf_suff": "_tpfp",
+        "device": "cuda:0",
+        "enable_relax_validate": True,
+        "num_frames": 1000,
+        "num_recycles": 1,
+        "sample_random_pose": False,
+        "init_coord": "init",
+        "reinit_frame": "prev_frame",
+        "xlr": {
+            "enabled": True, "add_penalty": True,"type": "gated_harmonic",
+            "func_form": "mse", "beta": None, "weight": 1.0
+            },
+        "model_selection": {
+                "quant_filter": {
+                    "enabled": True,
+                    "quantiles": {"xlr": 0.9, "violation": 1.0}
+                }
+        }
+    },
+    ## -------------------------------------------------------------------------------- ##
     "experiment_2": {
-        "modeling_objective": "Pose sampling with uvd features. gated_harmonic loss.",
+        "modeling_objective": "Pose sampling with uvd features. gated_harmonic loss. num_frames=1000",
         "benchmark_name": "xlmerged",
         "modeling_version": 2,
 		"input_feats": "uvd",
