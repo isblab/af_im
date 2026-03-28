@@ -1,11 +1,10 @@
 """
-Contains module to obtain metadat for benchmark dataset creation.
-1. PDB IDs from any benchmark (AF_Unmasked, PINDER, SAbDab).
+Contains module to obtain metadata for benchmark dataset creation.
+1. PDB IDs from any benchmark (see below).
 2. We need the following details about the complex:
-	PDB structure (both .pdb and .cif)
+	PDB structure (both .pdb and .cif).
 		We want the SEQRES sequence.
 		PDB residue numbers.
-
 3. Obtain data: need support for both simulated and real.
 	Simulated
 		XLs -> JWalk
@@ -16,8 +15,10 @@ import numpy as np
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 
+from config import get_config_dict
 from utils.utils import ( open_file_handler,
-							read_json, write_json )
+							read_json, write_json,
+							write_configdict_to_json )
 from utils.api_utils import PdbRestApi
 from api_data_modules import( DownloadPdbStructure,
 								SeqResDict )
@@ -30,29 +31,12 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		self.benchmark_name = "xlmerged"  # "xlmerged", pinderS, "afmb"
+		# self.benchmark_name = "xlmerged"  # "xlmerged", pinderS, "afmb"
+		self.config_dict = get_config_dict()
+		self.dataset_configs = self.config_dict.benchmark
+		self.benchmark_name = self.dataset_configs.globals.benchmark_name
+		np.random.seed( self.config_dict.prng_seed )
 
-		self.dataset_configs = {
-			"global": {
-				"benchmark_name": self.benchmark_name,
-				"struct_format": "both",
-				"download_assembly": True,
-				"max_sys_length": 1400,
-				"frac_coverage": 0.99,
-				"cores": 50,
-				"max_trials": 5,
-				"wait_time": 10
-			},
-			"jwalk": {
-				"enabled": True,
-				"xl_max_bound": 30.0,
-				"xl_satisfaction_tolerance": 5.0,
-				"min_inter_xls": 5,
-				"max_allowed": 80,
-				"add_fp": False,
-				"frac_fp": 0.1
-			}
-		}
 		self.seqres_dict = {}
 		# Dict containing mapping  between pdb_seq_num and seq_id.
 		self.pdb_num_seq_id_map = {}
@@ -64,6 +48,7 @@ class Metadata():
 
 	def forward( self ):
 		"""
+		Note: True positive (TP/tp); False positive (FP/fp); Cross-link (XL)
 		"""
 		self.create_required_paths()
 		self.create_required_dir()
@@ -71,7 +56,7 @@ class Metadata():
 		if os.path.exists( self.logs_file ):
 			self.logs = read_json( self.logs_file )
 
-		self.get_pdb_ids_from_input()
+		self.get_pdb_ids()
 
 		self.run_dataset_creation_pipeline()
 		self.save_dataset_configs()
@@ -79,8 +64,8 @@ class Metadata():
 		print( "\n May the Force be with you..." )
 
 
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
+	################################################################################
+	################################################################################
 	def create_required_paths( self ):
 		"""
 		Create paths for all required directories and files.
@@ -88,23 +73,9 @@ class Metadata():
 		## --------------------------
 		# Global paths
 		## --------------------------
-		# PDB benchmark from AF Unmasked paper.
-		self.afu_pdb_benchmark = os.path.join( "../raw/af_unmasked_pdb_benchmark.txt" )
-		# SAbDab dataset.
-		self.sabdab_input_file = os.path.join( "../raw/sabdab_seqid70_res4.tsv" )
-		# FoldBench antigen-antibody dataset.
-		self.foldbench_ab_ag_input_file = os.path.join( "../raw/interface_antibody_antigen.csv" )
-		# FoldBench protein-protein dataset.
-		self.foldbench_prot_prot_input_file = os.path.join( "../raw/interface_protein_protein.csv" )
-		# FoldBench protein-protein dataset.
-		self.foldbench_prot_pep_input_file = os.path.join( "../raw/interface_protein_peptide.csv" )
-		# PINDER_S dataset.
-		self.pinderS_input_file = os.path.join( "../raw/pinder_s.txt" )
-		# AFM benchmark dir.
-		self.afmb_input_dir = os.path.join( "../raw/afm_benchmark/" )
-
-		# Base directory for all benchmarks.
-		self.base_dir = os.path.join( os.path.abspath( "../benchmark/" ) )
+		self.base_dir = os.path.join(
+			os.path.abspath( self.dataset_configs.globals.base_dir )
+			)
 		# Benchmark specific dir.
 		self.benchmark_dir = os.path.join( self.base_dir, f"{self.benchmark_name}_benchmark" )
 		# Dir to store benchmark metadata including PDB API files,
@@ -140,6 +111,7 @@ class Metadata():
 		## --------------------------
 		# For Simulated data
 		## --------------------------
+		self.jwalk_output_dir = os.path.join( self.meta_dir, "jwalk_output/" )
 		self.xls_dict_file = os.path.join( self.meta_dir, "jwalk_xls.npy" )
 
 
@@ -148,39 +120,25 @@ class Metadata():
 		"""
 		Create the required directories if not already existing.
 		"""
-		os.makedirs( self.base_dir, exist_ok = True )
-		os.makedirs( self.meta_dir, exist_ok = True )
-		os.makedirs( self.pdb_struct_dir, exist_ok = True )
-		os.makedirs( self.benchmark_dir, exist_ok = True )
+		for name in [self.base_dir, self.meta_dir,
+			self.benchmark_dir, self.pdb_struct_dir,
+			self.jwalk_output_dir
+		]:
+			os.makedirs( name, exist_ok = True )
 
-
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
-	def get_pdb_ids_from_input( self ):
+	################################################################################
+	################################################################################
+	def get_pdb_ids( self ):
 		"""
 		Obtain the PDB IDs from the input files of the required benchmark.
 		"""
-		# if self.benchmark_name == "xlsim":
-		# 	self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
-		# elif self.benchmark_name == "abag":
-		# 	self.benchmark_pdb_ids_list = self.get_pdb_ids_for_abag_benchmark()
-		if self.benchmark_name == "xlmerged":
-			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_merged_benchmark()
-		elif self.benchmark_name == "pinderS":
-			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_pinderS_benchmark()
-		elif self.benchmark_name == "afmb":
-			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_afmb_benchmark()
-		elif self.benchmark_name in ["noisy", "sparse"]:
-			self.benchmark_pdb_ids_list = ["6s8v", "8i4g", "8hxq", "8wtd"]
-		# elif self.benchmark_name == "rigid":
-		# 	self.benchmark_pdb_ids_list = ["6pyp", "2b0z", "4rhz"]
-		elif self.benchmark_name == "experiment":
-			self.benchmark_pdb_ids_list = ["4rhz", "7xvo", "8wtd", "7r3z", "8sbb"]
+		if self.benchmark_name == "crosslink":
+			self.benchmark_pdb_ids_list = self.get_pdb_ids_for_xl_benchmark()
 		else:
 			raise ValueError( "Unsupported benchmark specified..." )
 
 
-	def get_pdb_ids_for_merged_benchmark( self ) -> List[str]:
+	def get_pdb_ids_for_xl_benchmark( self ) -> List[str]:
 		"""
 		For the merged simulated XL benchmark, obtain PDB IDs from:
 			PDB benchmark from AFUnmasked
@@ -192,102 +150,21 @@ class Metadata():
 		"""
 		afu = self.parse_pdb_afu_benchmark()
 		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
-		fb_prot_prot = self.parse_foldbench_benchmark( "prot_prot" )
-		print( f"PDB IDs from FoldBench protein-protein benchmark: {len( fb_prot_prot )}" )
-		fb_prot_pep = self.parse_foldbench_benchmark( "prot_pep" )
-		print( f"PDB IDs from FoldBench protein-peptide benchmark: {len( fb_prot_pep )}" )
+		foldbench = self.parse_foldbench_benchmark()
+		print( f"PDB IDs from FoldBench benchmark: {len( foldbench )}" )
 		sabdab = self.parse_sabdab_benchmark()
 		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
-		fb_ab_ag = self.parse_foldbench_benchmark( "ab_ag" )
-		print( f"PDB IDs from FoldBench Ab-Ag benchmark: {len( fb_ab_ag )}" )
 		pinderS = self.parse_pinderS_benchmark()
 		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
 		afmb = self.parse_afmb_benchmark()
 		print( f"PDB IDs from AFM benchmark: {len( afmb )}" )
 
-		# Remove duplicate PDB IDs.
-		pdb_ids = afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag + pinderS + afmb
-
-		# Create a mapping between the PDB DI and the benchmark it belongs to.
-		benchmark_names = []
-		benchmark_names.extend(
-			["afu"]*len( afu ) +
-			["foldbench"]*( len( fb_prot_pep ) + len( fb_prot_prot ) ) +
-			["abag"]*( len( sabdab ) + len( fb_ab_ag ) ) +
-			["pinderS"]*len( pinderS ) +
-			["afmb"]*len( afmb )
-		)
-		pdb_benchmark_map = dict( zip( pdb_ids, benchmark_names ) )
-		write_json( pdb_benchmark_map, self.pdb_benchmark_map_file )
-
+		# Remove duplicate PDB IDs and sort.
 		pdb_ids = sorted(
 			list(
-				set( afu + fb_prot_prot + fb_prot_pep + sabdab + fb_ab_ag + pinderS + afmb )
+				set( afu + foldbench + sabdab + pinderS + afmb )
 			)
 		)
-
-		return pdb_ids
-
-
-	def get_pdb_ids_for_xl_benchmark( self ) -> List[str]:
-		"""
-		For the simulated XL benchmark, obtain PDB IDs from:
-			PDB benchmark from AFUnmasked
-			Protein-protein and protein-peptide benchmark from FoldBench
-		"""
-		afu = self.parse_pdb_afu_benchmark()
-		print( f"PDB IDs from AF Unmasked PDB benchmark: {len( afu )}" )
-		pdb_ids = sorted( list( set( afu ) ) )
-
-		return pdb_ids
-
-	def get_pdb_ids_for_pinderS_benchmark( self ) -> List[str]:
-		"""
-		Get the PDB IDs from the PINDER-S dataset.
-		Remove those overlapping with the xlmerged benchmark.
-		"""
-		pinderS = self.parse_pinderS_benchmark()
-		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
-		xlmerged = self.get_pdb_ids_for_merged_benchmark()
-
-		pdb_ids = sorted( list( set( pinderS ) - set( xlmerged ) ) )
-		print( f"PDB IDs from PINDER-S non-redundant with xlmerged benchmark: {len( pdb_ids )}" )
-
-		return pdb_ids
-
-
-	def get_pdb_ids_for_afmb_benchmark( self ) -> List[str]:
-		"""
-		Get the PDB IDs from the AFM benchmark.
-		Remove those overlapping with the xlmerged and pinderS benchmark.
-		"""
-		pinderS = self.parse_pinderS_benchmark()
-		xlmerged = self.get_pdb_ids_for_merged_benchmark()
-
-		afmb = self.parse_afmb_benchmark()
-		print( f"PDB IDs from AFM benchmark: {len( afmb )}" )
-
-		pdb_ids = sorted( list( set( afmb ) - set( xlmerged + pinderS ) ) )
-		print( f"PDB IDs from AFM benchmark non-redundant with xlmerged benchmark and PINDER-S: {len( pdb_ids )}" )
-
-		return pdb_ids
-
-
-	def get_pdb_ids_for_abag_benchmark( self ) -> List[str]:
-		"""
-		For the simulated antigen-antibody XL benchmark, obtain PDB IDs from:
-			SAbDab database
-			Antigen-Antibody benchmark from FoldBench
-		"""
-		sabdab = self.parse_sabdab_benchmark()
-		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
-		fb_ab_ag = self.parse_foldbench_benchmark( "ab_ag" )
-		print( f"PDB IDs from FoldBench Ab-Ag benchmark: {len( fb_ab_ag )}" )
-
-		# Remove duplicate PDB IDs.
-		pdb_ids = sorted( list( set( sabdab + fb_ab_ag ) ) )
-		# pdb_ids = sorted( list( set( sabdab ) ) )
-
 		return pdb_ids
 
 
@@ -295,7 +172,7 @@ class Metadata():
 		"""
 		Using the PDB benchmark provided in the AF Unmasked paper.
 		"""
-		fh = open_file_handler( self.afu_pdb_benchmark, "r" )
+		fh = open_file_handler( self.dataset_configs.datasets.afu, "r" )
 		pdb_ids = fh.readlines()[0].strip().split( "," )
 		fh.close()
 		pdb_ids = [id_.lower() for id_ in pdb_ids]
@@ -313,7 +190,7 @@ class Metadata():
 				resolution cutoff: 3.0
 		Select entries for which the antigen type is protein/peptide.
 		"""
-		df = pd.read_csv( self.sabdab_input_file, sep = "\t" )
+		df = pd.read_csv( self.dataset_configs.datasets.sabdab, sep = "\t" )
 		groups = df.groupby( ["pdb"] )
 
 		pdb_ids = []
@@ -327,24 +204,21 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_foldbench_benchmark( self, target: str ) -> List[str]:
+	def parse_foldbench_benchmark( self ) -> List[str]:
 		"""
 		.csv file was obtained from https://github.com/BEAM-Labs/FoldBench.git
 		Will parse the following as specified:
-			Antigen-antibody benchmark.
 			Protein-protein benchmark.
 			Protein-peptide benchmark.
+			Antigen-antibody benchmark.
 		"""
-		if target == "prot_prot":
-			df = pd.read_csv( self.foldbench_prot_prot_input_file )
-		elif target == "prot_pep":
-			df = pd.read_csv( self.foldbench_prot_pep_input_file )
-		elif target == "ab_ag":
-			df = pd.read_csv( self.foldbench_ab_ag_input_file )
-		else:
-			raise ValueError( "Incorrect FoldBench target name specified. " +
-							"Supported: prot_prot, prot_pep, ab_ag" )
-		pdb_ids = df["pdb_id"].str.split( "-" ).str[0].tolist()
+		prot_prot = pd.read_csv( self.dataset_configs.datasets.foldbench_prot_prot )
+		prot_pep = pd.read_csv( self.dataset_configs.datasets.foldbench_prot_pep )
+		abag = pd.read_csv( self.dataset_configs.datasets.foldbench_abag )
+
+		pdb_ids = prot_prot["pdb_id"].str.split( "-" ).str[0].tolist()
+		pdb_ids += prot_pep["pdb_id"].str.split( "-" ).str[0].tolist()
+		pdb_ids += abag["pdb_id"].str.split( "-" ).str[0].tolist()
 
 		return pdb_ids
 
@@ -356,7 +230,7 @@ class Metadata():
 			(https://github.com/pinder-org/pinder)
 		Parse the PINDER-S dataset and return the PDB IDs.
 		"""
-		f = open_file_handler( self.pinderS_input_file, "r" )
+		f = open_file_handler( self.dataset_configs.datasets.pinder_s, "r" )
 		pdb_ids = f.readlines()[0].split( "," )
 		return pdb_ids
 
@@ -372,14 +246,14 @@ class Metadata():
 		for complex_type in ["homo", "hete"]:
 			for stoic in [2, 3, 4, 5, 6]:
 				file_name = f"ID_{stoic}mer_{complex_type}.csv"
-				file_path = os.path.join( self.afmb_input_dir, file_name )
+				file_path = os.path.join( self.dataset_configs.datasets.afmb, file_name )
 		f = open_file_handler( file_path, "r" )
 		for line in f.readlines():
 			pdb_ids.append( line.strip().lower() )
 		return pdb_ids
 
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
+	################################################################################
+	################################################################################
 	def run_dataset_creation_pipeline( self ):
 		"""
 		Pipeline all modules for benchamrk dataset creation.
@@ -406,9 +280,8 @@ class Metadata():
 		w.writelines( ",".join( list( self.xls_dict.keys() ) ) )
 		w.close()
 
-
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
+	################################################################################
+	################################################################################
 	def run_download_pdb_structure_module( self ):
 		"""
 		Download .pdb and .cif structures for all complexes.
@@ -424,11 +297,11 @@ class Metadata():
 			obj = DownloadPdbStructure(
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_struct_dir = self.pdb_struct_dir,
-				struct_format = self.dataset_configs["global"]["struct_format"],
-				download_assembly = self.dataset_configs["global"]["download_assembly"],
-				cores = self.dataset_configs["global"]["cores"],
-				max_trials = self.dataset_configs["global"]["max_trials"],
-				wait_time = self.dataset_configs["global"]["wait_time"]
+				struct_format = self.dataset_configs.globals.struct_format,
+				download_assembly = self.dataset_configs.globals.download_assembly,
+				cores = self.dataset_configs.globals.cores,
+				max_trials = self.dataset_configs.globals.max_trials,
+				wait_time = self.dataset_configs.globals.wait_time
 				)
 			obj.forward()
 
@@ -442,9 +315,8 @@ class Metadata():
 			w.close()
 			write_json( self.logs, self.logs_file )
 
-
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
+	################################################################################
+	################################################################################
 	def run_seqres_dict_module( self ):
 		"""
 		Obtain the cif dict containing entity_id, chain_id, seq,
@@ -461,9 +333,9 @@ class Metadata():
 			obj = SeqResDict(
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_struct_dir = self.pdb_struct_dir,
-				cores = self.dataset_configs["global"]["cores"],
-				max_sys_length = self.dataset_configs["global"]["max_sys_length"],
-				frac_coverage = self.dataset_configs["global"]["frac_coverage"]
+				cores = self.dataset_configs.globals.cores,
+				max_sys_length = self.dataset_configs.globals.max_sys_length,
+				frac_coverage = self.dataset_configs.globals.frac_coverage
 				)
 			obj.forward()
 
@@ -471,7 +343,7 @@ class Metadata():
 			self.resolution_dict = copy.deepcopy( obj.resolution_dict )
 			self.logs["SeqResDict"] = copy.deepcopy( obj.cif_logs )
 
-			if self.dataset_configs["global"]["download_assembly"]:
+			if self.dataset_configs.globals.download_assembly:
 				self.update_resolution_dict()
 
 			del obj
@@ -497,20 +369,32 @@ class Metadata():
 			does not contain the resolution of the structure.
 		So we need to get the resolutions for all separately from the PDB REST API.
 		"""
+		print( "Fetching the resolution for biological assemblies..." )
 		def get_resolution( entry_id: str ):
+			"""
+			Fetch the resolution for the given entry_id from the PDB REST API.
+			"""
 			rest = PdbRestApi( entry_id = entry_id )
 			entry_data = rest.entry_data
+			if entry_data == None:
+				# Sanity check: at this stage the PDB entry exists so
+				# 	 the REST API must return the entry details.
+				raise ValueError( f"Could not fetch data from the PDB REST API for {entry_id}..." )
 			if "resolution_combined" in entry_data["rcsb_entry_info"]:
 				resolution = entry_data["rcsb_entry_info"]["resolution_combined"]
 			else:
 				resolution = 0.0
 			return entry_id, resolution
 
-		with ThreadPoolExecutor( self.dataset_configs["global"]["cores"] ) as executor:
-			future = executor.submit( get_resolution, self.resolution_dict.keys() )
-			entry_id, resolution = future.result()
-
-			self.resolution_dict[entry_id] = resolution
+		with ThreadPoolExecutor( self.dataset_configs.globals.cores ) as executor:
+			futures = [
+				executor.submit(get_resolution, entry_id)
+				for entry_id in self.resolution_dict.keys()
+			]
+			# future = executor.submit( get_resolution, self.resolution_dict.keys() )
+			for future in futures:
+				entry_id, resolution = future.result()
+				self.resolution_dict[entry_id] = resolution
 
 
 	def create_pdb_num_to_seq_id_mapping( self ):
@@ -536,21 +420,20 @@ class Metadata():
 					seq = chain["seq"]
 
 					if ( end_seq_id-start_seq_id+1 ) != len( seq ):
-						raise ValueError( f"Mismatch in seq_id and sequence for PDB: {pdb_id}..." )
+						raise ValueError( f"Mismatch in length of seq_id and sequence for PDB: {pdb_id}..." )
 					if len( seq_id ) != len( pdb_seq_num ):
-						raise ValueError( f"Mismatch in seq_id and pdb_seq_num for PDB: {pdb_id}..." )
+						raise ValueError( f"Mismatch in length of seq_id and pdb_seq_num for PDB: {pdb_id}..." )
 					self.pdb_num_seq_id_map[pdb_id][chain_id] = dict( zip( pdb_seq_num, seq_id ) )
 
-
-	##------------------------------------------------------------##
-	##------------------------------------------------------------##
+	################################################################################
+	################################################################################
 	def simulate_experimental_data( self ):
 		"""
 		Simulate experimental dat for the required protein complexes.
 		Currently supporting XL data (JWalk).
 		"""
-		if self.dataset_configs["jwalk"]["enabled"]:
-			self.simulate_xls()
+		# if self.dataset_configs["jwalk"]["enabled"]:
+		self.simulate_xls()
 
 
 	def simulate_xls( self ):
@@ -565,12 +448,15 @@ class Metadata():
 							allow_pickle = True ).item()
 		else:
 			obj = SimulateCrosslinks(
+				jwalk_exec = self.dataset_configs.jwalk.jwalk_exec,
 				pdb_ids_list = self.benchmark_pdb_ids_list,
 				pdb_struct_dir = self.pdb_struct_dir,
+				jwalk_dir = self.jwalk_output_dir,
 				struct_format = "pdb",
-				xl_max_bound = self.dataset_configs["jwalk"]["xl_max_bound"],
-				min_inter_xls = self.dataset_configs["jwalk"]["min_inter_xls"],
-				cores = self.dataset_configs["global"]["cores"],
+				short_linker = self.dataset_configs.jwalk.short_linker,
+				long_linker = self.dataset_configs.jwalk.long_linker,
+				num_inter_xls = self.dataset_configs.jwalk.num_inter_xls,
+				cores = self.dataset_configs.globals.cores,
 				)
 			obj.forward()
 
@@ -598,7 +484,7 @@ class Metadata():
 		"""
 		drop_pdb = []
 		for pdb_id in self.xls_dict:
-			for xl_type in ["tp_xls", "fp_xls"]:
+			for xl_type in ["short_xls", "long_xls", "fp_xls"]:
 				df = self.xls_dict[pdb_id][xl_type]
 				drop_index = []
 				for i in df.index:
@@ -641,7 +527,7 @@ class Metadata():
 		"""
 		Save the datset configs to a JSON file on disk.
 		"""
-		write_json( self.dataset_configs, self.dataset_configs_file )
+		write_configdict_to_json( self.dataset_configs, self.dataset_configs_file )
 
 
 	def write_logs_to_csv( self ):
