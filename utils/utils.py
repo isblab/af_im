@@ -2,7 +2,8 @@
 This script contains general purpose accessory functions.
 """
 from typing import List, Tuple, Dict, TextIO, Optional, Any
-import json, os, shutil, subprocess, traceback, time
+import json, os, shutil, subprocess, traceback, time, random, gzip
+import pickle as pkl
 from datetime import datetime
 from io import StringIO
 import numpy as np
@@ -11,6 +12,21 @@ import requests
 import ml_collections as mlc
 
 import torch
+
+
+def seed_worker( seed: int = 1 ):
+	"""
+	Set seed for PRNG.
+
+	Input:
+	----------
+	seed: an integer seed for setting the state of the PRNGs.
+	"""
+	torch.manual_seed( seed+1 )
+	# torch.cuda.manual_seed( worker_seed )
+	torch.cuda.manual_seed_all( seed )
+	np.random.seed( seed )
+	random.seed( seed )
 
 
 def get_gpu_mem_mb( gpu_id: int ):
@@ -63,20 +79,39 @@ def ranges( positions: List ) -> List[Tuple[int, int]]:
 	edges = iter( positions[:1] + sum( gaps, [] ) + positions[-1:] )
 	return list( zip( edges, edges ) )
 
+################################################################################
+################################################################################
+def log_error( error_file: str ):
+	"""
+	Write the error traceback on disk at the specified file path.
+	Add a time stamp to the error file.
+	
+	Input:
+	----------
+	error_file: file to write the error traceback.
+	"""
+	base, ext = os.path.splitext( error_file )
+	current_datetime = datetime.now()
+	timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
+	error_file = base + f"_{timestamp}" + ext
+	w = open_file_handler( error_file, "w" )
+	w.write( traceback.format_exc() )
+	w.close()
 
-
+################################################################################
+################################################################################
 def open_file_handler( file_path: str, mode: str ) -> TextIO:
 	"""
 	Open a file handler in the desired mode.
 
 	Input:
 	----------
-	file_path --> path for the file to be opened.
-	mode --> mode in which to open the file (r, w, a, etc.).
+	file_path: path for the file to be opened.
+	mode: mode in which to open the file (r, w, a, etc.).
 
 	Returns:
 	----------
-	File handler for the specified file.
+	fh: File handler for the specified file.
 	"""
 	if "b" in mode:
 		fh = open( file_path, mode )
@@ -84,18 +119,19 @@ def open_file_handler( file_path: str, mode: str ) -> TextIO:
 		fh = open( file_path, mode, encoding = "utf-8" )
 	return fh
 
-
+################################################################################
+################################################################################
 def read_json( file_path: str ) -> Dict:
 	"""
 	Read a JSON file and return the dict.
 
 	Input:
 	----------
-	file_path --> path for the file to be opened.
+	file_path: path for the file to be opened.
 
 	Returns:
 	----------
-	data --> dict from a JSON file.
+	data: dict from a JSON file.
 	"""
 	f = open_file_handler( file_path, "r" )
 	data = json.load( f )
@@ -109,7 +145,7 @@ def write_json( dict_: Dict, file_path: str ) -> None:
 
 	Input:
 	----------
-	file_path --> path for the file to be opened.
+	file_path: path for the file to be opened.
 
 	Returns:
 	----------
@@ -127,7 +163,7 @@ def read_configdict_from_json( file_path: str ) -> mlc.ConfigDict:
 
 	Input:
 	----------
-	file_path --> path for the file to be opened.
+	file_path: path for the file to be opened.
 
 	Returns:
 	----------
@@ -145,8 +181,8 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict,
 
 	Input:
 	----------
-	config_dict --> an mlc.ConfidDict.
-	file_path --> path for the file to be opened.
+	config_dict: an mlc.ConfidDict.
+	file_path: path for the file to be opened.
 
 	Returns:
 	----------
@@ -154,14 +190,53 @@ def write_configdict_to_json( config_dict: mlc.ConfigDict,
 	"""
 	write_json( json.loads( config_dict.to_json() ), file_path )
 
+################################################################################
+################################################################################
+def read_pkl_gz( file_path: str ) -> Any:
+	"""
+	Read the input .pkl.gz file and return the content.
 
+	Input:
+	----------
+	file_path: .pkl.gz file file path.
+
+	Returns:
+	----------
+	data: contents parsed from the input .pkl.gz file.
+	"""
+	with gzip.open( file_path, "rb" ) as f:
+		data = pkl.load( f )
+	return data
+
+
+def write_pkl_gz( data: Any, file_path: str ):
+	"""
+	Write the given input object on disk at
+		the dpecified file path.
+	Only np.ndarray, torch.tensor, dict supported as of now.
+
+	Input:
+	----------
+	data: input object (dict/ np.ndarray/pd.DataFrame, etc.)
+	file_path: .pkl.gz file file path.
+	"""
+	# if not all( [isinstance( data, obj ) for obj in [np.ndarray, dict, torch.Tensor]] ):
+		# raise NotImplemented(
+		# 	f"Object of type {type( data )} is currently" +
+		# 	" not supported to be wriiten in .pkl.gz format." +
+		# 	" Supported formats include: np.ndarray, torch.Tensor, dict." )
+	with gzip.open( file_path, "wb" ) as w:
+		pkl.dump( data, w, protocol = pkl.HIGHEST_PROTOCOL )
+
+################################################################################
+################################################################################
 def write_to_file( content: str, file_name: str, mode: str ) -> None:
 	"""
 	Given a Response.context attribute, write to a file.
 
 	Input:
 	----------
-	file_path --> path for the file to be opened.
+	file_path: path for the file to be opened.
 
 	Returns:
 	----------
@@ -178,11 +253,11 @@ def read_fasta_from_response( response: requests.Response ) -> Dict:
 
 	Input:
 	----------
-	response --> requests.Response object for the requested URL.
+	response: requests.Response object for the requested URL.
 
 	Returns:
 	----------
-	fasta_dict --> dict with integer keys and sequences as values.
+	fasta_dict: dict with integer keys and sequences as values.
 	"""
 	fasta_content = StringIO( response.content.decode( "utf-8" ) )
 
@@ -194,7 +269,8 @@ def read_fasta_from_response( response: requests.Response ) -> Dict:
 
 	return fasta_dict
 
-
+################################################################################
+################################################################################
 def create_dir( dir_path: str ):
 	"""
 	Create a directory.
@@ -229,7 +305,8 @@ def remove_dir( dir_path: str ):
 			f"The provided directory path - {dir_path} - does not exist..."
 		)
 
-
+################################################################################
+################################################################################
 def run_subprocess( command: List,
 	stdout_file: str = None,
 	stderr_file: str = "err_log" ) -> None:
