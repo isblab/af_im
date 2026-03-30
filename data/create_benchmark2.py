@@ -73,7 +73,9 @@ class CreateBenchmark():
 		# Global paths
 		## --------------------------
 		# Base directory for all benchmarks.
-		self.base_dir = os.path.join( os.path.abspath( self.dataset_configs.globals.base_dir ) )
+		self.base_dir = os.path.join(
+			os.path.abspath( self.dataset_configs.globals.base_dir )
+			)
 		# Benchmark specific dir.
 		self.benchmark_dir = os.path.join( self.base_dir, f"{self.benchmark_name}_benchmark" )
 		# Dir to store benchmark metadata including structure file,
@@ -496,18 +498,18 @@ class CreateBenchmark():
 		Create a config dict for the givrn system. It contains input
 			metadata and XL restraint info.
 		The dict follows the structure:
-			"system_{index}": {
-					"name",
-					"entity": {
-						{},
-						{}
-					},
-					"short_xl_restraint": {},
-						restraint info for XLs with short linker length.
-					"long_xl_restraint": {},
-						restraint info for XLs with long linker length.
-					"fp_xl_restraint": {}
-						restraint info for FP XLs.
+			{
+				"name",
+				"entity": {
+					{},
+					{}
+				},
+				"short_xl_restraint": {},
+					restraint info for XLs with short linker length.
+				"long_xl_restraint": {},
+					restraint info for XLs with long linker length.
+				"fp_xl_restraint": {}
+					restraint info for FP XLs.
 			}
 
 		Inputs:
@@ -526,24 +528,24 @@ class CreateBenchmark():
 			sys_name = sys_name
 		)
 		sys_dict = {
-		f"System_{sys_name}": {
-				"name": sys_name,
-				"entity": entities,
-				"short_xl_restraint": {
-					"xl_max_bound": self.dataset_configs.jwalk.short_linker,
-					"file_name": short_xl_file,
-				},
-				"long_xl_restraint": {
-					"xl_max_bound": self.dataset_configs.jwalk.long_linker,
-					"file_name": long_xl_file,
-				},
-				"fp_xl_restraint": {
-					# FP XLs are evaluated at short_linker length.
-					"xl_max_bound": self.dataset_configs.jwalk.short_linker,
-					"file_name": fp_xl_file,
-				}
+		# f"System_{sys_name}": {
+			"name": sys_name,
+			"entity": entities,
+			"short_xl_restraint": {
+				"xl_max_bound": self.dataset_configs.jwalk.short_linker,
+				"file_name": short_xl_file,
+			},
+			"long_xl_restraint": {
+				"xl_max_bound": self.dataset_configs.jwalk.long_linker,
+				"file_name": long_xl_file,
+			},
+			"fp_xl_restraint": {
+				# FP XLs are evaluated at short_linker length.
+				"xl_max_bound": self.dataset_configs.jwalk.short_linker,
+				"file_name": fp_xl_file,
 			}
 		}
+		# }
 		return sys_dict
 
 
