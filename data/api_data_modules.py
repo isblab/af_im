@@ -868,12 +868,10 @@ class SeqResDict():
 					residue no.
 		Note: Some .cif files contain discontinous PDB
 			numbering (8g0q_B, 8g0q_D) in both pdb_seq_num and auth_seq_num.
-			Hence, also saving the seq_id which is always continous.
+			Hence, also saving the seq_id which is always continous and 1-indexed.
 		"""
 		hier = {}
 		hier_logs = {}
-		# length_mismatch = False
-		# non_standard_aa = False
 		total_length = 0
 		coverage = []
 		success = True
@@ -933,12 +931,19 @@ class SeqResDict():
 					break
 
 				hier[entity_id][chain_id] = {
+					# sequence from the .cif file.
 					"seq": seq,
+					# PDB numbering for the starting residue.
 					"start_pos": start_pdb_pos,
+					# PDB numbering for the last residue.
 					"end_pos": end_pdb_pos,
+					# PDB numbering for all residues.
 					"res_num": pdb_seq_num[resolved_idx].astype( int ),
+					# seq_id for the starting residue.
 					"start_seq_id": start_seq_id,
+					# seq_id for the last residue.
 					"end_seq_id": end_seq_id,
+					# Continuous residue numbering for the starting residue.
 					"seq_id": seq_id[resolved_idx].astype( int )
 				}
 		if not success:
@@ -993,14 +998,6 @@ class SeqResDict():
 			if any( [c < self.frac_coverage for c in coverage]):
 				logs["low_coverage"] = entry_id
 				cif_dict = None
-			# if length_mismatch:
-			# 	logs["length_mismatch"] = entry_id
-			# 	cif_dict = None
-			# 	coverage = []
-			# if non_standard_aa:
-			# 	logs["non_standard_aa"] = entry_id
-			# 	cif_dict = None
-			# 	coverage = []
 		return entry_id, cif_dict, resolution, logs
 
 
@@ -1020,9 +1017,5 @@ class SeqResDict():
 						self.cif_logs[k][0].append( logs[k] )
 						self.cif_logs[k][1] += 1
 				else:
-					# if any( [c < self.frac_coverage for c in coverage]):
-					# 	self.cif_logs["low_coverage"][0].append( entry_id )
-					# 	self.cif_logs["low_coverage"][1] += 1
-					# else:
 					self.seqres_dict[entry_id] = cif_dict
 					self.resolution_dict[entry_id] = resolution
