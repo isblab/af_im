@@ -70,7 +70,8 @@ def get_sys_data_dir_path(
 
 def get_benchmark_csv_file(
 	base_dir: str,
-	benchmark_name: str ) -> str:
+	benchmark_name: str,
+	raw_file: bool = False ) -> str:
 	"""
 	Return the path to the selected benchmark .csv file.
 
@@ -83,11 +84,15 @@ def get_benchmark_csv_file(
 	----------
 	stat_file_path: path to the benchmark .csv file.
 	"""
+	if raw_file:
+		file_name = f"{benchmark_name}_benchmark.csv"
+	else:
+		file_name = f"selected_{benchmark_name}_benchmark.csv"
 	meta_dir = get_meta_dir_path(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name )
 	csv_file_path = os.path.join(
-		meta_dir, f"{benchmark_name}_benchmark.csv"
+		meta_dir, file_name
 	)
 	return csv_file_path
 
@@ -124,7 +129,9 @@ def get_sys_config_path(
 def get_xl_file_path(
 	base_dir: str,
 	benchmark_name: str,
-	sys_name: str, xl_type: str ) -> str:
+	sys_name: str,
+	xl_type: str
+	) -> str:
 	"""
 	Return the path to the XLs .csv file for the given system.
 
