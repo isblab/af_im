@@ -126,6 +126,39 @@ config = mlc.ConfigDict(
 			"kalign_binary_path": os.path.join( tool_base, "kalign" )
 		}
 	},
+	"models": {
+		# The PATH specified here wrt the /data/ dir.
+		"base_dir": "./benchmark/",
+		"alphalink2": {
+			# Use restraint-guided or unguided prediction.
+			"guided_pred": True,
+			# Use templates before this date.
+			"max_template_date": "2020-05-01", # default
+			"recycling_iters": 20,
+			"num_samples": 25,
+			"msa_neff": -1,
+			"drop_xls": -1
+		},
+		"grasp": {
+			# Use restraint-guided or unguided prediction.
+			"guided_pred": True,
+		},
+		"boltz2": {
+			# Use restraint-guided or unguided prediction.
+			"guided_pred": True,
+			# If True, use MSA subsampling.
+			"subsample_msa": False,
+			# No. of MSA seq to subsample.
+			"num_subsampled_msa": 1024,
+			# No. of recycling iterations.
+			"recycling_steps": 3,
+			# No. of samples to predict.
+			"diffusion_samples": 25,
+			# No. of diffusion sampling steps.
+			"sampling_steps": 200
+		}
+
+	}
 
 #----------#
 }
