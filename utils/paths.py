@@ -414,9 +414,33 @@ def get_init_pred_file(
 		f"output_dict.pkl" )
 	return init_pred_file
 
+################################################################################
+################################################################################
+def get_model_output_dir_path(
+	base_dir: str,
+	benchmark_name: str,
+	model: str,
+	pred_type: str,
+	xl_type: str
+):
+	"""
+	Get the output dir path for the specified model:
+		AlphaLInk2, GRASP, Boltz2
 
-
-
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	model: identifier for the model being used: alphalInk2/grasp/boltz2
+	pred_type: identifier for the type of prediction: guided/unguided.
+		"" for guided prediction else "unguided".
+	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	"""
+	output_dir = os.path.join(
+		base_dir,
+		f"{model}/{benchmark_name}/{pred_type}/{xl_type}/"
+	)
+	return output_dir
 
 #
 # def get_sys_modeling_path(
