@@ -2,6 +2,13 @@
 Wrapper for obtaining GRASP and AlphaLink2 predictions for the benchmark.
 Duplicating some function here from utils.utils, so as to not have more
 	extra dependency while running GRASP and AlphaLink2.
+The following dir structure is followed:
+	BASE_DIR
+		Model dir
+			Dataset specific dir
+				Prediction type (guided/unguided) specific dir
+					XL type (short/long/fp) specific dir
+						System specific dir
 """
 from typing import List, Dict, Any
 import os, subprocess, time, gzip, argparse, json, yaml
@@ -9,11 +16,15 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 
+from config import get_config_dict
 from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
 	get_sys_config_path,
-	get_sys_data_dir_path )
+	get_sys_data_dir_path,
+	get_xl_file_path,
+	get_model_output_dir_path
+)
 
 
 def get_gpu_mem_mb( gpu_id: int ):
@@ -56,11 +67,10 @@ def get_entities_in_system(
 	sys_config_path = get_sys_config_path(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
-		sys_name = sys_name,
-		sys_conf_suff = "_tpfp" )
+		sys_name = sys_name )
 	with open( sys_config_path, "r" ) as f:
 		sys_conf = json.load( f )
-	entities = sys_conf[f"System_{sys_name}"]["entity"]
+	entities = sys_conf["entity"]
 	return entities
 
 
@@ -99,32 +109,59 @@ class CompetingMethodsRunner():
 	def __init__(
 		self,
 		model:str,
-		benchmark_name: str ):
-		self.model = model # grasp/alphalink2
-		self.benchmark_name = benchmark_name
-		self.device = "cuda:0"
+		xl_type: str,
+		device: str
+		):
+		self.config_dict = get_config_dict()
+		self.base_dir = os.path.join(
+			os.path.abspath( self.config_dict.models.base_dir )
+			)
+		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
 
-		self.sys_conf_suff = "_tpfp"
+		self.model = model # grasp/alphalink2
+		self.xl_type = xl_type
+		self.device = device
+
+		self.model_config = {}
 		# XL max bound (Ca-Ca).
-		self.xl_max_bound = 30.0
+		self.xl_max_bound = None
 		# False discovery rate for GRASP.
 		self.fdr = 0.1
-		# Run Boltz-2 without restraints.
-		self.boltz_unguided = False
 
 		self.inputs = {}
 
 
 	def forward( self ):
 		"""
-		What we need:
-			A .fasta file containing the sequences.
-			A restraint file.
-			Precomputed feature_dict.
+		Start by creating the required file paths
+			and the dir structure.
+		Initialize the logs dict.
+		Initialize the XL amx bound based on the XL type.
+		Initialize the model configs.
+		Create an input dict that contains the following
+			for each system:
+			Syste-specific dir path
+			Path to the input fasta file.
+			Path to the input restraints file.
+			Path to the feature dict.
+		Create the input files required for the specifie model.
+		Run the model prediction.
 		"""
+		self.set_xl_max_bound()
+		self.init_model_configs()
+
+		if self.model_config.guided_pred:
+			print( f"Running restraint guided prediction for {self.model} with xl_type = {self.xl_type}..." )
+			print( "-"*80, "\n" )
+		else:
+			print( f"Running unguided prediction for {self.model} with xl_type = {self.xl_type}..." )
+			print( "-"*80, "\n" )
+
+		self.create_dir_structure()
 		self.create_required_file()
 		self.init_logs()
-		self.create_inputs_dict()
+
+		self.create_system_specifc_inputs()
 
 		self.create_inputs_for_benchmark()
 		self.run_model_for_benchmark()
@@ -134,6 +171,7 @@ class CompetingMethodsRunner():
 		"""
 		Initialize or load the logs dict.
 		"""
+		self.logs_file = os.path.join( self.output_dir, f"Logs_{self.model}.json" )
 		if os.path.exists( self.logs_file ):
 			with open( self.logs_file, "r" ) as f:
 				self.logs = json.load( f )
@@ -141,13 +179,37 @@ class CompetingMethodsRunner():
 			self.logs = {k:{} for k in ["completed", "time", "memory"]}
 
 
+	def set_xl_max_bound( self ):
+		"""
+		Set the XL amx bound according to the XL type used.
+		"""
+		if self.xl_type == "short":
+			self.xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
+		elif self.xl_type == "long":
+			self.xl_max_bound = self.config_dict.benchmark.jwalk.long_linker
+		else:
+			raise ValueError( f"Invalid XL type: {self.xl_type} specified..." )
+
+
+	def init_model_configs( self ):
+		"""
+		Initialize the model configs based pn the specified model.
+		"""
+		if self.model == "alphalink2":
+			self.model_config = self.config_dict.models.alphalink2
+		elif self.model == "grasp":
+			self.model_config = self.config_dict.models.grasp
+		elif self.model == "boltz2":
+			self.model_config = self.config_dict.models.boltz2
+		else:
+			raise ValueError( f"Invalid model: {self.model} specified..." )
+
+	################################################################################
+	################################################################################
 	def create_required_file( self ):
 		"""
 		Create the required file and dir paths.
 		"""
-		# self.base_dir = BASE_DIR
-		self.base_dir = "/data2/kartik/IMP_Rewired/imp_dl/benchmark/"
-
 		# GRASP ----------
 		# Path to the cloned GRASP directory.
 		self.grasp_dir = "/home/kartik/Documents/IMP_Rewired/GRASP-JAX"
@@ -164,30 +226,49 @@ class CompetingMethodsRunner():
 		# Databases for running AlphaLink2.
 		self.alphafold_dbs_dir = "/data/alpha-fold-db/"
 
-		# Dir to store GRASP/AlphaLink2 preds for the benchmark.
-		if self.model == "grasp":
-			self.output_dir = os.path.join( self.base_dir, f"Grasp/{self.benchmark_name}/" )
-		elif self.model == "alphalink2":
-			self.output_dir = os.path.join( self.base_dir, f"Alphalink2/{self.benchmark_name}/" )
-		elif self.model == "boltz2":
-			self.output_dir = os.path.join( self.base_dir, f"Boltz2/{self.benchmark_name}/" )
-		else:
-			raise ValueError( f"Incorrect model chosen {self.model}. Supported grasp/alphalink2/boltz2..." )
-
-		os.makedirs( self.output_dir, exist_ok = True )
-
 		# Load the benchmark.
 		benchmark_file = get_benchmark_csv_file(
 			self.base_dir,
-			self.benchmark_name )
+			self.benchmark_name,
+			raw_file = False
+			)
 		self.benchmark = pd.read_csv( benchmark_file )
-		self.logs_file = os.path.join( self.output_dir, f"Logs_{self.model}.json" )
 
-
-	def create_inputs_dict( self ):
+	################################################################################
+	def create_dir_structure( self ):
 		"""
-		Create the system dir and input .fasta and restraints
-			file paths for all complexes in the benchmark.
+		Dir to store GRASP/AlphaLink2/Boltz2 preds for the benchmark.
+		The following dir structure is followed:
+			BASE_DIR
+				Model dir
+					Dataset specific dir
+						Prediction type (guided/unguided) specific dir
+							XL type (short/long/fp) specific dir
+		System specific dir will be created later.
+		"""
+		pred_type = "" if self.model_config.guided_pred else "unguided"
+
+		self.output_dir = get_model_output_dir_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			model = self.model,
+			pred_type = pred_type,
+			xl_type = self.xl_type
+		)
+		os.makedirs( self.output_dir, exist_ok = True )
+
+	################################################################################
+	################################################################################
+	def create_system_specifc_inputs( self ):
+		"""
+		Create the following for all systems in the benchmark:
+			System-specific dir to store the input
+				files and predictions.
+			Path for the FASTA file.
+				Required for Alphaink2/GRASP only.
+			path for the restraint file.
+			Path to the precomputed feature dict.
+				Required for GRASP only.
 		"""
 		# Dict to store input file paths for GRASP.
 		self.inputs = {k:{} for k in [
@@ -207,7 +288,7 @@ class CompetingMethodsRunner():
 			fasta_file = os.path.join( sys_dir_path, f"{sys_name}.fasta" )
 			self.inputs["fasta_file"][sys_name] = os.path.abspath( fasta_file )
 
-			ext = "txt" if self.model == "grasp" else "csv"
+			# ext = "txt" if self.model == "grasp" else "csv"
 			if self.model == "grasp":
 				ext = "txt"
 			elif self.model == "alphalink2":
@@ -231,6 +312,7 @@ class CompetingMethodsRunner():
 		Create a .fasta file containg the sequences for each chain to be modeled.
 		Use the sequences from the sys_config dict.
 		Fasta header -> {sys_name}_{entity_id}_{chain_id}
+		This is required as input for AlphaLink2 and GRASP.
 		"""
 		fasta_file = self.inputs["fasta_file"][sys_name]
 		w = open( fasta_file, "w" )
@@ -310,7 +392,13 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name )
-		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		xl_file = get_xl_file_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+			xl_type = self.xl_type
+		)
 		# xl_df = pd.read_csv( xl_file )
 
 		entity_chain_map = get_entity_chain_mapping(
@@ -337,7 +425,7 @@ class CompetingMethodsRunner():
 					f"Chain: {chain_id1}; residue {r1_idx+1} is not a Lys..." )
 			residue1 = f"{chain_id1}-{r1_idx+1}-{seq1[r1_idx]}"
 
-			if seq1[r1_idx] != "K":
+			if seq2[r2_idx] != "K":
 				raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
 					f"Chain: {chain_id2}; residue {r2_idx+1} is not a Lys..." )
 			residue2 = f"{chain_id2}-{r2_idx+1}-{seq2[r2_idx]}"
@@ -358,6 +446,8 @@ class CompetingMethodsRunner():
 			FASTA file.
 			Feature dict.
 			Restraints file.
+		To run unguided prediction, the restraint file must be
+			specified as None.
 		"""
 		self.create_fasta_file( sys_name = sys_name )
 
@@ -369,15 +459,22 @@ class CompetingMethodsRunner():
 		Run GRASP prediction for the given system with the default settings.
 		Here I assume that the feature_dict already exist.
 		"""
+		if self.model_config.guided_pred:
+			restraints_file = self.inputs['restraints_file'][sys_name]
+		else:
+			restraints_file = None
 		env = os.environ.copy()
+		# This remaps the device numbering.
 		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
+		# So the device must be changed to cuda:0.
+		device = "cuda:0"
 		cmd = [
 			"python", f"{self.grasp_script}",
 			"--feature_pickle", f"{self.inputs['feat_dict_file'][sys_name]}",
 			"--fasta_path", f"{self.inputs['fasta_file'][sys_name]}",
 			"--data_dir", f"{self.grasp_dir}",
 			"--output_dir", f"{self.inputs['sys_dir_path'][sys_name]}",
-			"--restraints_file", f"{self.inputs['restraints_file'][sys_name]}",
+			"--restraints_file", f"{restraints_file}",
 			"--iter_num", "5",
 		]
 		# subprocess.cal doe snot allow conrol over the process, so using Popen.
@@ -515,23 +612,32 @@ class CompetingMethodsRunner():
 			For AlphaLink2 we need to map this to the numbering based on the
 				input sequence, essentially the residue index + 1.
 		AlphaLink2 expects Ca-Ca crosslinks.
+		To run unguided prediction, an empty restraint file must be used.
 		"""
-		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
-		# xl_df = pd.read_csv( xl_file )
+		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		xl_file = get_xl_file_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+			xl_type = self.xl_type
+		)
 
 		restraints_included = []
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
-		for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
-			( entity_id1, entity_id2, chain_id1,
-				chain_id2, r1_idx, r2_idx ) = row
+		if self.model_config.guided_pred:
+			for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
+				( entity_id1, entity_id2, chain_id1,
+					chain_id2, r1_idx, r2_idx ) = row
 
-			# ignore duplicate restraints: AB and BA.
-			restraint = {r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}
-			restraint_inv = {r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}
-			if restraint in restraints_included or restraint_inv in restraints_included:
-				continue
-			restraints_included.append( restraint )
-			w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
+				# ignore duplicate restraints: AB and BA.
+				restraint = f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}"
+				restraint_inv = f"{r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}"
+				if restraint in restraints_included or restraint_inv in restraints_included:
+					continue
+				restraints_included.append( restraint )
+				w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
+		else:
+			w.writelines( ",,,," )
 
 		w.close()
 
@@ -586,9 +692,17 @@ class CompetingMethodsRunner():
 		We use the default setting specified for AlphaLink2.
 		Added two arguments to run_alphalink2.sh to specify
 			the device and the XL max bound.
+		To run unguided prediction, an empty restraint file must be used.
 		"""
 		env = os.environ.copy()
+		# This remaps the device numbering.
 		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
+		# So the device must be changed to cuda:0.
+		device = "cuda:0"
+		# if "cuda" in self.device:
+		# 	device = int( self.device.split( ":" )[-1] )
+		# else:
+		# 	device = self.device
 
 		cmd = [
 			"bash", f"{self.alphalink2_script}",
@@ -597,12 +711,12 @@ class CompetingMethodsRunner():
 			f"{self.inputs['sys_dir_path'][sys_name]}",  # output dir.
 			f"{self.alphalink2_params}",  # path to the model params.
 			f"{self.alphafold_dbs_dir}",
-			f"2020-05-01",    # Max template date
-			f"{20}",   # Max recycling iterations.
-			f"{25}",   # No. of samples to generate.
-			f"{-1}",   # MSA neff.
-			f"{-1}",   # Mask crosslinked residues in MSA or not.
-			f"{self.device}",
+			f"{self.model_config.max_template_date}",
+			f"{self.model_config.recycling_iters}",   # Max recycling iterations.
+			f"{self.model_config.num_samples}",   # No. of samples to generate.
+			f"{self.model_config.msa_neff}",   # MSA neff.
+			f"{self.model_config.drop_xls}",   # Mask crosslinked residues in MSA or not.
+			f"{device}",
 			f"{self.xl_max_bound}"
 		]
 		# subprocess.call() doe snot allow conrol over the process, so using Popen.
@@ -616,12 +730,21 @@ class CompetingMethodsRunner():
 		Boltz2 accepts input in a .yaml file.
 		Format can be found here: https://github.com/jwohlwend/boltz/blob/main/docs/prediction.md
 		We can reuse the pre-computed MSAs.
+		To run unguided prediction, the yaml file must not have any
+			constraints specified.
 		"""
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name )
-		xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		xl_file = get_xl_file_path(
+			base_dir = self.base_dir,
+			benchmark_name = self.benchmark_name,
+			sys_name = sys_name,
+			xl_type = self.xl_type
+		)
+
+		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
 		# xl_df = pd.read_csv( xl_file )
 
 		entity_chain_map = get_entity_chain_mapping(
@@ -633,8 +756,8 @@ class CompetingMethodsRunner():
 
 		boltz_input = {"version": 1}
 		boltz_input.update( {k:[] for k in ["sequences", 'constraints']} )
-		if not self.boltz_unguided:
-			boltz_input.pop( "constraints" )
+		# if not self.boltz_unguided:
+		# 	boltz_input.pop( "constraints" )
 
 		for entity_id in entity_chain_map:
 			chains = entity_chain_map[entity_id]["chains"]
@@ -652,8 +775,13 @@ class CompetingMethodsRunner():
 			}
 			boltz_input["sequences"].append( protein )
 
-		if self.boltz_unguided:
-			xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		if self.model_config.guided_pred:
+			xl_file = get_xl_file_path(
+				base_dir = self.base_dir,
+				benchmark_name = self.benchmark_name,
+				sys_name = sys_name,
+				xl_type = self.xl_type
+			)
 
 			# Will add all Xl restraints as contacts for conditioning Boltz-2.
 			for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
@@ -668,6 +796,8 @@ class CompetingMethodsRunner():
 					}
 				}
 				boltz_input["constraints"].append( contact )
+		else:
+			boltz_input.pop( "constraints" )
 
 		# Save as a yaml file.
 		with open( self.inputs["restraints_file"][sys_name], "w" ) as w:
@@ -678,18 +808,23 @@ class CompetingMethodsRunner():
 		"""
 		Run Boltz2 prediction for the given system with the default settings.
 		This is the easiet among the three to run.
+		To run unguided prediction, the yaml file must not have any
+			constraints specified.
 		"""
 		env = os.environ.copy()
+		# This remaps the device numbering.
 		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
+		# So the device must be changed to cuda:0.
+		device = "cuda:0"
 
 		cmd = [
 			"boltz",
 			"predict",
 			f"{self.inputs['restraints_file'][sys_name]}",
 			"--out_dir", f"{self.inputs['sys_dir_path'][sys_name]}",  # output dir.
-			"--recycling_steps", "3",
-			"--sampling_steps", "200",
-			"--diffusion_samples", "25",
+			"--recycling_steps", f"{self.model_config.recycling_steps}",
+			"--sampling_steps", f"{self.model_config.sampling_steps}",
+			"--diffusion_samples", f"{self.model_config.diffusion_samples}",
 			# "--use_msa_server"  # We use pre-computed alignments.
 		]
 		# subprocess.call() doe snot allow conrol over the process, so using Popen.
@@ -710,10 +845,14 @@ class CompetingMethodsRunner():
 			print( f"Creating inputs for {sys_name} to run {self.model}" )
 			if self.model == "grasp":
 				self.create_inputs_for_grasp( sys_name = sys_name )
-			if self.model == "alphalink2":
+			elif self.model == "alphalink2":
 				self.create_inputs_for_alphalink2( sys_name = sys_name )
-			else:
+			elif self.model == "boltz2":
 				self.create_inputs_for_boltz2( sys_name = sys_name )
+			else:
+				raise ValueError( f"Incorrect model: {self.model} specified. " +
+					"Supported alphalink2/grasp/boltz2..."
+				)
 
 
 	def run_model_for_benchmark( self ):
@@ -774,12 +913,17 @@ if __name__ == "__main__":
 		type = str, required = True,
 		help = "Specify the model to use: grasp/alphalink2/boltz2." )
 	parser.add_argument(
-		"-b", "--benchmark",
+		"-x", "--xl_type",
 		type = str, required = True,
-		help = "name of the benchmark to use." )
+		help = "cross-link type to be used: short/long/fp..." )
+	parser.add_argument(
+		"-d", "--device",
+		type = str, required = True,
+		help = "device to be used (cpu/cuda:0/cuda:1)..." )
 	args = parser.parse_args()
 
 	CompetingMethodsRunner(
 		model = args.model,
-		benchmark = args.benchmark
+		xl_type = args.xl_type,
+		device = args.device
 		).forward()
