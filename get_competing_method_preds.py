@@ -11,12 +11,13 @@ The following dir structure is followed:
 						System specific dir
 """
 from typing import List, Dict, Any
-import os, subprocess, time, gzip, argparse, json, yaml
+import os, subprocess, time, gzip, argparse, json, shutil, yaml
 import pickle as pkl
 import numpy as np
 import pandas as pd
 
 from config import get_config_dict
+from utils.utils import read_pkl_gz
 from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
@@ -299,7 +300,7 @@ class CompetingMethodsRunner():
 			restraints_file = os.path.join( sys_dir_path, f"{sys_name}_restraint.{ext}" )
 			self.inputs["restraints_file"][sys_name] = os.path.abspath( restraints_file )
 
-			feat_dict_file = os.path.join( data_dir, f"{sys_name}_output", "predictions/feature_dict.pkl" )
+			feat_dict_file = os.path.join( data_dir, f"{sys_name}_output", "predictions/feature_dict.pkl.gz" )
 			self.inputs["feat_dict_file"][sys_name] = os.path.abspath( feat_dict_file )
 
 			# Create the system dir for GRASP.
@@ -458,7 +459,17 @@ class CompetingMethodsRunner():
 		"""
 		Run GRASP prediction for the given system with the default settings.
 		Here I assume that the feature_dict already exist.
+		GRASP requires the feature dict as a .pkl file.
+			We have stored the feature dict as a .pkl.gz file.
+			Need to unzip and modify the path.
+			Delete the .pkl file.
 		"""
+		feat_file = f"{self.inputs['feat_dict_file'][sys_name]}"
+		pkl_feat_file = feat_file.removesuffix( ".gz" )
+		with gzip.open( feat_file ) as f_in:
+			with open( pkl_feat_file, "wb" ) as f_out:
+				shutil.copyfileobj( f_in, f_out )
+
 		if self.model_config.guided_pred:
 			restraints_file = self.inputs['restraints_file'][sys_name]
 		else:
@@ -470,7 +481,7 @@ class CompetingMethodsRunner():
 		device = "cuda:0"
 		cmd = [
 			"python", f"{self.grasp_script}",
-			"--feature_pickle", f"{self.inputs['feat_dict_file'][sys_name]}",
+			"--feature_pickle", f"{pkl_feat_file}",
 			"--fasta_path", f"{self.inputs['fasta_file'][sys_name]}",
 			"--data_dir", f"{self.grasp_dir}",
 			"--output_dir", f"{self.inputs['sys_dir_path'][sys_name]}",
@@ -564,9 +575,10 @@ class CompetingMethodsRunner():
 			e.g. A.feature_dict.pkl.gz
 		Split the precomputed feature_dict by chain.
 		"""
-		f = open( self.inputs["feat_dict_file"][sys_name], "rb" )
-		feature_dict = pkl.load( f )
-		f.close()
+		# f = open( self.inputs["feat_dict_file"][sys_name], "rb" )
+		# feature_dict = pkl.load( f )
+		# f.close()
+		feature_dict = read_pkl_gz( self.inputs["feat_dict_file"][sys_name] )
 		for entity_id in entity_chain_map:
 			for chain_id in entity_chain_map[entity_id]["chains"]:
 				# Get the alphabetical chain ID.
@@ -857,7 +869,11 @@ class CompetingMethodsRunner():
 
 	def run_model_for_benchmark( self ):
 		"""
-		Run GRASP prediction for the benchmark.
+		Run prediction on the benchmark for the specified modle.
+		Keep track of the time taken and GPY memory used.
+		If prediction already completed, do not run again.
+		For GRASP, one needs to remove the .pkl feature dict file
+			that was created for running GRASP.
 		"""
 		base = os.path.abspath( os.getcwd() )
 		gpu_id = int( self.device.split( ":" )[1] )
@@ -891,6 +907,11 @@ class CompetingMethodsRunner():
 				if proc.returncode != 0:
 					print( f"Failed to run {self.model} for {sys_name}..." )
 					exit()
+				# Remove the feature-dict .pkl file created for GRASP.
+				if self.model == "grasp":
+					feat_file = f"{self.inputs['feat_dict_file'][sys_name]}"
+					pkl_feat_file = feat_file.removesuffix( ".gz" )
+					os.remove( pkl )
 
 				time_taken = te-ts
 				self.logs["completed"][sys_name] = None
