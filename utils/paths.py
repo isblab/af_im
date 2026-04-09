@@ -18,8 +18,8 @@ BASE_DIR/
 	# 	For each system, contains a dir per simulation (modeling_version)
 	# 		containing all outputs generated during the simulation.
 """
-from typing import Any
-import os
+from typing import List, Tuple, Any
+import os, glob
 
 # Base directory for benchmark and the aasociated content.
 BASE_DIR = "./benchmark/"
@@ -56,7 +56,8 @@ def get_sys_data_dir_path(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
-	sys_name: name of the complex modeled. For the benchmark, it's the PDB ID.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
 
 	Return:
 	----------
@@ -162,7 +163,7 @@ def get_openfold_output_dir_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the OpenFold output dir for the given system.
 
@@ -192,7 +193,7 @@ def get_openfold_alignments_dir_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the OpenFold alignments dir
 		for the given system.
@@ -222,7 +223,7 @@ def get_openfold_pred_dir_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the OpenFold predictions dir
 		for the given system.
@@ -253,7 +254,7 @@ def get_feature_dict_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the OpenFold generated feature dict
 		for the given system.
@@ -283,7 +284,7 @@ def get_processed_feature_dict_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the OpenFold generated processed
 		feature dict for the given system.
@@ -315,7 +316,7 @@ def get_sys_fasta_file_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the fasta file for the given system.
 
@@ -343,7 +344,7 @@ def get_native_struct_file(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the native structure file for the given system.
 
@@ -367,7 +368,7 @@ def get_init_struct_file(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the initial OpenFold predicted structure for the given system.
 
@@ -392,7 +393,7 @@ def get_init_pred_file(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str
-):
+) -> str:
 	"""
 	Return the path to the output dict for the initial
 		OpenFold prediction for the given system stored
@@ -422,7 +423,7 @@ def get_model_output_dir_path(
 	model: str,
 	pred_type: str,
 	xl_type: str
-):
+) -> str:
 	"""
 	Get the output dir path for the specified model:
 		AlphaLInk2, GRASP, Boltz2
@@ -435,12 +436,241 @@ def get_model_output_dir_path(
 	pred_type: identifier for the type of prediction: guided/unguided.
 		"" for guided prediction else "unguided".
 	xl_type: identifier for tthe XL type. Could be short/long/fp.
+
+	Returns:
+	----------
+	output_dir: path to the output dir for the given model's
+		and xl_type.
 	"""
 	output_dir = os.path.join(
 		base_dir,
 		f"{model}/{benchmark_name}/{pred_type}/{xl_type}/"
 	)
 	return output_dir
+
+
+def get_model_sys_output_dir_path(
+	base_dir: str,
+	benchmark_name: str,
+	model: str,
+	pred_type: str,
+	xl_type: str,
+	sys_name: str
+) -> str:
+	"""
+	For the given system, get the path to the output dir
+		for the given model and xl_type.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	model: identifier for the model being used: alphalInk2/grasp/boltz2
+	pred_type: identifier for the type of prediction: guided/unguided.
+		"" for guided prediction else "unguided".
+	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	output_dir: path to the output dir for the given model's
+		and xl_type.
+	"""
+	output_dir = get_model_output_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		model = model,
+		pred_type = pred_type,
+		xl_type = xl_type
+	)
+	sys_dir = os.path.join( output_dir, sys_name )
+	return sys_dir
+
+################################################################################
+################################################################################
+def get_alphalink2_sys_files(
+	base_dir: str,
+	benchmark_name: str,
+	pred_type: str,
+	xl_type: str,
+	sys_name: str
+) -> Tuple[List[str], List[str]]:
+	"""
+	For the given system, get the path to the AlphaLink2
+		predicted structure file.
+	AlphaLink2 5 trained models to predict 5 models each.
+		We return a list of file paths for all predicted models.
+	File name format: AlphaLink2_5182{MODEL CKPT}_{CONFIDENCE_SCORE}.pdb
+	We ignore the file for the best predicted structure.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	pred_type: identifier for the type of prediction: guided/unguided.
+		"" for guided prediction else "unguided".
+	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	struct_file_list: list of paths to all AlphaLink2
+		predicted structure files.
+	output_file_list: list of paths to the AlphaLink2
+		output .pkl.gz file.
+	"""
+	sys_dir = get_model_sys_output_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		model = "alphalink2",
+		pred_type = pred_type,
+		xl_type = xl_type,
+		sys_name = sys_name
+	)
+	struct_file_list = []
+	output_file_list = []
+	for file in glob.glob( f"{sys_dir}/AlphaLink2_*.pdb" ):
+		if "best.pdb" in file:
+			continue
+		else:
+			struct_file_list.append( file )
+
+	for file in glob.glob( f"{sys_dir}/AlphaLink2_*.pkl.gz" ):
+		output_file_list.append( file )
+
+	return struct_file_list, output_file_list
+
+
+def get_grasp_sys_files(
+	base_dir: str,
+	benchmark_name: str,
+	pred_type: str,
+	xl_type: str,
+	sys_name: str
+) -> Tuple[List[str], List[str]]:
+	"""
+	For the given system, get the path to the GRASP
+		predicted structure file.
+	For all trained models, GRASP writes a structure file
+		for each restraint filtering iteration.
+	We select the final struture file.
+	File name forat:
+		unrelaxed_model_1_multimer_v3_v11_{MODEL_CKPT}_pred_{NUM_PRED}_final.pdb
+	No output files are written on disk.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	pred_type: identifier for the type of prediction: guided/unguided.
+		"" for guided prediction else "unguided".
+	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	struct_file_list: list of paths to all AlphaLink2
+		predicted structure and output files.
+	output_file_list: empty list.
+	"""
+	sys_dir = get_model_sys_output_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		model = "grasp",
+		pred_type = pred_type,
+		xl_type = xl_type,
+		sys_name = sys_name
+	)
+	struct_file_list = []
+	output_file_list = []
+	for file in glob.glob(
+		f"{sys_dir}/unrelaxed_model_1_multimer_v3_v11_*_final.pdb" ):
+		struct_file_list.append( file )
+
+	return struct_file_list, output_file_list
+
+
+def get_boltz2_sys_files(
+	base_dir: str,
+	benchmark_name: str,
+	pred_type: str,
+	xl_type: str,
+	sys_name: str
+) -> Tuple[List[str], List[str], List[str]]:
+	"""
+	For the given system, get the path to the Boltz2
+		predicted structure file.
+	Boltz2 predicts the specified no. of diffusion samples
+		(structure) 0-indexed.
+		Format: {SYS_NAME}_restraint_model_{DIFFUSION_SAMPLE}.cif
+	It also provides:
+		pTM, ipTm in a confidence .json file.
+		Format: confidence_{SYS_NAME}_restraint_model_{DIFFUSION_SAMPLE}.json
+		PAE in a .npy file
+		Format: pae_{SYS_NAME}_restraint_model_{DIFFUSION_SAMPLE}.npz
+
+	This function returns all three types of files.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	pred_type: identifier for the type of prediction: guided/unguided.
+		"" for guided prediction else "unguided".
+	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	struct_file_list: list of paths to all AlphaLink2
+		predicted structure and output files.
+	conf_file_list: list of paths to the confidence .json file.
+	pae_file_list: list of paths to the .npy file containing
+		the PAE/
+	"""
+	sys_dir = get_model_sys_output_dir_path(
+		base_dir = base_dir,
+		benchmark_name = benchmark_name,
+		model = "boltz2",
+		pred_type = pred_type,
+		xl_type = xl_type,
+		sys_name = sys_name
+	)
+	struct_file_list = []
+	conf_file_list = []
+	pae_file_list = []
+	for file in glob.glob( f"{sys_dir}/*.cif" ):
+		struct_file_list.append( file )
+	for file in glob.glob( f"{sys_dir}/confidence_*.json" ):
+		conf_file_list.append( file )
+	for file in glob.glob( f"{sys_dir}/pae_*.npz" ):
+		pae_file_list.append( file )
+
+	return struct_file_list, conf_file_list, pae_file_list
+
+################################################################################
+################################################################################
+def get_benchmark_analysis_dir_path(
+	base_dir: str,
+	benchmark_name: str,
+):
+	"""
+	Get the path to the analysis dir for the given benchmark.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	"""
+	analysis_dir = os.path.join(
+		base_dir, f"{benchmark_name}"
+	)
+	return analysis_dir
+
 
 #
 # def get_sys_modeling_path(
