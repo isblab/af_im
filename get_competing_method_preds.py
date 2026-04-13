@@ -17,7 +17,11 @@ import numpy as np
 import pandas as pd
 
 from config import get_config_dict
-from utils.utils import read_pkl_gz
+from utils.mappings import (
+	get_entity_chain_mapping
+)
+from utils.utils import get_gpu_mem_mb
+# from utils.pdb_utils import get_chain_id
 from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
@@ -30,7 +34,19 @@ from utils.paths import (
 
 def get_gpu_mem_mb( gpu_id: int ):
 	"""
-	Obtain the GPU memory used for the given device using nvidia-smi.
+	Obtain the current GPU memory usage (in MB) for a specific device by
+		querying `nvidia-smi`.
+	This function invokes `nvidia-smi` as a subprocess and parses the reported
+		memory usage for the given GPU ID.
+
+	Inputs:
+	----------
+	gpu_id: iIndex of the GPU as recognized by `nvidia-smi` (after any
+		CUDA_VISIBLE_DEVICES remapping).
+
+	Returns
+	----------
+	Memory currently in use on the GPU, in MB.
 	"""
 	out = subprocess.check_output(
 		[
@@ -46,7 +62,17 @@ def get_gpu_mem_mb( gpu_id: int ):
 
 def get_chain_id( idx: int ) -> str:
 	"""
-	Get a chain ID based on an index.
+	Map a 0-indexed chain ID to a alphabetical chain identifier.
+	Chain IDs are assigned from the ordered set:
+		"A-Z" followed by "0-9", allowing up to 36 unique chains.
+
+	Inputs:
+	----------
+	idx: 0-indexed chain ID.
+
+	Returns:
+	----------
+	Alphabetical chain ID.
 	"""
 	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -64,6 +90,18 @@ def get_entities_in_system(
 	sys_name: str ) -> List[Dict[str, Any]]:
 	"""
 	Parse the sys_config file and return the List of entities in the system.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	entities: Aa list of entity dictionaries as defined
+		in the system config file.
 	"""
 	sys_config_path = get_sys_config_path(
 		base_dir = base_dir,
@@ -81,10 +119,26 @@ def get_entity_chain_mapping(
 	sys_name: str ) -> Dict[int, Dict]:
 	"""
 	Map all entities to the corresponding chains.
-	For entity it contains:
-		sequence to be modeled.
-		a numeric chain_id starting from 1.
-		residues to be modeled.
+	Each entity can have multiple chains.
+		For each copy a new 1-indexed chain ID is created.
+			asym_id in OpenFold feature-dic are 1-indexed.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	entity_id: {
+		seq: str,
+		chains: [],
+		residues: np.ndarray,
+	}
+	start,end residue positions are based on the PDB seq_id numbering.
+		May not always have residues from 1.
 	"""
 	entities = get_entities_in_system(
 		base_dir = base_dir,
@@ -111,6 +165,7 @@ class CompetingMethodsRunner():
 		self,
 		model:str,
 		xl_type: str,
+		guided_pred: bool,
 		device: str
 		):
 		self.config_dict = get_config_dict()
@@ -121,24 +176,23 @@ class CompetingMethodsRunner():
 
 		self.model = model # grasp/alphalink2
 		self.xl_type = xl_type
+		self.guided_pred = guided_pred
 		self.device = device
 
 		self.model_config = {}
 		# XL max bound (Ca-Ca).
 		self.xl_max_bound = None
-		# False discovery rate for GRASP.
-		self.fdr = 0.1
 
 		self.inputs = {}
 
 
 	def forward( self ):
 		"""
-		Start by creating the required file paths
-			and the dir structure.
-		Initialize the logs dict.
-		Initialize the XL amx bound based on the XL type.
+		Initialize the XL max bound based on the XL type.
 		Initialize the model configs.
+		Create the required file paths and the
+			dir structure.
+		Initialize the logs dict.
 		Create an input dict that contains the following
 			for each system:
 			Syste-specific dir path
@@ -150,6 +204,12 @@ class CompetingMethodsRunner():
 		"""
 		self.set_xl_max_bound()
 		self.init_model_configs()
+
+		# False discovery rate for AlphaLink2/GRASP.
+		self.fdr = self.model_config.benchmark.jwalk.frac_tpfp[0]
+
+		# Modify the value in config file.
+		self.model_config.guided_pred = self.guided_pred
 
 		if self.model_config.guided_pred:
 			print( f"Running restraint guided prediction for {self.model} with xl_type = {self.xl_type}..." )
@@ -334,33 +394,48 @@ class CompetingMethodsRunner():
 	################################################################################
 	################################################################################
 	def yield_restraints( self,
+		sys_name: str,
 		xl_file: str,
 		entity_chain_map: Dict[int, Dict],
 		numeric_chain_ids: bool ):
 		"""
 		A generator that yields restrained residue pairs.
 		Accounts for ambiguity.
+
+		Note:
+		For homomeric complexes, different chains in the experimental
+			structure may be missing different sets of residues.
+			We select the residues to be modeled from only 1 of the chains.
+				As a result some XLs may not be modeled.
+				We ignore these XLs here.
+		XLs have previously been mapped to the 1-indexed seq_id in .cif files.
+			So, the residue numbering in XL files can be used as is for all methods.
+		Sanity checks if the Xl'd residue is Lys or not.
+			JWalk only rturns Lys-Lys XLs.
 		"""
 		xl_df = pd.read_csv( xl_file )
 
 		for row in xl_df.iterrows():
 			p1, p2 = row[1]["prot1"], row[1]["prot2"]
-			r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
-			r1, r2 = int( r1 ), int( r2 )
+			res1, res2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+			res1, res2 = int( res1 ), int( res2 )
 
 			entity_id1 = int( p1.split( "_" )[1] )
 			entity_id2 = int( p2.split( "_" )[1] )
 
 			# Get the residue indices.
 			try:
-				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
+				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == res1 )[0][0]
 			except:
 				continue
 
 			try:
-				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
+				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == res2 )[0][0]
 			except:
 				continue
+
+			seq1 = entity_chain_map[entity_id1]["seq"]
+			seq2 = entity_chain_map[entity_id2]["seq"]
 
 			# For ambiguous XLs, we consider all combinations.
 			for chain_id1 in entity_chain_map[entity_id1]["chains"]:
@@ -370,7 +445,15 @@ class CompetingMethodsRunner():
 					if not numeric_chain_ids:
 						chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
 
-					yield entity_id1, entity_id2, chain_id1, chain_id2, r1_idx, r2_idx
+					if seq1[r1_idx] != "K":
+						raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
+							f"Chain: {chain_id1}; residue {res1} is not a Lys..." )
+
+					if seq2[r2_idx] != "K":
+						raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
+							f"Chain: {chain_id2}; residue {res2} is not a Lys..." )
+
+					yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2
 
 	################################################################################
 	################################################################################
@@ -386,8 +469,6 @@ class CompetingMethodsRunner():
 		We assign every XL the same FDR.
 		The XL file for our benchmark contain residues numbering
 			based on the PDB file (seq_id).
-			For GRASP we need to map this to the numbering based on the
-				input sequence, essentially the residue index + 1.
 		"""
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
@@ -413,23 +494,19 @@ class CompetingMethodsRunner():
 		restraints_included = []
 		cb_max_bound = self.xl_max_bound - 2*1.5
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
-		for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = True ):
+		for row in self.yield_restraints(
+			sys_name = sys_name,
+			xl_file = xl_file,
+			entity_chain_map = entity_chain_map,
+			numeric_chain_ids = True ):
 			( entity_id1, entity_id2, chain_id1,
-				chain_id2, r1_idx, r2_idx ) = row
+				chain_id2, res1, res2 ) = row
 
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
 
-			# For ambiguous XLs, we consider all combinations.
-			if seq1[r1_idx] != "K":
-				raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
-					f"Chain: {chain_id1}; residue {r1_idx+1} is not a Lys..." )
-			residue1 = f"{chain_id1}-{r1_idx+1}-{seq1[r1_idx]}"
-
-			if seq2[r2_idx] != "K":
-				raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
-					f"Chain: {chain_id2}; residue {r2_idx+1} is not a Lys..." )
-			residue2 = f"{chain_id2}-{r2_idx+1}-{seq2[r2_idx]}"
+			residue1 = f"{chain_id1}-{res1}-{seq1[res1]}"
+			residue2 = f"{chain_id2}-{res2}-{seq2[res2]}"
 
 			# ignore suplicate restraints.
 			# 	GRASP is agnostic to A-B and B-A restraint.
@@ -575,15 +652,17 @@ class CompetingMethodsRunner():
 			e.g. A.feature_dict.pkl.gz
 		Split the precomputed feature_dict by chain.
 		"""
+		with gzip.open( self.inputs["feat_dict_file"][sys_name], "rb" ) as f:
+			feature_dict = pkl.load( f )
 		# f = open( self.inputs["feat_dict_file"][sys_name], "rb" )
 		# feature_dict = pkl.load( f )
 		# f.close()
-		feature_dict = read_pkl_gz( self.inputs["feat_dict_file"][sys_name] )
 		for entity_id in entity_chain_map:
 			for chain_id in entity_chain_map[entity_id]["chains"]:
 				# Get the alphabetical chain ID.
 				chain = get_chain_id( chain_id - 1 )
 
+				# asym_id is 1-indexed numeric chain ID.
 				chain_mask = np.where( feature_dict["asym_id"] == chain_id )
 
 				feat_chain = {}
@@ -614,15 +693,13 @@ class CompetingMethodsRunner():
 		entity_chain_map: Dict[int, Dict],
 		data_dir: str  ):
 		"""
-		Create a .csv file containing the Xl residues.
+		Create a .csv file containing the XL residues.
 		Format:
 			residue1,chain1,residue2,chain2
 		We assign every XL the same FDR.
 		Alphabetical chain IDs are needed.
 		The XL file for our benchmark contain residues numbering
 			based on the PDB file (seq_id).
-			For AlphaLink2 we need to map this to the numbering based on the
-				input sequence, essentially the residue index + 1.
 		AlphaLink2 expects Ca-Ca crosslinks.
 		To run unguided prediction, an empty restraint file must be used.
 		"""
@@ -637,17 +714,22 @@ class CompetingMethodsRunner():
 		restraints_included = []
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
 		if self.model_config.guided_pred:
-			for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
+			for row in self.yield_restraints(
+				sys_name = sys_name,
+				xl_file = xl_file,
+				entity_chain_map = entity_chain_map,
+				numeric_chain_ids = False ):
 				( entity_id1, entity_id2, chain_id1,
-					chain_id2, r1_idx, r2_idx ) = row
+					chain_id2, res1, res2 ) = row
+
 
 				# ignore duplicate restraints: AB and BA.
-				restraint = f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2}"
-				restraint_inv = f"{r2_idx+1},{chain_id2},{r1_idx+1},{chain_id1}"
+				restraint = f"{res1},{chain_id1},{res2},{chain_id2}"
+				restraint_inv = f"{res2},{chain_id2},{res1},{chain_id1}"
 				if restraint in restraints_included or restraint_inv in restraints_included:
 					continue
 				restraints_included.append( restraint )
-				w.writelines( f"{r1_idx+1},{chain_id1},{r2_idx+1},{chain_id2},{self.fdr}\n" )
+				w.writelines( f"{res1},{chain_id1},{res2},{chain_id2},{self.fdr}\n" )
 		else:
 			w.writelines( ",,,," )
 
@@ -711,10 +793,6 @@ class CompetingMethodsRunner():
 		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
 		# So the device must be changed to cuda:0.
 		device = "cuda:0"
-		# if "cuda" in self.device:
-		# 	device = int( self.device.split( ":" )[-1] )
-		# else:
-		# 	device = self.device
 
 		cmd = [
 			"bash", f"{self.alphalink2_script}",
@@ -741,9 +819,24 @@ class CompetingMethodsRunner():
 		"""
 		Boltz2 accepts input in a .yaml file.
 		Format can be found here: https://github.com/jwohlwend/boltz/blob/main/docs/prediction.md
-		We can reuse the pre-computed MSAs.
+		For prediction we need:
+			protein seq and chain IDs.
+			Pre-computed MSA path.
+			XL restraint.
 		To run unguided prediction, the yaml file must not have any
 			constraints specified.
+
+		Note:
+		At this stage we assume that the MSA filesexists.
+		For homomeric entities, a single MSA is reused for all chains.
+		Boltz2 requires alphabetical chain IDs.
+		XLs are modeled as contacts with a max-bound potential (contact_potential).
+		For unguided prediction, no constraints are specified.
+
+	Input:
+	----------
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
 		"""
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
@@ -756,9 +849,6 @@ class CompetingMethodsRunner():
 			xl_type = self.xl_type
 		)
 
-		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
-		# xl_df = pd.read_csv( xl_file )
-
 		entity_chain_map = get_entity_chain_mapping(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
@@ -768,8 +858,6 @@ class CompetingMethodsRunner():
 
 		boltz_input = {"version": 1}
 		boltz_input.update( {k:[] for k in ["sequences", 'constraints']} )
-		# if not self.boltz_unguided:
-		# 	boltz_input.pop( "constraints" )
 
 		for entity_id in entity_chain_map:
 			chains = entity_chain_map[entity_id]["chains"]
@@ -796,14 +884,18 @@ class CompetingMethodsRunner():
 			)
 
 			# Will add all Xl restraints as contacts for conditioning Boltz-2.
-			for row in self.yield_restraints( xl_file, entity_chain_map, numeric_chain_ids = False ):
+			for row in self.yield_restraints(
+				sys_name = sys_name,
+				xl_file = xl_file,
+				entity_chain_map = entity_chain_map,
+				numeric_chain_ids = False ):
 				( entity_id1, entity_id2, chain_id1,
-					chain_id2, r1_idx, r2_idx ) = row
+					chain_id2, res1, res2 ) = row
 
 				contact = {
 					"contact": {
-						"token1": [chain_id1, int( r1_idx+1 )],
-						"token2": [chain_id2, int( r2_idx+1 )],
+						"token1": [chain_id1, int( res1 )],
+						"token2": [chain_id2, int( res2 )],
 						"max_distance": self.xl_max_bound
 					}
 				}
@@ -889,6 +981,8 @@ class CompetingMethodsRunner():
 				if self.model == "grasp":
 					proc = self.run_grasp_per_system( sys_name = sys_name, gpu_id = gpu_id )
 				elif self.model == "alphalink2":
+					if sys_name == "5xct":
+						continue
 					# AlphaLik2 must be run from the AlphaLinki2 dir.
 					os.chdir( self.alphalink2_dir )
 					proc = self.run_alphalink2_per_system( sys_name = sys_name, gpu_id = gpu_id )
@@ -911,7 +1005,7 @@ class CompetingMethodsRunner():
 				if self.model == "grasp":
 					feat_file = f"{self.inputs['feat_dict_file'][sys_name]}"
 					pkl_feat_file = feat_file.removesuffix( ".gz" )
-					os.remove( pkl )
+					os.remove( pkl_feat_file )
 
 				time_taken = te-ts
 				self.logs["completed"][sys_name] = None
@@ -938,6 +1032,10 @@ if __name__ == "__main__":
 		type = str, required = True,
 		help = "cross-link type to be used: short/long/fp..." )
 	parser.add_argument(
+		"-p", "--guided_pred",
+		action = "store_true",
+		help = "If specified use restraints for prediction else run unguided prediction..." )
+	parser.add_argument(
 		"-d", "--device",
 		type = str, required = True,
 		help = "device to be used (cpu/cuda:0/cuda:1)..." )
@@ -946,5 +1044,6 @@ if __name__ == "__main__":
 	CompetingMethodsRunner(
 		model = args.model,
 		xl_type = args.xl_type,
+		guided_pred = args.guided_pred,
 		device = args.device
 		).forward()
