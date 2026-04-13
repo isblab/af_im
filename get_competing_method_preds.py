@@ -21,140 +21,140 @@ from utils.mappings import (
 	get_entity_chain_mapping
 )
 from utils.utils import get_gpu_mem_mb
-# from utils.pdb_utils import get_chain_id
+from utils.pdb_utils import get_chain_id
 from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
-	get_sys_config_path,
+	# get_sys_config_path,
 	get_sys_data_dir_path,
 	get_xl_file_path,
 	get_model_output_dir_path
 )
 
 
-def get_gpu_mem_mb( gpu_id: int ):
-	"""
-	Obtain the current GPU memory usage (in MB) for a specific device by
-		querying `nvidia-smi`.
-	This function invokes `nvidia-smi` as a subprocess and parses the reported
-		memory usage for the given GPU ID.
+# def get_gpu_mem_mb( gpu_id: int ):
+# 	"""
+# 	Obtain the current GPU memory usage (in MB) for a specific device by
+# 		querying `nvidia-smi`.
+# 	This function invokes `nvidia-smi` as a subprocess and parses the reported
+# 		memory usage for the given GPU ID.
 
-	Inputs:
-	----------
-	gpu_id: iIndex of the GPU as recognized by `nvidia-smi` (after any
-		CUDA_VISIBLE_DEVICES remapping).
+# 	Inputs:
+# 	----------
+# 	gpu_id: iIndex of the GPU as recognized by `nvidia-smi` (after any
+# 		CUDA_VISIBLE_DEVICES remapping).
 
-	Returns
-	----------
-	Memory currently in use on the GPU, in MB.
-	"""
-	out = subprocess.check_output(
-		[
-			"nvidia-smi",
-			f"--id={gpu_id}",
-			"--query-gpu=memory.used",
-			"--format=csv,noheader,nounits"
-		],
-		encoding = "utf-8"
-	)
-	return int( out.strip() )
-
-
-def get_chain_id( idx: int ) -> str:
-	"""
-	Map a 0-indexed chain ID to a alphabetical chain identifier.
-	Chain IDs are assigned from the ordered set:
-		"A-Z" followed by "0-9", allowing up to 36 unique chains.
-
-	Inputs:
-	----------
-	idx: 0-indexed chain ID.
-
-	Returns:
-	----------
-	Alphabetical chain ID.
-	"""
-	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-	if idx < len( alphabet ):
-		chain_id = alphabet[idx]
-
-	else:
-		raise ValueError( "Too many chains..." )
-	return chain_id
+# 	Returns
+# 	----------
+# 	Memory currently in use on the GPU, in MB.
+# 	"""
+# 	out = subprocess.check_output(
+# 		[
+# 			"nvidia-smi",
+# 			f"--id={gpu_id}",
+# 			"--query-gpu=memory.used",
+# 			"--format=csv,noheader,nounits"
+# 		],
+# 		encoding = "utf-8"
+# 	)
+# 	return int( out.strip() )
 
 
-def get_entities_in_system(
-	base_dir: str,
-	benchmark_name: str,
-	sys_name: str ) -> List[Dict[str, Any]]:
-	"""
-	Parse the sys_config file and return the List of entities in the system.
+# def get_chain_id( idx: int ) -> str:
+# 	"""
+# 	Map a 0-indexed chain ID to a alphabetical chain identifier.
+# 	Chain IDs are assigned from the ordered set:
+# 		"A-Z" followed by "0-9", allowing up to 36 unique chains.
 
-	Inputs:
-	----------
-	base_dir: dir to store all relevant modeling output.
-	benchmark_name: name of the benchmark.
-	sys_name: name of the complex modeled. For the benchmark,
-		it's the PDB ID.
+# 	Inputs:
+# 	----------
+# 	idx: 0-indexed chain ID.
 
-	Returns:
-	----------
-	entities: Aa list of entity dictionaries as defined
-		in the system config file.
-	"""
-	sys_config_path = get_sys_config_path(
-		base_dir = base_dir,
-		benchmark_name = benchmark_name,
-		sys_name = sys_name )
-	with open( sys_config_path, "r" ) as f:
-		sys_conf = json.load( f )
-	entities = sys_conf["entity"]
-	return entities
+# 	Returns:
+# 	----------
+# 	Alphabetical chain ID.
+# 	"""
+# 	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+# 	if idx < len( alphabet ):
+# 		chain_id = alphabet[idx]
+
+# 	else:
+# 		raise ValueError( "Too many chains..." )
+# 	return chain_id
 
 
-def get_entity_chain_mapping(
-	base_dir: str,
-	benchmark_name: str,
-	sys_name: str ) -> Dict[int, Dict]:
-	"""
-	Map all entities to the corresponding chains.
-	Each entity can have multiple chains.
-		For each copy a new 1-indexed chain ID is created.
-			asym_id in OpenFold feature-dic are 1-indexed.
+# def get_entities_in_system(
+# 	base_dir: str,
+# 	benchmark_name: str,
+# 	sys_name: str ) -> List[Dict[str, Any]]:
+# 	"""
+# 	Parse the sys_config file and return the List of entities in the system.
 
-	Inputs:
-	----------
-	base_dir: dir to store all relevant modeling output.
-	benchmark_name: name of the benchmark.
-	sys_name: name of the complex modeled. For the benchmark,
-		it's the PDB ID.
+# 	Inputs:
+# 	----------
+# 	base_dir: dir to store all relevant modeling output.
+# 	benchmark_name: name of the benchmark.
+# 	sys_name: name of the complex modeled. For the benchmark,
+# 		it's the PDB ID.
 
-	Returns:
-	----------
-	entity_id: {
-		seq: str,
-		chains: [],
-		residues: np.ndarray,
-	}
-	start,end residue positions are based on the PDB seq_id numbering.
-		May not always have residues from 1.
-	"""
-	entities = get_entities_in_system(
-		base_dir = base_dir,
-		benchmark_name = benchmark_name,
-		sys_name = sys_name )
-	# GRASP expects numeric chain IDs.
-	chain_id = 1
-	entity_chain_map = {}
-	for entity_id, entity in enumerate( entities, start = 1 ):
-		entity_chain_map[entity_id] = {"seq": "", "chains": [], "residues": []}
-		for cp in range( entity["copy_num"] ):
-			entity_chain_map[entity_id]["seq"] = seq = entity["sequence"]
-			entity_chain_map[entity_id]["chains"].append( chain_id )
-			entity_chain_map[entity_id]["residues"] = np.arange( entity["start"], entity["end"] + 1 )
-			chain_id += 1
-	return entity_chain_map
+# 	Returns:
+# 	----------
+# 	entities: Aa list of entity dictionaries as defined
+# 		in the system config file.
+# 	"""
+# 	sys_config_path = get_sys_config_path(
+# 		base_dir = base_dir,
+# 		benchmark_name = benchmark_name,
+# 		sys_name = sys_name )
+# 	with open( sys_config_path, "r" ) as f:
+# 		sys_conf = json.load( f )
+# 	entities = sys_conf["entity"]
+# 	return entities
+
+
+# def get_entity_chain_mapping(
+# 	base_dir: str,
+# 	benchmark_name: str,
+# 	sys_name: str ) -> Dict[int, Dict]:
+# 	"""
+# 	Map all entities to the corresponding chains.
+# 	Each entity can have multiple chains.
+# 		For each copy a new 1-indexed chain ID is created.
+# 			asym_id in OpenFold feature-dic are 1-indexed.
+
+# 	Inputs:
+# 	----------
+# 	base_dir: dir to store all relevant modeling output.
+# 	benchmark_name: name of the benchmark.
+# 	sys_name: name of the complex modeled. For the benchmark,
+# 		it's the PDB ID.
+
+# 	Returns:
+# 	----------
+# 	entity_id: {
+# 		seq: str,
+# 		chains: [],
+# 		residues: np.ndarray,
+# 	}
+# 	start,end residue positions are based on the PDB seq_id numbering.
+# 		May not always have residues from 1.
+# 	"""
+# 	entities = get_entities_in_system(
+# 		base_dir = base_dir,
+# 		benchmark_name = benchmark_name,
+# 		sys_name = sys_name )
+# 	# GRASP expects numeric chain IDs.
+# 	chain_id = 1
+# 	entity_chain_map = {}
+# 	for entity_id, entity in enumerate( entities, start = 1 ):
+# 		entity_chain_map[entity_id] = {"seq": "", "chains": [], "residues": []}
+# 		for cp in range( entity["copy_num"] ):
+# 			entity_chain_map[entity_id]["seq"] = seq = entity["sequence"]
+# 			entity_chain_map[entity_id]["chains"].append( chain_id )
+# 			entity_chain_map[entity_id]["residues"] = np.arange( entity["start"], entity["end"] + 1 )
+# 			chain_id += 1
+# 	return entity_chain_map
 
 
 class CompetingMethodsRunner():
