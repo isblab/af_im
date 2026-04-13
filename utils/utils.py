@@ -31,7 +31,19 @@ def seed_worker( seed: int = 1 ):
 
 def get_gpu_mem_mb( gpu_id: int ):
 	"""
-	Obtain the GPU memory used for the given device using nvidia-smi.
+	Obtain the current GPU memory usage (in MB) for a specific device by
+		querying `nvidia-smi`.
+	This function invokes `nvidia-smi` as a subprocess and parses the reported
+		memory usage for the given GPU ID.
+
+	Inputs:
+	----------
+	gpu_id: iIndex of the GPU as recognized by `nvidia-smi` (after any
+		CUDA_VISIBLE_DEVICES remapping).
+
+	Returns
+	----------
+	Memory currently in use on the GPU, in MB.
 	"""
 	out = subprocess.check_output(
 		[
