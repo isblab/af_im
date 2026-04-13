@@ -9,7 +9,6 @@ from typing import List, Dict, Tuple, Iterator
 import numpy as np
 from scipy.spatial import distance_matrix
 
-#import gemmi
 import Bio
 from Bio.PDB import (
 	PDBParser, MMCIFParser,
@@ -18,19 +17,19 @@ from Bio.PDB import (
 	Structure, Model, Residue )
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 import freesasa
-import modelcif
-import modelcif.model
-import modelcif.dumper
-import modelcif.reference
-import modelcif.protocol
-import modelcif.alignment
-import modelcif.qa_metric
+# import modelcif
+# import modelcif.model
+# import modelcif.dumper
+# import modelcif.reference
+# import modelcif.protocol
+# import modelcif.alignment
+# import modelcif.qa_metric
 
 # from openfold.utils.script_utils import prep_output
-from openfold.np.protein import Protein, get_pdb_headers, _chain_end
-from openfold.np import residue_constants
-from openfold.data import feature_pipeline
-from openfold.np import protein
+# from openfold.np.protein import Protein, get_pdb_headers, _chain_end
+# from openfold.np import residue_constants
+# from openfold.data import feature_pipeline
+# from openfold.np import protein
 
 from utils.utils import open_file_handler, remove_dir
 
@@ -47,7 +46,17 @@ assert PDB_MAX_CHAINS == 62
 ####----------------------------------------------------------------------------####
 def get_chain_id( idx: int ) -> str:
 	"""
-	Get a chain ID based on an index.
+	Map a 0-indexed chain ID to a alphabetical chain identifier.
+	Chain IDs are assigned from the ordered set:
+		"A-Z" followed by "0-9", allowing up to 36 unique chains.
+
+	Inputs:
+	----------
+	idx: 0-indexed chain ID.
+
+	Returns:
+	----------
+	Alphabetical chain ID.
 	"""
 	alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -57,6 +66,7 @@ def get_chain_id( idx: int ) -> str:
 	else:
 		raise ValueError( "Too many chains..." )
 	return chain_id
+
 
 ####################################################################################
 ####----------------------------------------------------------------------------####
@@ -181,82 +191,82 @@ def get_distance_map( coords1: np.array, coords2: np.array ):
 
 ################################################################################
 ################################################################################
-def prep_output( out, batch, feature_dict, feature_processor, config_preset, subtract_plddt ):
-    plddt = out["plddt"]
+# def prep_output( out, batch, feature_dict, feature_processor, config_preset, subtract_plddt ):
+#     plddt = out["plddt"]
 
-    plddt_b_factors = np.repeat(
-        plddt[..., None], residue_constants.atom_type_num, axis=-1
-    )
+#     plddt_b_factors = np.repeat(
+#         plddt[..., None], residue_constants.atom_type_num, axis=-1
+#     )
 
-    if subtract_plddt:
-        plddt_b_factors = 100 - plddt_b_factors
+#     if subtract_plddt:
+#         plddt_b_factors = 100 - plddt_b_factors
 
-    # Prep protein metadata
-    template_domain_names = []
-    template_chain_index = None
-    if feature_processor.config.common.use_templates and "template_domain_names" in feature_dict:
-        template_domain_names = [
-            t.decode("utf-8") for t in feature_dict["template_domain_names"]
-        ]
+#     # Prep protein metadata
+#     template_domain_names = []
+#     template_chain_index = None
+#     if feature_processor.config.common.use_templates and "template_domain_names" in feature_dict:
+#         template_domain_names = [
+#             t.decode("utf-8") for t in feature_dict["template_domain_names"]
+#         ]
 
-        # This works because templates are not shuffled during inference
-        template_domain_names = template_domain_names[
-                                :feature_processor.config.predict.max_templates
-                                ]
+#         # This works because templates are not shuffled during inference
+#         template_domain_names = template_domain_names[
+#                                 :feature_processor.config.predict.max_templates
+#                                 ]
 
-        if "template_chain_index" in feature_dict:
-            template_chain_index = feature_dict["template_chain_index"]
-            template_chain_index = template_chain_index[
-                                   :feature_processor.config.predict.max_templates
-                                   ]
+#         if "template_chain_index" in feature_dict:
+#             template_chain_index = feature_dict["template_chain_index"]
+#             template_chain_index = template_chain_index[
+#                                    :feature_processor.config.predict.max_templates
+#                                    ]
 
-    no_recycling = feature_processor.config.common.max_recycling_iters
-    remark = ', '.join([
-        f"no_recycling={no_recycling}",
-        f"max_templates={feature_processor.config.predict.max_templates}",
-        f"config_preset={config_preset}",
-    ])
+#     no_recycling = feature_processor.config.common.max_recycling_iters
+#     remark = ', '.join([
+#         f"no_recycling={no_recycling}",
+#         f"max_templates={feature_processor.config.predict.max_templates}",
+#         f"config_preset={config_preset}",
+#     ])
 
-    unrelaxed_protein = protein.from_prediction(
-        features=batch,
-        result=out,
-        b_factors=plddt_b_factors,
-        remove_leading_feature_dimension=False,
-        remark=remark,
-        parents=template_domain_names,
-        parents_chain_index=template_chain_index,
-    )
+#     unrelaxed_protein = protein.from_prediction(
+#         features=batch,
+#         result=out,
+#         b_factors=plddt_b_factors,
+#         remove_leading_feature_dimension=False,
+#         remark=remark,
+#         parents=template_domain_names,
+#         parents_chain_index=template_chain_index,
+#     )
 
-    return unrelaxed_protein
+#     return unrelaxed_protein
 
 
-def prep_protein( outputs: Dict, feature_dict: Dict,
-					feature_processor:feature_pipeline.FeaturePipeline ):
-	"""
-	Convert the predicted protein structure into a Protein object.
-	Need to remove the batch dim.
-	"""
-	out = {}
-	for k in outputs:
-		if isinstance( outputs[k], dict ):
-			if k not in out:
-				out[k] = {}
-			for m in outputs[k]:
-				out[k][m] = outputs[k][m].squeeze( 0 ).detach().cpu().numpy()
-		else:
-			out[k] = outputs[k].squeeze( 0 ).detach().cpu().numpy()
+# def prep_protein( outputs: Dict, feature_dict: Dict,
+# 					feature_processor:feature_pipeline.FeaturePipeline ):
+# 	"""
+# 	Convert the predicted protein structure into a Protein object.
+# 	Need to remove the batch dim.
+# 	"""
+# 	out = {}
+# 	for k in outputs:
+# 		if isinstance( outputs[k], dict ):
+# 			if k not in out:
+# 				out[k] = {}
+# 			for m in outputs[k]:
+# 				out[k][m] = outputs[k][m].squeeze( 0 ).detach().cpu().numpy()
+# 		else:
+# 			out[k] = outputs[k].squeeze( 0 ).detach().cpu().numpy()
 
-	unrelaxed_protein = prep_output(
-		out,                     # out,
-		feature_dict,       # batch,
-		feature_dict,       # feature_dict,
-		feature_processor,  # feature_processor
-		config_preset = None,
-		#multimer_ri_gap = 1,
-		subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
-	)
+# 	unrelaxed_protein = prep_output(
+# 		out,                     # out,
+# 		feature_dict,       # batch,
+# 		feature_dict,       # feature_dict,
+# 		feature_processor,  # feature_processor
+# 		config_preset = None,
+# 		#multimer_ri_gap = 1,
+# 		subtract_plddt = True # Save b-factor instead of pLDDT (for Molprobity).
+# 	)
 
-	return unrelaxed_protein
+# 	return unrelaxed_protein
 
 
 ################### Biopython MMCIFDict Parser ###################
@@ -818,457 +828,457 @@ class SolventAccessibleSurfaceArea():
 			rsa[chain_id] = chain_rsa
 		return rsa
 
-################### AF2 module to save PDB/CIF ###################
-##--------------------------------------------------------------##
-class SaveModels():
-	"""
-	A class to save predicted structures as models to a PDB/CIF file.
-	Only supporting PDB for now.
-	"""
-	def __init__( self,
-			title: str,
-			output_format: str,
-			ensemble_dir: str,
-			save_single_model: bool = True ):
-		self.title = title
-		self.entities_map = {}
-		self.asym_unit_map = {}
-		self.output_format = output_format
-		self.ensemble_dir = ensemble_dir
-		self.save_single_model = save_single_model
-		# self.output_path = output_path
+# ################### AF2 module to save PDB/CIF ###################
+# ##--------------------------------------------------------------##
+# class SaveModels():
+# 	"""
+# 	A class to save predicted structures as models to a PDB/CIF file.
+# 	Only supporting PDB for now.
+# 	"""
+# 	def __init__( self,
+# 			title: str,
+# 			output_format: str,
+# 			ensemble_dir: str,
+# 			save_single_model: bool = True ):
+# 		self.title = title
+# 		self.entities_map = {}
+# 		self.asym_unit_map = {}
+# 		self.output_format = output_format
+# 		self.ensemble_dir = ensemble_dir
+# 		self.save_single_model = save_single_model
+# 		# self.output_path = output_path
 
-		if self.output_format not in ["pdb", "cif"]:
-			raise ValueError( "Invalid output format specified. Use 'pdb' or 'cif'... " )
+# 		if self.output_format not in ["pdb", "cif"]:
+# 			raise ValueError( "Invalid output format specified. Use 'pdb' or 'cif'... " )
 
-		# If save_single_models is True, ensemble_dir must exist.
-		if self.save_single_model:
-			if not os.path.exists( self.ensemble_dir ):
-				raise ValueError( f"Ensemble dir = {self.ensemble_dir} " +
-					"must exist if saving single models..." )
-
-
-	def initialize_system( self ):
-		"""
-		Instantiate a modelcif.System object.
-			Top-level class representing a complete modeled system
-		"""
-		if self.output_format == "pdb":
-			self.system = []
-		elif self.output_format == "cif":
-			self.system = self.create_system()
-			self.model_group = self.create_model_group()
-			# Add model_group to system.
-			self.system.model_groups.append( self.model_group )
-		else:
-			raise ValueError( f"Incorrect file format provided {self.output_format}..." )
+# 		# If save_single_models is True, ensemble_dir must exist.
+# 		if self.save_single_model:
+# 			if not os.path.exists( self.ensemble_dir ):
+# 				raise ValueError( f"Ensemble dir = {self.ensemble_dir} " +
+# 					"must exist if saving single models..." )
 
 
-	def create_system( self ):
-		"""
-		Instantiate a modelCIF.System object to which 
-			all predicted structures will be added.
-		"""
-		system = modelcif.System( title = self.title )
-		return system
+# 	def initialize_system( self ):
+# 		"""
+# 		Instantiate a modelcif.System object.
+# 			Top-level class representing a complete modeled system
+# 		"""
+# 		if self.output_format == "pdb":
+# 			self.system = []
+# 		elif self.output_format == "cif":
+# 			self.system = self.create_system()
+# 			self.model_group = self.create_model_group()
+# 			# Add model_group to system.
+# 			self.system.model_groups.append( self.model_group )
+# 		else:
+# 			raise ValueError( f"Incorrect file format provided {self.output_format}..." )
 
 
-	def create_model_group( self ):
-		"""
-		Instantiate an empty modelcif.model_group object.
-		All models in the system will be appended to the same model group.
-		"""
-		model_group = modelcif.model.ModelGroup([], name = "Trajectory" )
-		return model_group
+# 	def create_system( self ):
+# 		"""
+# 		Instantiate a modelCIF.System object to which 
+# 			all predicted structures will be added.
+# 		"""
+# 		system = modelcif.System( title = self.title )
+# 		return system
 
 
-	def create_attributes( self, prot: Protein ):
-		"""
-		Create the required attributes form the Protein object.
-		Add entities and asym units to the system for all models.
-		"""
-		self.get_protein_attributes( prot )
-		if self.output_format == "cif":
-			self.create_entities()
-			self.create_asym_units()
+# 	def create_model_group( self ):
+# 		"""
+# 		Instantiate an empty modelcif.model_group object.
+# 		All models in the system will be appended to the same model group.
+# 		"""
+# 		model_group = modelcif.model.ModelGroup([], name = "Trajectory" )
+# 		return model_group
 
 
-
-	def get_protein_attributes( self, prot: Protein ):
-		"""
-		Obtain the required attributes from the Protein object.
-		"""
-		self.restypes = residue_constants.restypes + ["X"]
-		self.atom_types = residue_constants.atom_types
-
-		self.atom_mask = prot.atom_mask
-		self.aatype = prot.aatype
-		self.atom_positions = prot.atom_positions
-		self.residue_index = prot.residue_index.astype(np.int32)
-		self.b_factors = prot.b_factors
-		self.chain_index = prot.chain_index
-		self.n = self.aatype.shape[0]
-
-		if self.chain_index is None:
-			self.chain_index = [0 for i in range( self.n )]
+# 	def create_attributes( self, prot: Protein ):
+# 		"""
+# 		Create the required attributes form the Protein object.
+# 		Add entities and asym units to the system for all models.
+# 		"""
+# 		self.get_protein_attributes( prot )
+# 		if self.output_format == "cif":
+# 			self.create_entities()
+# 			self.create_asym_units()
 
 
 
-	def create_entities( self ):
-		"""
-		Select unique sequences and add them as entities across all models in the system.
-		"""
-		# system = modelcif.System( title = f"Epoch {epoch}" )
+# 	def get_protein_attributes( self, prot: Protein ):
+# 		"""
+# 		Obtain the required attributes from the Protein object.
+# 		"""
+# 		self.restypes = residue_constants.restypes + ["X"]
+# 		self.atom_types = residue_constants.atom_types
 
-		# Finding chains and creating entities
-		seqs = {}
-		seq = []
-		last_chain_idx = None
+# 		self.atom_mask = prot.atom_mask
+# 		self.aatype = prot.aatype
+# 		self.atom_positions = prot.atom_positions
+# 		self.residue_index = prot.residue_index.astype(np.int32)
+# 		self.b_factors = prot.b_factors
+# 		self.chain_index = prot.chain_index
+# 		self.n = self.aatype.shape[0]
 
-		for i in range( self.n ):
-			if last_chain_idx is not None and last_chain_idx != self.chain_index[i]:
-				seqs[last_chain_idx] = seq
-				seq = []
-			seq.append(self.restypes[self.aatype[i]])
-			last_chain_idx = self.chain_index[i]
-		# finally add the last chain
-		seqs[last_chain_idx] = seq
-
-		# Now reduce sequences to unique ones.
-		# 	(note this won't work if different asyms have different unmodelled regions)
-		unique_seqs = {}
-		for chain_idx, seq_list in seqs.items():
-			seq = "".join(seq_list)
-			if seq in unique_seqs:
-				unique_seqs[seq].append(chain_idx)
-			else:
-				unique_seqs[seq] = [chain_idx]
-
-		# adding 1 entity per unique sequence
-		# entities_map = {}
-		for key, value in unique_seqs.items():
-			# model_e = modelcif.Entity( key, description = f"Model subunit" )
-			if key not in self.entities_map:
-				model_e = modelcif.Entity( key, description = "Model subunit" )
-				for chain_idx in value:
-					self.entities_map[chain_idx] = model_e
+# 		if self.chain_index is None:
+# 			self.chain_index = [0 for i in range( self.n )]
 
 
 
-	def create_asym_units( self ):
-		"""
-		Create a asym units for all entities.
-		"""
+# 	def create_entities( self ):
+# 		"""
+# 		Select unique sequences and add them as entities across all models in the system.
+# 		"""
+# 		# system = modelcif.System( title = f"Epoch {epoch}" )
 
-		chain_tags = string.ascii_uppercase
-		# asym_unit_map = {}
-		for chain_idx in set( self.chain_index ):
-			if chain_idx not in self.asym_unit_map:
-				# Define the model assembly
-				chain_id = chain_tags[chain_idx]
-				asym = modelcif.AsymUnit(
-						# self.entities_map[chain_idx], details = f"Model subunit {chain_id}", id = chain_id # - Kartik -
-						self.entities_map[chain_idx], details='Model subunit %s' % chain_id, id=chain_id
-						)
-				self.asym_unit_map[chain_idx] = asym
-		# modeled_assembly = modelcif.Assembly( self.asym_unit_map.values(), name = f"Modeled assembly {model_index}" ) # - Kartik -
-		self.modeled_assembly = modelcif.Assembly(self.asym_unit_map.values(), name='Modeled assembly')
+# 		# Finding chains and creating entities
+# 		seqs = {}
+# 		seq = []
+# 		last_chain_idx = None
 
+# 		for i in range( self.n ):
+# 			if last_chain_idx is not None and last_chain_idx != self.chain_index[i]:
+# 				seqs[last_chain_idx] = seq
+# 				seq = []
+# 			seq.append(self.restypes[self.aatype[i]])
+# 			last_chain_idx = self.chain_index[i]
+# 		# finally add the last chain
+# 		seqs[last_chain_idx] = seq
 
-	def add_model( self, prot: Protein, model_id: int ):
-		"""
-		For the 1st model:
-			Create all required attributes and add to model.
-		For others, just add to model.
-		Also, save each model on disk.
-		Using the epoch no. as model_id.
-		"""
-		if  self.output_format == "pdb":
-			if model_id == 0:
-				headers = get_pdb_headers(prot)
-				if len(headers) > 0:
-					self.system.extend(headers)
+# 		# Now reduce sequences to unique ones.
+# 		# 	(note this won't work if different asyms have different unmodelled regions)
+# 		unique_seqs = {}
+# 		for chain_idx, seq_list in seqs.items():
+# 			seq = "".join(seq_list)
+# 			if seq in unique_seqs:
+# 				unique_seqs[seq].append(chain_idx)
+# 			else:
+# 				unique_seqs[seq] = [chain_idx]
 
-		self.create_attributes( prot )
-
-		if self.output_format == "pdb":
-			system = self.add_to_pdb( prot = prot, model_id = model_id  )
-			self.system.extend( system )
-		elif self.output_format == "cif":
-			model = self.add_to_modelcif( model_id = model_id )
-			self.model_group.append( model )
-			system = model
-
-		if self.save_single_model:
-			self.save( system,
-						os.path.join( self.ensemble_dir, f"model_{model_id}" )
-						 )
+# 		# adding 1 entity per unique sequence
+# 		# entities_map = {}
+# 		for key, value in unique_seqs.items():
+# 			# model_e = modelcif.Entity( key, description = f"Model subunit" )
+# 			if key not in self.entities_map:
+# 				model_e = modelcif.Entity( key, description = "Model subunit" )
+# 				for chain_idx in value:
+# 					self.entities_map[chain_idx] = model_e
 
 
 
-	def add_to_pdb( self, prot: Protein, model_id: int ):
-		"""
-		Taken from openfold.np.protein.py
-		- Kartik - Modified to write multiple models in a PDB file format.
+# 	def create_asym_units( self ):
+# 		"""
+# 		Create a asym units for all entities.
+# 		"""
 
-		Converts a `Protein` instance to a PDB string.
+# 		chain_tags = string.ascii_uppercase
+# 		# asym_unit_map = {}
+# 		for chain_idx in set( self.chain_index ):
+# 			if chain_idx not in self.asym_unit_map:
+# 				# Define the model assembly
+# 				chain_id = chain_tags[chain_idx]
+# 				asym = modelcif.AsymUnit(
+# 						# self.entities_map[chain_idx], details = f"Model subunit {chain_id}", id = chain_id # - Kartik -
+# 						self.entities_map[chain_idx], details='Model subunit %s' % chain_id, id=chain_id
+# 						)
+# 				self.asym_unit_map[chain_idx] = asym
+# 		# modeled_assembly = modelcif.Assembly( self.asym_unit_map.values(), name = f"Modeled assembly {model_index}" ) # - Kartik -
+# 		self.modeled_assembly = modelcif.Assembly(self.asym_unit_map.values(), name='Modeled assembly')
 
-		Args:
-		  prot: The protein to convert to PDB.
 
-		Returns:
-		  PDB string.
-		"""
-		system = []
-		# - Kartik - Using the epoch as Model index.
-		model_index = model_id
-		# restypes = residue_constants.restypes + ["X"]
-		res_1to3 = lambda r: residue_constants.restype_1to3.get(self.restypes[r], "UNK")
-		# atom_types = residue_constants.atom_types
+# 	def add_model( self, prot: Protein, model_id: int ):
+# 		"""
+# 		For the 1st model:
+# 			Create all required attributes and add to model.
+# 		For others, just add to model.
+# 		Also, save each model on disk.
+# 		Using the epoch no. as model_id.
+# 		"""
+# 		if  self.output_format == "pdb":
+# 			if model_id == 0:
+# 				headers = get_pdb_headers(prot)
+# 				if len(headers) > 0:
+# 					self.system.extend(headers)
 
-		# For uniformity, pdblines is replaced to self.system.
-		# pdb_lines = []
+# 		self.create_attributes( prot )
 
-		# atom_mask = prot.atom_mask
-		# aatype = prot.aatype
-		# atom_positions = prot.atom_positions
-		# residue_index = prot.residue_index.astype(np.int32)
-		# b_factors = prot.b_factors
-		# chain_index = prot.chain_index.astype(np.int32)
+# 		if self.output_format == "pdb":
+# 			system = self.add_to_pdb( prot = prot, model_id = model_id  )
+# 			self.system.extend( system )
+# 		elif self.output_format == "cif":
+# 			model = self.add_to_modelcif( model_id = model_id )
+# 			self.model_group.append( model )
+# 			system = model
 
-		if np.any( self.aatype > residue_constants.restype_num ):
-			raise ValueError("Invalid aatypes.")
-
-		# Construct a mapping from chain integer indices to chain ID strings.
-		chain_ids = {}
-		for i in np.unique( self.chain_index ): # np.unique gives sorted output.
-			if i >= PDB_MAX_CHAINS:
-				raise ValueError(
-					f"The PDB format supports at most {PDB_MAX_CHAINS} chains."
-				)
-			chain_ids[i] = PDB_CHAIN_IDS[i]
-
-		# headers = get_pdb_headers(prot)
-		# if (len(headers) > 0):
-		#     # pdb_lines.extend(headers)
-		#     self.system.extend(headers)
-
-		# pdb_lines.append("MODEL     1")
-		system.append( f"MODEL     {model_index}" )
-		# n = aatype.shape[0]
-		atom_index = 1
-		last_chain_index = self.chain_index[0]
-		prev_chain_index = 0
-		chain_tags = string.ascii_uppercase
-
-		# Add all atom sites.
-		for i in range( self.aatype.shape[0] ):
-			# Close the previous chain if in a multichain PDB.
-			if last_chain_index != self.chain_index[i]:
-				# pdb_lines.append
-				system.append(
-					_chain_end(
-						atom_index,
-						res_1to3( self.aatype[i - 1] ),
-						chain_ids[self.chain_index[i - 1]],
-						self.residue_index[i - 1]
-					)
-				)
-				last_chain_index = self.chain_index[i]
-				atom_index += 1 # Atom index increases at the TER symbol.
-
-			res_name_3 = res_1to3( self.aatype[i] )
-			for atom_name, pos, mask, b_factor in zip(
-				self.atom_types, self.atom_positions[i], self.atom_mask[i], self.b_factors[i]
-			):
-				if mask < 0.5:
-					continue
-
-				record_type = "ATOM"
-				name = atom_name if len(atom_name) == 4 else f" {atom_name}"
-				alt_loc = ""
-				insertion_code = ""
-				occupancy = 1.00
-				element = atom_name[
-					0
-				]  # Protein supports only C, N, O, S, this works.
-				charge = ""
-
-				chain_tag = "A"
-				if self.chain_index is not None:
-					chain_tag = chain_tags[self.chain_index[i]]
-
-				# PDB is a columnar format, every space matters here!
-				atom_line = (
-					f"{record_type:<6}{atom_index:>5} {name:<4}{alt_loc:>1}"
-					#TODO: check this refactor, chose main branch version
-					#f"{res_name_3:>3} {chain_ids[chain_index[i]]:>1}"
-					f"{res_name_3:>3} {chain_tag:>1}" # main branch version
-					f"{self.residue_index[i]:>4}{insertion_code:>1}   "
-					f"{pos[0]:>8.3f}{pos[1]:>8.3f}{pos[2]:>8.3f}"
-					f"{occupancy:>6.2f}{b_factor:>6.2f}          "
-					f"{element:>2}{charge:>2}"
-				)
-				# pdb_lines.append(atom_line)
-				system.append( atom_line )
-				atom_index += 1
-
-			should_terminate = i == self.n - 1
-			if( self.chain_index is not None ):
-				if i != self.n - 1 and self.chain_index[i + 1] != prev_chain_index:
-					should_terminate = True
-					prev_chain_index = self.chain_index[i + 1]
-
-			if should_terminate:
-				# Close the chain.
-				chain_end = "TER"
-				chain_termination_line = (
-					f"{chain_end:<6}{atom_index:>5}      "
-					f"{res_1to3( self.aatype[i]):>3} "
-					f"{chain_tag:>1}{self.residue_index[i]:>4}"
-				)
-				# pdb_lines.append(chain_termination_line)
-				system.append( chain_termination_line )
-				# atom_index += 1 # I believe this line is a big in OpenFold implementation. - Kartik -
-				# This will add an offset of 1 atom after every chain. - Kartik -
-
-				# I don't need it after every chain. - Kartik -
-				# if(i != self.n - 1):
-					# "prev" is a misnomer here. This happens at the beginning of
-					# each new chain.
-					# pdb_lines.extend(get_pdb_headers(prot, prev_chain_index))
-					# self.system.extend( get_pdb_headers( prot, prev_chain_index ) )
-
-		# pdb_lines.append("ENDMDL")
-		# pdb_lines.append("END")
-		system.append("ENDMDL")
-
-		# Pad all lines to 80 characters
-		# pdb_lines = [line.ljust(80) for line in pdb_lines]
-		# return '\n'.join(pdb_lines) + '\n' # Add terminating newline.
-		return system
+# 		if self.save_single_model:
+# 			self.save( system,
+# 						os.path.join( self.ensemble_dir, f"model_{model_id}" )
+# 						 )
 
 
 
-	def add_to_modelcif( self, model_id: int ):
-		"""
-		Taken from openfold.np.protein.py
-		- Kartik - modified this function to allow writing multiple models to the same CIF file.
-		Instead of returning a ModelCIF string, this function will add a 
-			model to a model group and the latter to the system.
+# 	def add_to_pdb( self, prot: Protein, model_id: int ):
+# 		"""
+# 		Taken from openfold.np.protein.py
+# 		- Kartik - Modified to write multiple models in a PDB file format.
+
+# 		Converts a `Protein` instance to a PDB string.
+
+# 		Args:
+# 		  prot: The protein to convert to PDB.
+
+# 		Returns:
+# 		  PDB string.
+# 		"""
+# 		system = []
+# 		# - Kartik - Using the epoch as Model index.
+# 		model_index = model_id
+# 		# restypes = residue_constants.restypes + ["X"]
+# 		res_1to3 = lambda r: residue_constants.restype_1to3.get(self.restypes[r], "UNK")
+# 		# atom_types = residue_constants.atom_types
+
+# 		# For uniformity, pdblines is replaced to self.system.
+# 		# pdb_lines = []
+
+# 		# atom_mask = prot.atom_mask
+# 		# aatype = prot.aatype
+# 		# atom_positions = prot.atom_positions
+# 		# residue_index = prot.residue_index.astype(np.int32)
+# 		# b_factors = prot.b_factors
+# 		# chain_index = prot.chain_index.astype(np.int32)
+
+# 		if np.any( self.aatype > residue_constants.restype_num ):
+# 			raise ValueError("Invalid aatypes.")
+
+# 		# Construct a mapping from chain integer indices to chain ID strings.
+# 		chain_ids = {}
+# 		for i in np.unique( self.chain_index ): # np.unique gives sorted output.
+# 			if i >= PDB_MAX_CHAINS:
+# 				raise ValueError(
+# 					f"The PDB format supports at most {PDB_MAX_CHAINS} chains."
+# 				)
+# 			chain_ids[i] = PDB_CHAIN_IDS[i]
+
+# 		# headers = get_pdb_headers(prot)
+# 		# if (len(headers) > 0):
+# 		#     # pdb_lines.extend(headers)
+# 		#     self.system.extend(headers)
+
+# 		# pdb_lines.append("MODEL     1")
+# 		system.append( f"MODEL     {model_index}" )
+# 		# n = aatype.shape[0]
+# 		atom_index = 1
+# 		last_chain_index = self.chain_index[0]
+# 		prev_chain_index = 0
+# 		chain_tags = string.ascii_uppercase
+
+# 		# Add all atom sites.
+# 		for i in range( self.aatype.shape[0] ):
+# 			# Close the previous chain if in a multichain PDB.
+# 			if last_chain_index != self.chain_index[i]:
+# 				# pdb_lines.append
+# 				system.append(
+# 					_chain_end(
+# 						atom_index,
+# 						res_1to3( self.aatype[i - 1] ),
+# 						chain_ids[self.chain_index[i - 1]],
+# 						self.residue_index[i - 1]
+# 					)
+# 				)
+# 				last_chain_index = self.chain_index[i]
+# 				atom_index += 1 # Atom index increases at the TER symbol.
+
+# 			res_name_3 = res_1to3( self.aatype[i] )
+# 			for atom_name, pos, mask, b_factor in zip(
+# 				self.atom_types, self.atom_positions[i], self.atom_mask[i], self.b_factors[i]
+# 			):
+# 				if mask < 0.5:
+# 					continue
+
+# 				record_type = "ATOM"
+# 				name = atom_name if len(atom_name) == 4 else f" {atom_name}"
+# 				alt_loc = ""
+# 				insertion_code = ""
+# 				occupancy = 1.00
+# 				element = atom_name[
+# 					0
+# 				]  # Protein supports only C, N, O, S, this works.
+# 				charge = ""
+
+# 				chain_tag = "A"
+# 				if self.chain_index is not None:
+# 					chain_tag = chain_tags[self.chain_index[i]]
+
+# 				# PDB is a columnar format, every space matters here!
+# 				atom_line = (
+# 					f"{record_type:<6}{atom_index:>5} {name:<4}{alt_loc:>1}"
+# 					#TODO: check this refactor, chose main branch version
+# 					#f"{res_name_3:>3} {chain_ids[chain_index[i]]:>1}"
+# 					f"{res_name_3:>3} {chain_tag:>1}" # main branch version
+# 					f"{self.residue_index[i]:>4}{insertion_code:>1}   "
+# 					f"{pos[0]:>8.3f}{pos[1]:>8.3f}{pos[2]:>8.3f}"
+# 					f"{occupancy:>6.2f}{b_factor:>6.2f}          "
+# 					f"{element:>2}{charge:>2}"
+# 				)
+# 				# pdb_lines.append(atom_line)
+# 				system.append( atom_line )
+# 				atom_index += 1
+
+# 			should_terminate = i == self.n - 1
+# 			if( self.chain_index is not None ):
+# 				if i != self.n - 1 and self.chain_index[i + 1] != prev_chain_index:
+# 					should_terminate = True
+# 					prev_chain_index = self.chain_index[i + 1]
+
+# 			if should_terminate:
+# 				# Close the chain.
+# 				chain_end = "TER"
+# 				chain_termination_line = (
+# 					f"{chain_end:<6}{atom_index:>5}      "
+# 					f"{res_1to3( self.aatype[i]):>3} "
+# 					f"{chain_tag:>1}{self.residue_index[i]:>4}"
+# 				)
+# 				# pdb_lines.append(chain_termination_line)
+# 				system.append( chain_termination_line )
+# 				# atom_index += 1 # I believe this line is a big in OpenFold implementation. - Kartik -
+# 				# This will add an offset of 1 atom after every chain. - Kartik -
+
+# 				# I don't need it after every chain. - Kartik -
+# 				# if(i != self.n - 1):
+# 					# "prev" is a misnomer here. This happens at the beginning of
+# 					# each new chain.
+# 					# pdb_lines.extend(get_pdb_headers(prot, prev_chain_index))
+# 					# self.system.extend( get_pdb_headers( prot, prev_chain_index ) )
+
+# 		# pdb_lines.append("ENDMDL")
+# 		# pdb_lines.append("END")
+# 		system.append("ENDMDL")
+
+# 		# Pad all lines to 80 characters
+# 		# pdb_lines = [line.ljust(80) for line in pdb_lines]
+# 		# return '\n'.join(pdb_lines) + '\n' # Add terminating newline.
+# 		return system
+
+
+
+# 	def add_to_modelcif( self, model_id: int ):
+# 		"""
+# 		Taken from openfold.np.protein.py
+# 		- Kartik - modified this function to allow writing multiple models to the same CIF file.
+# 		Instead of returning a ModelCIF string, this function will add a 
+# 			model to a model group and the latter to the system.
 		
-		Converts a `Protein` instance to a ModelCIF string. Chains with identical modelled coordinates
-		will be treated as the same polymer entity. But note that if chains differ in modelled regions,
-		no attempt is made at identifying them as a single polymer entity.
+# 		Converts a `Protein` instance to a ModelCIF string. Chains with identical modelled coordinates
+# 		will be treated as the same polymer entity. But note that if chains differ in modelled regions,
+# 		no attempt is made at identifying them as a single polymer entity.
 
-		Args:
-		  prot: The protein to convert to PDB. (deprecated)
+# 		Args:
+# 		  prot: The protein to convert to PDB. (deprecated)
 
-		Returns:
-		  ModelCIF object.
-		"""
-		# - Kartik - Using the epoch as Model index.
-		model_index = model_id
+# 		Returns:
+# 		  ModelCIF object.
+# 		"""
+# 		# - Kartik - Using the epoch as Model index.
+# 		model_index = model_id
 
-		class _LocalPLDDT(modelcif.qa_metric.Local, modelcif.qa_metric.PLDDT):
-			name = "pLDDT"
-			software = None
-			description = "Predicted lddt"
+# 		class _LocalPLDDT(modelcif.qa_metric.Local, modelcif.qa_metric.PLDDT):
+# 			name = "pLDDT"
+# 			software = None
+# 			description = "Predicted lddt"
 
-		class _GlobalPLDDT(modelcif.qa_metric.Global, modelcif.qa_metric.PLDDT):
-			name = "pLDDT"
-			software = None
-			description = "Global pLDDT, mean of per-residue pLDDTs"
-
-
-		residue_index = self.residue_index
-		chain_index = self.chain_index
-		atom_types = self.atom_types
-		atom_positions = self.atom_positions
-		atom_mask = self.atom_mask
-		b_factors = self.b_factors
-		n = self.n
-		asym_unit_map = self.asym_unit_map
-		class _MyModel(modelcif.model.AbInitioModel):
-			def get_atoms(self):
-				# Add all atom sites.
-				for i in range( n ):
-					for atom_name, pos, mask, b_factor in zip(
-							atom_types, atom_positions[i], atom_mask[i], b_factors[i]
-					):
-						if mask < 0.5:
-							continue
-						element = atom_name[0]  # Protein supports only C, N, O, S, this works.
-						yield modelcif.model.Atom(
-							asym_unit = asym_unit_map[chain_index[i]], type_symbol = element,
-							seq_id = residue_index[i], atom_id=atom_name,
-							x=pos[0], y = pos[1], z=pos[2],
-							het = False, biso = b_factor, occupancy = 1.00)
-
-			def add_scores(self):
-				# local scores
-				plddt_per_residue = {}
-				for i in range( n ):
-					for mask, b_factor in zip(atom_mask[i], b_factors[i]):
-						if mask < 0.5:
-							continue
-						# add 1 per residue, not 1 per atom
-						if chain_index[i] not in plddt_per_residue:
-							# first time a chain index is seen: add the key and start the residue dict
-							plddt_per_residue[chain_index[i]] = {residue_index[i]: b_factor}
-						if residue_index[i] not in plddt_per_residue[chain_index[i]]:
-							plddt_per_residue[chain_index[i]][residue_index[i]] = b_factor
-				plddts = []
-				for chain_idx in plddt_per_residue:
-					for residue_idx in plddt_per_residue[chain_idx]:
-						plddt = plddt_per_residue[chain_idx][residue_idx]
-						plddts.append(plddt)
-						self.qa_metrics.append(
-							_LocalPLDDT(asym_unit_map[chain_idx].residue(residue_idx), plddt))
-				# global score
-				self.qa_metrics.append((_GlobalPLDDT(np.mean(plddts))))
-
-		# Add the model and modeling protocol to the file and write them out:
-		model = _MyModel( assembly = self.modeled_assembly, name = f"Model {model_index}" ) # - Kartik -
-		# model = _MyModel(assembly=modeled_assembly, name='Best scoring model')
-		model.add_scores()
-		return model
-
-		# self.model_group.append( model )
-		# model_group = modelcif.model.ModelGroup([model], name = f"Model {model_index}" )
-		# self.system.model_groups.append(model_group)
+# 		class _GlobalPLDDT(modelcif.qa_metric.Global, modelcif.qa_metric.PLDDT):
+# 			name = "pLDDT"
+# 			software = None
+# 			description = "Global pLDDT, mean of per-residue pLDDTs"
 
 
-	# Will do this outside this function to allow writing multiple models to a single file.
-	# fh = io.StringIO()
-	# modelcif.dumper.write(fh, [system])
-	# return fh.getvalue()
+# 		residue_index = self.residue_index
+# 		chain_index = self.chain_index
+# 		atom_types = self.atom_types
+# 		atom_positions = self.atom_positions
+# 		atom_mask = self.atom_mask
+# 		b_factors = self.b_factors
+# 		n = self.n
+# 		asym_unit_map = self.asym_unit_map
+# 		class _MyModel(modelcif.model.AbInitioModel):
+# 			def get_atoms(self):
+# 				# Add all atom sites.
+# 				for i in range( n ):
+# 					for atom_name, pos, mask, b_factor in zip(
+# 							atom_types, atom_positions[i], atom_mask[i], b_factors[i]
+# 					):
+# 						if mask < 0.5:
+# 							continue
+# 						element = atom_name[0]  # Protein supports only C, N, O, S, this works.
+# 						yield modelcif.model.Atom(
+# 							asym_unit = asym_unit_map[chain_index[i]], type_symbol = element,
+# 							seq_id = residue_index[i], atom_id=atom_name,
+# 							x=pos[0], y = pos[1], z=pos[2],
+# 							het = False, biso = b_factor, occupancy = 1.00)
+
+# 			def add_scores(self):
+# 				# local scores
+# 				plddt_per_residue = {}
+# 				for i in range( n ):
+# 					for mask, b_factor in zip(atom_mask[i], b_factors[i]):
+# 						if mask < 0.5:
+# 							continue
+# 						# add 1 per residue, not 1 per atom
+# 						if chain_index[i] not in plddt_per_residue:
+# 							# first time a chain index is seen: add the key and start the residue dict
+# 							plddt_per_residue[chain_index[i]] = {residue_index[i]: b_factor}
+# 						if residue_index[i] not in plddt_per_residue[chain_index[i]]:
+# 							plddt_per_residue[chain_index[i]][residue_index[i]] = b_factor
+# 				plddts = []
+# 				for chain_idx in plddt_per_residue:
+# 					for residue_idx in plddt_per_residue[chain_idx]:
+# 						plddt = plddt_per_residue[chain_idx][residue_idx]
+# 						plddts.append(plddt)
+# 						self.qa_metrics.append(
+# 							_LocalPLDDT(asym_unit_map[chain_idx].residue(residue_idx), plddt))
+# 				# global score
+# 				self.qa_metrics.append((_GlobalPLDDT(np.mean(plddts))))
+
+# 		# Add the model and modeling protocol to the file and write them out:
+# 		model = _MyModel( assembly = self.modeled_assembly, name = f"Model {model_index}" ) # - Kartik -
+# 		# model = _MyModel(assembly=modeled_assembly, name='Best scoring model')
+# 		model.add_scores()
+# 		return model
+
+# 		# self.model_group.append( model )
+# 		# model_group = modelcif.model.ModelGroup([model], name = f"Model {model_index}" )
+# 		# self.system.model_groups.append(model_group)
+
+
+# 	# Will do this outside this function to allow writing multiple models to a single file.
+# 	# fh = io.StringIO()
+# 	# modelcif.dumper.write(fh, [system])
+# 	# return fh.getvalue()
 
 
 
-	def to_mmcif_string( self ):
-		"""
-		For writing predicted structures to modelCIF string.
-		"""
-		fh = io.StringIO()
-		modelcif.dumper.write( fh, [self.system] )
-		return fh
+# 	def to_mmcif_string( self ):
+# 		"""
+# 		For writing predicted structures to modelCIF string.
+# 		"""
+# 		fh = io.StringIO()
+# 		modelcif.dumper.write( fh, [self.system] )
+# 		return fh
 
 
-	def save( self, system: str, output_path: str ):
-		"""
-		Save the models on disk as per the format.
-		"""
-		if self.output_format == "pdb":
-			# Pad all lines to 80 characters
-			system.append("END")
-			system = [line.ljust(80) for line in system]
-			system = "\n".join( system ) + "\n"
-			fp = open_file_handler( f"{output_path}.pdb", 'w' )
-			fp.write( system )
-		else:
-			self.system.model_groups.append( self.model_group )
-			fh = self.to_mmcif_string()
+# 	def save( self, system: str, output_path: str ):
+# 		"""
+# 		Save the models on disk as per the format.
+# 		"""
+# 		if self.output_format == "pdb":
+# 			# Pad all lines to 80 characters
+# 			system.append("END")
+# 			system = [line.ljust(80) for line in system]
+# 			system = "\n".join( system ) + "\n"
+# 			fp = open_file_handler( f"{output_path}.pdb", 'w' )
+# 			fp.write( system )
+# 		else:
+# 			self.system.model_groups.append( self.model_group )
+# 			fh = self.to_mmcif_string()
 
-			fp = open_file_handler( f"{output_path}.cif", 'w' )
-			fp.write( fh.getvalue() )
+# 			fp = open_file_handler( f"{output_path}.cif", 'w' )
+# 			fp.write( fh.getvalue() )
