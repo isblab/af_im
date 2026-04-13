@@ -1,4 +1,6 @@
 """
+Utilities methods for parsing system configs and constructing mappings
+	between entities, chains, and residue indices.
 """
 from typing import List, Dict, Any
 import numpy as np
