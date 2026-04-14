@@ -16,7 +16,7 @@ from Bio.PDB import (
 	Select,
 	Structure, Model, Residue )
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
-import freesasa
+# import freesasa
 # import modelcif
 # import modelcif.model
 # import modelcif.dumper
@@ -759,74 +759,74 @@ class SolventAccessibleSurfaceArea():
 		return chain_to_file
 
 
-	def compute_sasa( self ) -> Dict[str, Dict[int, float]]:
-		"""
-		Use fresasa to compute the per-residue SASA for each chain in
-			the complex.
-		The complex must first be split into individual chains to obtain
-			the SASA for each chain in isolation.
-		freesasa computes per-atom surface area.
-			For per-residue surface area we sum the area for all atoms in a residue.
-				MDTraj does the same
-					(https://www.mdtraj.org/1.9.5/examples/solvent-accessible-surface-area.html).
-			"""
-		chain_to_file = self.split_complex_to_monomers()
-		sasa = {}
+	# def compute_sasa( self ) -> Dict[str, Dict[int, float]]:
+	# 	"""
+	# 	Use fresasa to compute the per-residue SASA for each chain in
+	# 		the complex.
+	# 	The complex must first be split into individual chains to obtain
+	# 		the SASA for each chain in isolation.
+	# 	freesasa computes per-atom surface area.
+	# 		For per-residue surface area we sum the area for all atoms in a residue.
+	# 			MDTraj does the same
+	# 				(https://www.mdtraj.org/1.9.5/examples/solvent-accessible-surface-area.html).
+	# 		"""
+	# 	chain_to_file = self.split_complex_to_monomers()
+	# 	sasa = {}
 
-		for chain_id, file in chain_to_file.items():
-			sasa[chain_id] = {}
+	# 	for chain_id, file in chain_to_file.items():
+	# 		sasa[chain_id] = {}
 
-			struct = freesasa.Structure( file )
-			result = freesasa.calc( struct )
-			chain_sasa = {}
-			for i in range( struct.nAtoms() ):
-				resi = struct.residueNumber( i )
-				c_id = struct.chainLabel( i )
-				area = result.atomArea( i )
+	# 		struct = freesasa.Structure( file )
+	# 		result = freesasa.calc( struct )
+	# 		chain_sasa = {}
+	# 		for i in range( struct.nAtoms() ):
+	# 			resi = struct.residueNumber( i )
+	# 			c_id = struct.chainLabel( i )
+	# 			area = result.atomArea( i )
 
-				if c_id !=  chain_id:
-					raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
-						"freesasa derived chain ID does not match that from the input struct file..."
-					)
-				res = int( resi )
-				chain_sasa[res] = chain_sasa.get( res, 0.0 ) + area
+	# 			if c_id !=  chain_id:
+	# 				raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
+	# 					"freesasa derived chain ID does not match that from the input struct file..."
+	# 				)
+	# 			res = int( resi )
+	# 			chain_sasa[res] = chain_sasa.get( res, 0.0 ) + area
 
-			sasa[chain_id] = chain_sasa
-		return sasa
+	# 		sasa[chain_id] = chain_sasa
+	# 	return sasa
 
 
-	def compute_rsa( self ) -> Dict[str, Dict[int, float]]:
-		"""
-		Use fresasa to compute the per-residue RSA for each chain in
-			the complex.
-		The complex must first be split into individual chains to obtain
-			the SASA for each chain in isolation.
-			"""
-		chain_to_file = self.split_complex_to_monomers()
-		rsa = {}
+	# def compute_rsa( self ) -> Dict[str, Dict[int, float]]:
+	# 	"""
+	# 	Use fresasa to compute the per-residue RSA for each chain in
+	# 		the complex.
+	# 	The complex must first be split into individual chains to obtain
+	# 		the SASA for each chain in isolation.
+	# 		"""
+	# 	chain_to_file = self.split_complex_to_monomers()
+	# 	rsa = {}
 
-		for chain_id, file in chain_to_file.items():
-			rsa[chain_id] = {}
+	# 	for chain_id, file in chain_to_file.items():
+	# 		rsa[chain_id] = {}
 
-			struct = freesasa.Structure( file )
-			result = freesasa.calc( struct )
+	# 		struct = freesasa.Structure( file )
+	# 		result = freesasa.calc( struct )
 
-			residue_areas = result.residueAreas()
-			for chain in residue_areas:
-				# if c_id !=  chain_id:
-				# 	raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
-				# 		"freesasa derived chain ID does not match that from the input struct file..."
-				# 	)
+	# 		residue_areas = result.residueAreas()
+	# 		for chain in residue_areas:
+	# 			# if c_id !=  chain_id:
+	# 			# 	raise ValueError( f"Mismatched chain ID: {c_id} != {chain_id}. " +
+	# 			# 		"freesasa derived chain ID does not match that from the input struct file..."
+	# 			# 	)
 
-				chain_rsa = {}
-				for resi in residue_areas[chain]:
-					residue = residue_areas[chain][resi]
-					rsa_total = residue.relativeTotal
-					res = int( resi )
-					chain_rsa[res] = rsa_total*100
+	# 			chain_rsa = {}
+	# 			for resi in residue_areas[chain]:
+	# 				residue = residue_areas[chain][resi]
+	# 				rsa_total = residue.relativeTotal
+	# 				res = int( resi )
+	# 				chain_rsa[res] = rsa_total*100
 
-			rsa[chain_id] = chain_rsa
-		return rsa
+	# 		rsa[chain_id] = chain_rsa
+	# 	return rsa
 
 # ################### AF2 module to save PDB/CIF ###################
 # ##--------------------------------------------------------------##
