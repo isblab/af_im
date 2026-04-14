@@ -206,7 +206,7 @@ class CompetingMethodsRunner():
 		self.init_model_configs()
 
 		# False discovery rate for AlphaLink2/GRASP.
-		self.fdr = self.model_config.benchmark.jwalk.frac_tpfp[0]
+		self.fdr = self.config_dict.benchmark.jwalk.frac_tp_fp[1]
 
 		# Modify the value in config file.
 		self.model_config.guided_pred = self.guided_pred
@@ -409,7 +409,10 @@ class CompetingMethodsRunner():
 				As a result some XLs may not be modeled.
 				We ignore these XLs here.
 		XLs have previously been mapped to the 1-indexed seq_id in .cif files.
-			So, the residue numbering in XL files can be used as is for all methods.
+			However, the residue positions for the modeled seq may or may not
+				start from 1.
+			So, we get the index for the the modeled residues.
+			residue no = residue index + 1
 		Sanity checks if the Xl'd residue is Lys or not.
 			JWalk only rturns Lys-Lys XLs.
 		"""
@@ -417,22 +420,24 @@ class CompetingMethodsRunner():
 
 		for row in xl_df.iterrows():
 			p1, p2 = row[1]["prot1"], row[1]["prot2"]
-			res1, res2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
-			res1, res2 = int( res1 ), int( res2 )
+			r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+			r1, r2 = int( r1 ), int( r2 )
 
 			entity_id1 = int( p1.split( "_" )[1] )
 			entity_id2 = int( p2.split( "_" )[1] )
 
 			# Get the residue indices.
 			try:
-				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == res1 )[0][0]
+				r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
 			except:
 				continue
 
 			try:
-				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == res2 )[0][0]
+				r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
 			except:
 				continue
+			res1 = r1_idx + 1
+			res2 = r2_idx + 1
 
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
@@ -505,8 +510,8 @@ class CompetingMethodsRunner():
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
 
-			residue1 = f"{chain_id1}-{res1}-{seq1[res1]}"
-			residue2 = f"{chain_id2}-{res2}-{seq2[res2]}"
+			residue1 = f"{chain_id1}-{res1}-K"
+			residue2 = f"{chain_id2}-{res2}-K"
 
 			# ignore suplicate restraints.
 			# 	GRASP is agnostic to A-B and B-A restraint.
@@ -894,8 +899,8 @@ class CompetingMethodsRunner():
 
 				contact = {
 					"contact": {
-						"token1": [chain_id1, int( res1 )],
-						"token2": [chain_id2, int( res2 )],
+						"token1": [chain_id1, int( res1 )-1],
+						"token2": [chain_id2, int( res2 )-1],
 						"max_distance": self.xl_max_bound
 					}
 				}
