@@ -401,8 +401,9 @@ class Metadata():
 		"""
 		Craete a mapping between the seq_id and pdb_seq_num obtained
 			from the .cif file.
-		This is because pdb_seq_num may be discontinous in some cases
-			(8g0q_B, 8g0q_D) however, seq_id is always continous.
+		We map the pdb_seq_num to seq_id.
+			This is because pdb_seq_num may be discontinous in some cases
+				(8g0q_B, 8g0q_D) however, seq_id is always continous.
 		pdb_id: {
 			"chain_id": dict( zip( pdb_seq_num, seq_id ) )
 		}
