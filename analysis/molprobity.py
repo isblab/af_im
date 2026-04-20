@@ -3,37 +3,26 @@ This module contains wrapper classes for using MolProbity.
 Run MolProbity and provide the validation output.
 """
 from typing import List, Tuple, Dict
-import os
-from ml_collections import ConfigDict
+import os, shutil
 from multiprocessing import Pool
 
 from utils.utils import run_subprocess
 
+
 class Molprobity():
 	"""
-	Perform Molprobity validation on the input models.
+	Perform Molprobity validation on the set of input models.
 	"""
-	def __init__( self,
-				sys_name: str,
-				model_ids: int,
-				cores: int,
-				struct_format: str,
-				molprob_config: ConfigDict,
-				analysis_dir: str,
-				relax_ensemble_dir: str,
-				unrelax_ensemble_dir: str ):
-		self.sys_name = sys_name
-		# Identifier for a model.
+	def __init__(
+		self,
+		model_ids: List[int],
+		model_files: List[str],
+		tmp_dir_path: str
+	):
 		self.model_ids = model_ids
-		self.cores = cores
-		self.struct_format = struct_format
-		self.molprob_config = molprob_config
-		self.analysis_dir = analysis_dir
-		# Dit containing PDB files for the relaxed models.
-		self.relax_ensemble_dir = relax_ensemble_dir
-		# Dit containing PDB files for the unrelaxed models.
-		self.unrelax_ensemble_dir = unrelax_ensemble_dir
-		# Dict to store Molprobity validation metrics.
+		self.model_files = model_files
+		self.tmp_dir_path = tmp_dir_path
+
 		self.molprob_dict = {}
 
 
@@ -42,8 +31,7 @@ class Molprobity():
 		"""
 		self.create_tmp_dir()
 		self.run_molprobity_in_parallel()
-		if self.molprob_config.clean_up:
-			self.remove_tmp_dir()
+		self.remove_tmp_dir()
 
 
 	def create_tmp_dir( self ):
@@ -51,41 +39,13 @@ class Molprobity():
 		Temporary directory is used for storing the intermediate files
 			from running Molprobity validation.
 		"""
-		# Temporary directory is used for storing the intermediate files
-		self.tmp_dir = os.path.join( self.analysis_dir, "molprob_tmp" )
-		os.makedirs( self.tmp_dir, exist_ok = True )
+		os.makedirs( self.tmp_dir_path, exist_ok = True )
 
 
 	def remove_tmp_dir( self ):
-		cmd = ["rm", "-r", f"{self.tmp_dir}"]
-		run_subprocess( command = cmd )
-
-
-	def get_model_file( self, model_id: int ):
-		"""
-		Return path to the model file.
-		"""
-		relax_model_file = os.path.join(
-			self.relax_ensemble_dir,
-			f"model_{model_id}.{self.struct_format}" )
-		unrelax_model_file = os.path.join(
-			self.unrelax_ensemble_dir,
-			f"model_{model_id}.{self.struct_format}" )
-		return relax_model_file, unrelax_model_file
-
-
-	def get_molprob_tmp_out_dir( self, model_id: int ):
-		"""
-		Return the path for a tmp dir to store
-			Molprobity output for a given model.
-		"""
-		relax_molprob_output_dir = os.path.join(
-			self.tmp_dir,
-			f"relax_molprob_{self.sys_name}_{model_id}" )
-		unrelax_molprob_output_dir = os.path.join(
-			self.tmp_dir,
-			f"unrelax_molprob_{self.sys_name}_{model_id}" )
-		return relax_molprob_output_dir, unrelax_molprob_output_dir
+		shutil.rmtree( self.tmp_dir_path )
+		# cmd = ["rm", "-r", f"{self.tmp_dir}"]
+		# run_subprocess( command = cmd )
 
 	################################################################################
 	################################################################################
@@ -93,39 +53,25 @@ class Molprobity():
 		"""
 		Perfom Molprobity validation on the given set of models in parallel.
 		"""
+		models = zip( self.model_ids, self.model_files )
 		with Pool( self.cores ) as p:
-			for result in p.imap_unordered( self.validate, self.model_ids ):
-				summary_dict = result
-
-				self.molprob_dict.update( summary_dict )
+			for result in p.imap_unordered( self.validate, models ):
+				self.molprob_dict.update( result )
 
 
-	def validate( self, model_id: int ) -> Dict[int, Dict[str, float]]:
+	def validate( self,
+		models: Tuple[int, str]
+	) -> Dict[int, Dict[str, float]]:
 		"""
 		Perform Molprobity validation.
 		Get the Molprobity metrics.
 		"""
-		relax_model_file, unrelax_model_file = self.get_model_file( model_id = model_id )
-		( relax_molprob_output_dir,
-			unrelax_molprob_output_dir ) = self.get_molprob_tmp_out_dir( model_id = model_id )
+		model_id, model_file = models
+		output_dir = os.path.join( self.tmp_dir, f"model_{model_id}" )
 
-		self.run_molprobity( model_file = relax_model_file,
-							output_dir = relax_molprob_output_dir )
-		self.run_molprobity( model_file = unrelax_model_file,
-							output_dir = unrelax_molprob_output_dir )
-
-		summary_dict = {
-			model_id: {
-				"relaxed": self.get_molprobity_validation_summary( relax_molprob_output_dir ),
-				"unrelaxed": self.get_molprobity_validation_summary( unrelax_molprob_output_dir )
-			}
-		}
-
-		# files_to_remove = glob.glob( f"{molprob_output_dir}*" )
-		# cmd = ["rm", "-r"] + files_to_remove
-		# run_subprocess( command = cmd )
-
-		return summary_dict
+		summary_dict = self.run_molprobity( model_file = model_file,
+							output_dir = output_dir )		
+		return {model_id: summary_dict}
 
 
 	def run_molprobity( self, model_file: str, output_dir: str ):
@@ -146,6 +92,10 @@ class Molprobity():
 						]
 
 		run_subprocess( command = molprob_cmd )
+		summary_dict = self.get_molprobity_validation_summary(
+			output_dir = output_dir
+		)
+		return summary_dict
 
 
 	def get_molprobity_validation_summary( self, output_dir: str
