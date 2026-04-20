@@ -351,7 +351,7 @@ class CompetingMethodsRunner():
 		The XL file for our benchmark contain residues numbering
 			based on the PDB file (seq_id).
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -413,7 +413,7 @@ class CompetingMethodsRunner():
 		To run unguided prediction, the restraint file must be
 			specified as None.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -434,7 +434,7 @@ class CompetingMethodsRunner():
 			Need to unzip and modify the path.
 			Delete the .pkl file.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -491,7 +491,7 @@ class CompetingMethodsRunner():
 			uniprot_hits.sto
 			uniref90_hits.sto
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -534,7 +534,7 @@ class CompetingMethodsRunner():
 		Create a .json file that maps each chain ID to the
 			corresponding FASTA header and sequence.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -574,7 +574,7 @@ class CompetingMethodsRunner():
 			e.g. A.feature_dict.pkl.gz
 		Split the precomputed feature_dict by chain.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -630,9 +630,9 @@ class CompetingMethodsRunner():
 		The XL file for our benchmark contain residues numbering
 			based on the PDB file (seq_id).
 		AlphaLink2 expects Ca-Ca crosslinks.
-		To run unguided prediction, an empty restraint file must be used.
+		When running unguided prediction, an empty restraint file is created.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -667,7 +667,7 @@ class CompetingMethodsRunner():
 				restraints_included.append( restraint )
 				w.writelines( f"{res1},{chain_id1},{res2},{chain_id2},{self.fdr}\n" )
 		else:
-			w.writelines( ",,,," )
+			w.writelines( "" )
 
 		w.close()
 
@@ -682,7 +682,7 @@ class CompetingMethodsRunner():
 		A .json file containing mapping betwen the
 			chain IDs and the FASTA header and sequence.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -729,9 +729,9 @@ class CompetingMethodsRunner():
 		We use the default setting specified for AlphaLink2.
 		Added two arguments to run_alphalink2.sh to specify
 			the device and the XL max bound.
-		To run unguided prediction, an empty restraint file must be used.
+		To run unguided prediction, the restraint file must be "".
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -750,10 +750,14 @@ class CompetingMethodsRunner():
 		# So the device must be changed to cuda:0.
 		device = "cuda:0"
 
+		if self.model_config.guided_pred:
+			restraints_file = self.inputs['restraints_file'][sys_name]
+		else:
+			restraints_file = ""
 		cmd = [
 			"bash", f"{self.alphalink2_script}",
 			f"{self.inputs['fasta_file'][sys_name]}",
-			f"{self.inputs['restraints_file'][sys_name]}",
+			f"{restraints_file}",
 			f"{self.inputs['sys_dir_path'][sys_name]}",  # output dir.
 			f"{self.alphalink2_params}",  # path to the model params.
 			f"{self.alphafold_dbs_dir}",
@@ -789,7 +793,7 @@ class CompetingMethodsRunner():
 		XLs are modeled as contacts with a max-bound potential (contact_potential).
 		For unguided prediction, no constraints are specified.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
@@ -871,7 +875,7 @@ class CompetingMethodsRunner():
 		To run unguided prediction, the yaml file must not have any
 			constraints specified.
 
-		Input:
+		Inputs:
 		----------
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
