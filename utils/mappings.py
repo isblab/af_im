@@ -4,11 +4,98 @@ Utilities methods for parsing system configs and constructing mappings
 """
 from typing import List, Dict, Any
 import numpy as np
+import pandas as pd
 
 from utils.utils import read_json
+from utils.pdb_utils import get_chain_id
 from utils.paths import get_sys_config_path
 
 
+
+def yield_restraints(
+	sys_name: str,
+	xl_file: str,
+	entity_chain_map: Dict[int, Dict],
+	numeric_chain_ids: bool ):
+	"""
+	A generator that yields restrained residue pairs.
+	Accounts for ambiguity, by enumerating all chain combinations.
+
+	Note:
+	For homomeric complexes, different chains in the experimental
+		structure may be missing different sets of residues.
+		We select the residues to be modeled from only 1 of the chains.
+			As a result some XLs may not be modeled.
+			We ignore these XLs here.
+	XLs have previously been mapped to the 1-indexed seq_id in .cif files.
+		However, the residue positions for the modeled seq may or may not
+			start from 1.
+		So, we get the index for the the modeled residues.
+		residue no = residue index + 1
+	Sanity checks if the Xl'd residue is Lys or not.
+		JWalk only rturns Lys-Lys XLs.
+
+	Input:
+	----------
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+	xl_file: path to the .csv file containing XLs for the given system.
+	entity_chain_map: dict containing a mapping between all
+		the corresponding chains along with metadata, including
+		entity sequence and residues positions.
+	numeric_chain_id: 1-indexed numeric chain identifier.
+
+	Returns:
+	----------
+	A tuple containing entity_id, chain_id, residue position for
+		the cross-linked residue pairs.
+	"""
+	xl_df = pd.read_csv( xl_file )
+
+	for row in xl_df.iterrows():
+		p1, p2 = row[1]["prot1"], row[1]["prot2"]
+		r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
+		r1, r2 = int( r1 ), int( r2 )
+
+		entity_id1 = int( p1.split( "_" )[1] )
+		entity_id2 = int( p2.split( "_" )[1] )
+
+		# Get the residue indices.
+		try:
+			r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
+		except:
+			continue
+
+		try:
+			r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
+		except:
+			continue
+		res1 = r1_idx + 1
+		res2 = r2_idx + 1
+
+		seq1 = entity_chain_map[entity_id1]["seq"]
+		seq2 = entity_chain_map[entity_id2]["seq"]
+
+		# For ambiguous XLs, we consider all combinations.
+		for chain_id1 in entity_chain_map[entity_id1]["chains"]:
+			if not numeric_chain_ids:
+				chain_id1 = get_chain_id( chain_id1 - 1  ) # 0-indexed.
+			for chain_id2 in entity_chain_map[entity_id2]["chains"]:
+				if not numeric_chain_ids:
+					chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
+
+				if seq1[r1_idx] != "K":
+					raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
+						f"Chain: {chain_id1}; residue {res1} is not a Lys..." )
+
+				if seq2[r2_idx] != "K":
+					raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
+						f"Chain: {chain_id2}; residue {res2} is not a Lys..." )
+
+				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2
+
+################################################################################
+################################################################################
 def get_entities_in_system(
 	base_dir: str,
 	benchmark_name: str,
@@ -58,6 +145,9 @@ def get_entity_chain_mapping(
 
 	Returns:
 	----------
+	entity_chain_map: dict containing a mapping between all
+		the corresponding chains along with metadata, including
+		entity sequence and residues positions.
 	entity_id: {
 		seq: str,
 		chains: [int],
