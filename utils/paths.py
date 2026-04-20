@@ -442,6 +442,8 @@ def get_model_output_dir_path(
 	output_dir: path to the output dir for the given model's
 		and xl_type.
 	"""
+	if pred_type == "":
+		xl_type == ""
 	output_dir = os.path.join(
 		base_dir,
 		f"{model}/{benchmark_name}/{pred_type}/{xl_type}/"
@@ -489,6 +491,47 @@ def get_model_sys_output_dir_path(
 
 ################################################################################
 ################################################################################
+def return_model_sys_file(
+	model: str,
+	base_dir: str,
+	benchmark_name: str,
+	pred_type: str,
+	xl_type: str,
+	sys_name: str
+) -> Tuple[List[str], List[str]]:
+	"""
+	Return the system-specific predicted output files for the given model.
+	"""
+	if model == "alphalink2":
+		return get_alphalink2_sys_files(
+			base_dir = base_dir,
+			benchmark_name = benchmark_name,
+			pred_type = pred_type,
+			xl_type = xl_type,
+			sys_name = sys_name
+		)
+	elif model == "grasp":
+		return get_grasp_sys_files(
+			base_dir = base_dir,
+			benchmark_name = benchmark_name,
+			pred_type = pred_type,
+			xl_type = xl_type,
+			sys_name = sys_name
+		)
+	elif model == "boltz2":
+		return get_boltz2_sys_files(
+			base_dir = base_dir,
+			benchmark_name = benchmark_name,
+			pred_type = pred_type,
+			xl_type = xl_type,
+			sys_name = sys_name
+		)
+	else:
+		raise ValueError( f"incorrect model: {model} specified. " +
+			"Supported: alphalink2/grasp/boltz2..."
+		)
+
+
 def get_alphalink2_sys_files(
 	base_dir: str,
 	benchmark_name: str,
