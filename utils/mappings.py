@@ -83,6 +83,9 @@ def yield_restraints(
 			for chain_id2 in entity_chain_map[entity_id2]["chains"]:
 				if not numeric_chain_ids:
 					chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
+				# Skip intr-chain restraint.
+				if chain_id1 == chain_id2:
+					continue
 
 				if seq1[r1_idx] != "K":
 					raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
