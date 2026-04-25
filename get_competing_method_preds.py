@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from config import get_config_dict
+from model_configs import BOLTZ, GRASP, ALPHALINK
 from utils.mappings import (
 	get_entity_chain_mapping,
 	yield_restraints
@@ -35,13 +36,14 @@ from utils.paths import (
 
 class CompetingMethodsRunner():
 	"""
-	A wrapper for running GRASP and AlphaLink2 on the benchmark.
+	A wrapper for running Boltz2, GRASP and AlphaLink2 on the benchmark.
 	"""
 	def __init__(
 		self,
 		model:str,
-		xl_type: str,
-		guided_pred: bool,
+		config_name: str,
+		# xl_type: str,
+		# guided_pred: bool,
 		device: str
 		):
 		self.config_dict = get_config_dict()
@@ -51,8 +53,9 @@ class CompetingMethodsRunner():
 		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
 
 		self.model = model # grasp/alphalink2
-		self.xl_type = xl_type
-		self.guided_pred = guided_pred
+		self.config_name = config_name
+		# self.xl_type = xl_type
+		# self.guided_pred = guided_pred
 		self.device = device
 
 		self.model_config = {}
@@ -78,25 +81,32 @@ class CompetingMethodsRunner():
 		Create the input files required for the specifie model.
 		Run the model prediction.
 		"""
-		self.set_xl_max_bound()
 		self.init_model_configs()
+		self.set_xl_max_bound()
 
 		# False discovery rate for AlphaLink2/GRASP.
 		self.fdr = self.config_dict.benchmark.jwalk.frac_tp_fp[1]
 
-		# Modify the value in config file.
-		self.model_config.guided_pred = self.guided_pred
-
-		if self.model_config.guided_pred:
-			print( f"Running restraint guided prediction for {self.model} with xl_type = {self.xl_type}..." )
-			print( "-"*80, "\n" )
+		if self.model_config.pred_type == "guided":
+			prefix = "Running restraint guided"
+		elif self.model_config.pred_type == "unguided":
+			prefix = "Running unguided"
+			if self.model == "alphalink2":
+				raise ValueError( "AlphaLink2 does not allow running unguided prediction..." )
 		else:
-			print( f"Running unguided prediction for {self.model} with xl_type = {self.xl_type}..." )
-			print( "-"*80, "\n" )
+			raise ValueError( "Incorrect pred_type: " +
+				f"{self.model_config.pred_type} specified..."
+			)
+		print(
+			f"{prefix} prediction for {self.model} " +
+			f"with xl_type = {self.model_config['xl_type']}..."
+			)
+		print( "-"*80, "\n" )
 
 		self.create_dir_structure()
 		self.create_required_file()
 		self.init_logs()
+		self.load_benchmark()
 
 		self.create_system_specifc_inputs()
 
@@ -118,14 +128,18 @@ class CompetingMethodsRunner():
 
 	def set_xl_max_bound( self ):
 		"""
-		Set the XL amx bound according to the XL type used.
+		Set the XL max bound according to the XL type used.
 		"""
-		if self.xl_type == "short":
+		if self.model_config.xl_type is None:
+			self.xl_max_bound = 0.0
+		elif self.model_config.xl_type == "short":
 			self.xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
-		elif self.xl_type == "long":
+		elif self.model_config.xl_type == "long":
 			self.xl_max_bound = self.config_dict.benchmark.jwalk.long_linker
 		else:
-			raise ValueError( f"Invalid XL type: {self.xl_type} specified..." )
+			raise ValueError( f"Invalid XL type: " +
+				f"{self.model_config['xl_type']} specified..."
+			)
 
 
 	def init_model_configs( self ):
@@ -133,13 +147,20 @@ class CompetingMethodsRunner():
 		Initialize the model configs based pn the specified model.
 		"""
 		if self.model == "alphalink2":
-			self.model_config = self.config_dict.models.alphalink2
+			self.model_config = ALPHALINK
 		elif self.model == "grasp":
-			self.model_config = self.config_dict.models.grasp
+			self.model_config = GRASP
 		elif self.model == "boltz2":
-			self.model_config = self.config_dict.models.boltz2
+			self.model_config = BOLTZ
 		else:
 			raise ValueError( f"Invalid model: {self.model} specified..." )
+
+		if self.config_name not in self.model_config:
+			raise ValueError( f"The specified model_config: {self.model_config} does not exist. " +
+				"Check out model_configs.py for existing configs or define a new one..."
+			)
+		else:
+			self.model_config = self.model_config[self.config_name]
 
 	################################################################################
 	################################################################################
@@ -159,10 +180,18 @@ class CompetingMethodsRunner():
 		# AlphaLink2 inference script.
 		self.alphalink2_script = os.path.join( self.alphalink2_dir, "run_alphalink.sh" )
 		# AlphaLink2 parameters.
-		self.alphalink2_params = os.path.join( self.alphalink2_dir, "params/AlphaLink-Multimer_SDA_v2.pt" )
+		self.alphalink2_params = os.path.join(
+			self.alphalink2_dir,
+			"params/AlphaLink-Multimer_SDA_v2.pt"
+			)
 		# Databases for running AlphaLink2.
 		self.alphafold_dbs_dir = "/data/alpha-fold-db/"
 
+
+	def load_benchmark( self ):
+		"""
+		Load the benchmark from disk.
+		"""
 		# Load the benchmark.
 		benchmark_file = get_benchmark_csv_file(
 			self.base_dir,
@@ -179,18 +208,19 @@ class CompetingMethodsRunner():
 			BASE_DIR
 				Model dir
 					Dataset specific dir
-						Prediction type (guided/unguided) specific dir
-							XL type (short/long/fp) specific dir
+						Config name
+
+						# Prediction type (guided/unguided) specific dir
+						# 	XL type (short/long/fp) specific dir
 		System specific dir will be created later.
 		"""
-		pred_type = "" if self.model_config.guided_pred else "unguided"
+		# pred_type = "" if self.model_config.guided_pred else "unguided"
 
 		self.output_dir = get_model_output_dir_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			model = self.model,
-			pred_type = pred_type,
-			xl_type = self.xl_type
+			config_name = self.config_name
 		)
 		os.makedirs( self.output_dir, exist_ok = True )
 
@@ -365,9 +395,8 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.xl_type
+			xl_type = self.model_config.xl_type
 		)
-		# xl_df = pd.read_csv( xl_file )
 
 		entity_chain_map = get_entity_chain_mapping(
 			base_dir = self.base_dir,
@@ -631,6 +660,7 @@ class CompetingMethodsRunner():
 			based on the PDB file (seq_id).
 		AlphaLink2 expects Ca-Ca crosslinks.
 		When running unguided prediction, an empty restraint file is created.
+		AlphaLink2 does not allow running unguided prediction.
 
 		Inputs:
 		----------
@@ -645,12 +675,12 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.xl_type
+			xl_type = self.model_config.xl_type
 		)
 
 		restraints_included = []
 		w = open( self.inputs["restraints_file"][sys_name], "w" )
-		if self.model_config.guided_pred:
+		if self.model_config.pred_type == "guided":
 			for row in yield_restraints(
 				sys_name = sys_name,
 				xl_file = xl_file,
@@ -666,7 +696,7 @@ class CompetingMethodsRunner():
 					continue
 				restraints_included.append( restraint )
 				w.writelines( f"{res1},{chain_id1},{res2},{chain_id2},{self.fdr}\n" )
-		else:
+		if self.model_config.pred_type == "unguided":
 			w.writelines( "" )
 
 		w.close()
@@ -750,9 +780,9 @@ class CompetingMethodsRunner():
 		# So the device must be changed to cuda:0.
 		device = "cuda:0"
 
-		if self.model_config.guided_pred:
+		if self.model_config.pred_type == "guided":
 			restraints_file = self.inputs['restraints_file'][sys_name]
-		else:
+		elif self.model_config.pred_type == "unguided":
 			restraints_file = ""
 		cmd = [
 			"bash", f"{self.alphalink2_script}",
@@ -806,7 +836,7 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.xl_type
+			xl_type = self.model_config.xl_type
 		)
 
 		entity_chain_map = get_entity_chain_mapping(
@@ -835,12 +865,12 @@ class CompetingMethodsRunner():
 			}
 			boltz_input["sequences"].append( protein )
 
-		if self.model_config.guided_pred:
+		if self.model_config.pred_type == "guided":
 			xl_file = get_xl_file_path(
 				base_dir = self.base_dir,
 				benchmark_name = self.benchmark_name,
 				sys_name = sys_name,
-				xl_type = self.xl_type
+				xl_type = self.model_config["xl_type"]
 			)
 
 			# Will add all Xl restraints as contacts for conditioning Boltz-2.
@@ -860,7 +890,7 @@ class CompetingMethodsRunner():
 					}
 				}
 				boltz_input["constraints"].append( contact )
-		else:
+		elif self.model_config.pred_type == "unguided":
 			boltz_input.pop( "constraints" )
 
 		# Save as a yaml file.
@@ -1001,13 +1031,17 @@ if __name__ == "__main__":
 		type = str, required = True,
 		help = "Specify the model to use: grasp/alphalink2/boltz2." )
 	parser.add_argument(
-		"-x", "--xl_type",
+		"-c", "--config_name",
 		type = str, required = True,
-		help = "cross-link type to be used: short/long/fp..." )
-	parser.add_argument(
-		"-p", "--guided_pred",
-		action = "store_true",
-		help = "If specified use restraints for prediction else run unguided prediction..." )
+		help = "Specify the model config to be used. See model_configs.py." )
+	# parser.add_argument(
+	# 	"-x", "--xl_type",
+	# 	type = str, required = True,
+	# 	help = "cross-link type to be used: short/long/fp..." )
+	# parser.add_argument(
+	# 	"-p", "--guided_pred",
+	# 	action = "store_true",
+	# 	help = "If specified use restraints for prediction else run unguided prediction..." )
 	parser.add_argument(
 		"-d", "--device",
 		type = str, required = True,
@@ -1016,7 +1050,8 @@ if __name__ == "__main__":
 
 	CompetingMethodsRunner(
 		model = args.model,
-		xl_type = args.xl_type,
-		guided_pred = args.guided_pred,
+		config_name = args.config_name,
+		# xl_type = args.xl_type,
+		# guided_pred = args.guided_pred,
 		device = args.device
 		).forward()
