@@ -421,8 +421,7 @@ def get_model_output_dir_path(
 	base_dir: str,
 	benchmark_name: str,
 	model: str,
-	pred_type: str,
-	xl_type: str
+	config_name: str,
 ) -> str:
 	"""
 	Get the output dir path for the specified model:
@@ -432,21 +431,17 @@ def get_model_output_dir_path(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
-	model: identifier for the model being used: alphalInk2/grasp/boltz2
-	pred_type: identifier for the type of prediction: guided/unguided.
-		"" for guided prediction else "unguided".
-	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	model: identifier for the model being used: alphalInk2/grasp/boltz2.
+	config_name: identifier for the model config used for prediction.
 
 	Returns:
 	----------
 	output_dir: path to the output dir for the given model's
 		and xl_type.
 	"""
-	if pred_type == "":
-		xl_type == ""
 	output_dir = os.path.join(
 		base_dir,
-		f"{model}/{benchmark_name}/{pred_type}/{xl_type}/"
+		f"{model}/{benchmark_name}/{config_name}/"
 	)
 	return output_dir
 
@@ -455,8 +450,7 @@ def get_model_sys_output_dir_path(
 	base_dir: str,
 	benchmark_name: str,
 	model: str,
-	pred_type: str,
-	xl_type: str,
+	config_name: str,
 	sys_name: str
 ) -> str:
 	"""
@@ -468,9 +462,7 @@ def get_model_sys_output_dir_path(
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
 	model: identifier for the model being used: alphalInk2/grasp/boltz2
-	pred_type: identifier for the type of prediction: guided/unguided.
-		"" for guided prediction else "unguided".
-	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	config_name: identifier for the model config used for prediction.
 	sys_name: name of the complex modeled. For the benchmark,
 		it's the PDB ID.
 
@@ -483,8 +475,7 @@ def get_model_sys_output_dir_path(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
 		model = model,
-		pred_type = pred_type,
-		xl_type = xl_type
+		config_name = config_name
 	)
 	sys_dir = os.path.join( output_dir, sys_name )
 	return sys_dir
@@ -495,35 +486,44 @@ def return_model_sys_file(
 	model: str,
 	base_dir: str,
 	benchmark_name: str,
-	pred_type: str,
-	xl_type: str,
+	config_name: str,
 	sys_name: str
-) -> Tuple[List[str], List[str]]:
+) -> Tuple[List[str], List[str]] | Tuple[List[str], List[str], List[str]]:
 	"""
 	Return the system-specific predicted output files for the given model.
+
+	Inputs:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+	model: identifier for the model being used: alphalInk2/grasp/boltz2
+	config_name: identifier for the model config used for prediction.
+	sys_name: name of the complex modeled. For the benchmark,
+		it's the PDB ID.
+
+	Returns:
+	----------
+	Tuple of predicted output file paths for the specifed model and config.
 	"""
 	if model == "alphalink2":
 		return get_alphalink2_sys_files(
 			base_dir = base_dir,
 			benchmark_name = benchmark_name,
-			pred_type = pred_type,
-			xl_type = xl_type,
+			config_name = config_name,
 			sys_name = sys_name
 		)
 	elif model == "grasp":
 		return get_grasp_sys_files(
 			base_dir = base_dir,
 			benchmark_name = benchmark_name,
-			pred_type = pred_type,
-			xl_type = xl_type,
+			config_name = config_name,
 			sys_name = sys_name
 		)
 	elif model == "boltz2":
 		return get_boltz2_sys_files(
 			base_dir = base_dir,
 			benchmark_name = benchmark_name,
-			pred_type = pred_type,
-			xl_type = xl_type,
+			config_name = config_name,
 			sys_name = sys_name
 		)
 	else:
@@ -535,8 +535,7 @@ def return_model_sys_file(
 def get_alphalink2_sys_files(
 	base_dir: str,
 	benchmark_name: str,
-	pred_type: str,
-	xl_type: str,
+	config_name: str,
 	sys_name: str
 ) -> Tuple[List[str], List[str]]:
 	"""
@@ -551,9 +550,7 @@ def get_alphalink2_sys_files(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
-	pred_type: identifier for the type of prediction: guided/unguided.
-		"" for guided prediction else "unguided".
-	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	config_name: identifier for the model config used for prediction.
 	sys_name: name of the complex modeled. For the benchmark,
 		it's the PDB ID.
 
@@ -568,8 +565,7 @@ def get_alphalink2_sys_files(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
 		model = "alphalink2",
-		pred_type = pred_type,
-		xl_type = xl_type,
+		config_name = config_name,
 		sys_name = sys_name
 	)
 	struct_file_list = []
@@ -589,8 +585,7 @@ def get_alphalink2_sys_files(
 def get_grasp_sys_files(
 	base_dir: str,
 	benchmark_name: str,
-	pred_type: str,
-	xl_type: str,
+	config_name: str,
 	sys_name: str
 ) -> Tuple[List[str], List[str]]:
 	"""
@@ -607,9 +602,7 @@ def get_grasp_sys_files(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
-	pred_type: identifier for the type of prediction: guided/unguided.
-		"" for guided prediction else "unguided".
-	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	config_name: identifier for the model config used for prediction.
 	sys_name: name of the complex modeled. For the benchmark,
 		it's the PDB ID.
 
@@ -623,8 +616,7 @@ def get_grasp_sys_files(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
 		model = "grasp",
-		pred_type = pred_type,
-		xl_type = xl_type,
+		config_name = config_name,
 		sys_name = sys_name
 	)
 	struct_file_list = []
@@ -639,8 +631,7 @@ def get_grasp_sys_files(
 def get_boltz2_sys_files(
 	base_dir: str,
 	benchmark_name: str,
-	pred_type: str,
-	xl_type: str,
+	config_name: str,
 	sys_name: str
 ) -> Tuple[List[str], List[str], List[str]]:
 	"""
@@ -661,9 +652,7 @@ def get_boltz2_sys_files(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
-	pred_type: identifier for the type of prediction: guided/unguided.
-		"" for guided prediction else "unguided".
-	xl_type: identifier for tthe XL type. Could be short/long/fp.
+	config_name: identifier for the model config used for prediction.
 	sys_name: name of the complex modeled. For the benchmark,
 		it's the PDB ID.
 
@@ -679,8 +668,7 @@ def get_boltz2_sys_files(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
 		model = "boltz2",
-		pred_type = pred_type,
-		xl_type = xl_type,
+		config_name = config_name,
 		sys_name = sys_name
 	)
 	struct_file_list = []
@@ -708,9 +696,13 @@ def get_benchmark_analysis_dir_path(
 	----------
 	base_dir: dir to store all relevant modeling output.
 	benchmark_name: name of the benchmark.
+
+	Returns:
+	----------
+	analysis_dir: path to the analysis dir for the specified benchmark.
 	"""
 	analysis_dir = os.path.join(
-		base_dir, f"{benchmark_name}"
+		base_dir, f"{benchmark_name}_analysis/"
 	)
 	return analysis_dir
 
