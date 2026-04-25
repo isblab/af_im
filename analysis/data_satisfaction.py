@@ -40,6 +40,7 @@ class XlSatisfaction():
 			- Select the distances for the cross-linked residues.
 			- Compute XL metrics.
 		"""
+		xl_metrics = {}
 		struct_dict = self.parse_struct()
 		dist_dict = self.compute_distance_matrix( struct_dict = struct_dict )
 		xl_dists = self.subset_xl_distances( dist_dict = dist_dict )
@@ -151,7 +152,7 @@ class XlSatisfaction():
 		return xl_dists
 
 	################################################################################
-	def compute_xl_metadata_per_model( self,
+	def compute_xl_metadata( self,
 		xl_dists: Dict[int, np.ndarray]
 	):
 		"""
@@ -213,11 +214,21 @@ class XlSatisfaction():
 				Min. over all ambiguous XLs.
 				Avg. over all ambiguous XLs.
 
-		Creates a dict containing the XL metrics computed for each model.
+		Creates a dict containing the XL metrics computed from the given metadata.
+
+		Returns:
+		----------
+		xl_metrics: dict containing the xl metrics computed across all models.
+		{
+			xl_satisfaction: np.ndarray, --> [M]
+			xl_satisfaction_global: float,
+			xl_pair_satisfaction: np.ndarray --> [T]
+		}
+			where M -> no. of models and T -> no. of XLs.
 		"""
-		total_xls = xl_metadata["xl_satisfied"].shape[0]
+		total_xls = xl_metadata["xl_satisfied"].shape[1]
 		satisfied = xl_metadata["xl_satisfied"]
-		xl_sat = satisfied.sum()/total_xls
+		xl_sat = satisfied.sum( axis = 1 )/total_xls
 
 		# Total no. of times an XL pair is satisfied across all models.
 		xl_pair_sat = satisfied.sum( axis = 0 )
