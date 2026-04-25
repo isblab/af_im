@@ -57,12 +57,11 @@ class StructuralSimilarity():
 			if self.rmsd_config.similarity_cutoff > 1.0:
 				raise ValueError( "Similarity cutoff for TM-score cannot be >1.0..." )
 
-		models = self.usalign_pipeline()
-
-		self.selected_model_index = models
+		self.compute_structural_similarity_parallel()
 
 		if self.rmsd_config.clean_up:
 			self.remove_tmp_dir()
+		return self.similarity_dict
 
 
 	def create_tmp_dir( self ):
@@ -99,6 +98,15 @@ class StructuralSimilarity():
 	def compute_structural_similarity_parallel( self ):
 		"""
 		Parallelize similarity computation across all models in set1 (model_is1).
+		self.similarity_dict
+		{
+			model_id1: {
+				model_id2: {
+					rmsd: float,
+					tm: float,
+				}
+			}
+		}
 		"""
 		with Pool( self.cpu_cores ) as p:
 			for result in tqdm.tqdm(
