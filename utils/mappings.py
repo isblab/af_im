@@ -16,7 +16,9 @@ def yield_restraints(
 	sys_name: str,
 	xl_file: str,
 	entity_chain_map: Dict[int, Dict],
-	numeric_chain_ids: bool ):
+	numeric_chain_ids: bool,
+	return_seq_numbering: bool = True
+	):
 	"""
 	A generator that yields restrained residue pairs.
 	Accounts for ambiguity, by enumerating all chain combinations.
@@ -44,6 +46,9 @@ def yield_restraints(
 		the corresponding chains along with metadata, including
 		entity sequence and residues positions.
 	numeric_chain_id: 1-indexed numeric chain identifier.
+	return_seq_numbering: if True, returns the XL res numbering based
+		on the modeled sequence else returns the XL res numbering as
+		in the XL file.
 
 	Returns:
 	----------
@@ -70,8 +75,13 @@ def yield_restraints(
 			r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
 		except:
 			continue
-		res1 = r1_idx + 1
-		res2 = r2_idx + 1
+		if return_seq_numbering:
+			res1 = r1_idx + 1
+			res2 = r2_idx + 1
+		else:
+			res1 = r1
+			res2 = r2
+
 
 		seq1 = entity_chain_map[entity_id1]["seq"]
 		seq2 = entity_chain_map[entity_id2]["seq"]
@@ -217,7 +227,8 @@ def map_residue_positions_to_system_indices(
 	for entity_id in entity_chain_map:
 		seq = entity_chain_map[entity_id]["seq"]
 		residues = entity_chain_map[entity_id]["residues"]
-		for chain_id in entity_chain_map[entity_id]["chains"]:
+		for chain in entity_chain_map[entity_id]["chains"]:
+			chain_id = get_chain_id( chain-1 )
 			sys_ind_end = sys_ind_start + len( residues )
 			sys_indices = np.arange( sys_ind_start, sys_ind_end, 1 )
 			sys_index_res_pos_map[chain_id] = {
