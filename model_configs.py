@@ -58,8 +58,8 @@ ALPHALINK = mlc.ConfigDict(
 {
 	"alpha": {},
 	"beta": {
-		"xl_type": None,          # short/long/None
-		"pred_type": "unguided",  # guided/unguided
+		"xl_type": "short",          # short/long/None
+		"pred_type": "guided",  # guided/unguided
 		# Use templates before this date.
 		"max_template_date": "2020-05-01", # default
 		"recycling_iters": 20,  # defaulrt = 20
