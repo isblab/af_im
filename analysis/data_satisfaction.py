@@ -44,7 +44,7 @@ class XlSatisfaction():
 		struct_dict = self.parse_struct()
 		dist_dict = self.compute_distance_matrix( struct_dict = struct_dict )
 		xl_dists = self.subset_xl_distances( dist_dict = dist_dict )
-		xl_metadata = self.compute_xl_metadata_per_model( xl_dists = xl_dists )
+		xl_metadata = self.compute_xl_metadata( xl_dists = xl_dists )
 		xl_metrics = self.compute_xl_metrics( xl_metadata = xl_metadata )
 		return xl_metrics
 
@@ -71,10 +71,10 @@ class XlSatisfaction():
 		for model_id, file in zip( self.model_ids, self.model_files ):
 			coords, plddt = [], []
 			p = Parser( pdb_file = file )
-			for model in p.get_model_ids():
-				for residue, chain_id in self.get_residues_from_model( model ):
-					coords.append( self.extract_perresidue_quantity( residue, "coords" ) )
-					plddt.append( self.extract_perresidue_quantity( residue, "plddt" ) )
+			for model in p.get_models():
+				for residue, chain_id in p.get_residues_from_model( model ):
+					coords.append( p.extract_perresidue_quantity( residue, "coords" ) )
+					plddt.append( p.extract_perresidue_quantity( residue, "plddt" ) )
 			coords = np.array( coords ).reshape( -1, 3 )
 			plddt = np.array( plddt ).reshape( -1, 1 )
 			struct_dict[model_id] = {
@@ -115,7 +115,7 @@ class XlSatisfaction():
 			coords = struct_dict[model_id]["coords"]
 			# [N, N]
 			dist_mat = coords[:, None, :] - coords[None, :, :]
-			dist_dict[model_id]["dist_mat"] = dist_mat
+			dist_dict[model_id] = dist_mat
 		return dist_dict
 
 	################################################################################
@@ -143,7 +143,7 @@ class XlSatisfaction():
 		"""
 		xl_dists = {}
 		for model_id in dist_dict:
-			dist_mat = dist_dict[model_id]["dist_mat"]
+			dist_mat = dist_dict[model_id]
 			xl_dists[model_id] = {}
 			for xl_idx in self.xl_dict:
 				res1 = self.xl_dict[xl_idx]["residue1"]
@@ -180,9 +180,9 @@ class XlSatisfaction():
 		metadata = {k:[] for k in ["xl_satisfied", "xl_min_dist", "xl_avg_dist"]}
 		for model_id in xl_dists:
 			xl_satisfied, xl_min_dist, xl_avg_dist = [], [], []
-			xl_dists = xl_dists[model_id]["xl_dists"]
-			for xl_idx in xl_dists:
-				dist = xl_dists[xl_idx]
+			xl_dist = xl_dists[model_id]
+			for xl_idx in xl_dist:
+				dist = xl_dist[xl_idx]
 
 				min_D = dist.min()
 				avg_D = ( dist ).sum()/len( dist )
