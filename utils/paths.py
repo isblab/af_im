@@ -674,11 +674,12 @@ def get_boltz2_sys_files(
 	struct_file_list = []
 	conf_file_list = []
 	pae_file_list = []
-	for file in glob.glob( f"{sys_dir}/*.cif" ):
+	boltz_pred_sub_dir = f"boltz_results_{sys_name}_restraint/predictions/{sys_name}_restraint/"
+	for file in glob.glob( f"{sys_dir}/{boltz_pred_sub_dir}*.cif" ):
 		struct_file_list.append( file )
-	for file in glob.glob( f"{sys_dir}/confidence_*.json" ):
+	for file in glob.glob( f"{sys_dir}/{boltz_pred_sub_dir}confidence_*.json" ):
 		conf_file_list.append( file )
-	for file in glob.glob( f"{sys_dir}/pae_*.npz" ):
+	for file in glob.glob( f"{sys_dir}/{boltz_pred_sub_dir}pae_*.npz" ):
 		pae_file_list.append( file )
 
 	return struct_file_list, conf_file_list, pae_file_list
