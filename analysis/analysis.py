@@ -12,6 +12,7 @@ from model_configs import BOLTZ, GRASP, ALPHALINK
 from data_satisfaction import XlSatisfaction
 from rmsd import StructuralSimilarity
 from dockq import DockQ
+from molprobity import Molprobity
 from utils.mappings import (
 	yield_restraints,
 	get_entity_chain_mapping,
@@ -95,6 +96,10 @@ class Analysis():
 		self.dockq_tmp_dir_path = os.path.join(
 			self.analysis_dir,
 			"tmp_dockq"
+		)
+		self.molprob_tmp_dir_path = os.path.join(
+			self.analysis_dir,
+			"tmp_molprob"
 		)
 
 		self.per_config_logs_file = os.path.join(
@@ -526,9 +531,10 @@ class Analysis():
 			if model_key not in self.per_config_logs:
 				self.per_config_logs[model_key] = {}
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
-			remove = False
+
 			for sys_name in self.pred_metadata[model_key]:
-				self.per_config_logs[model_key][sys_name] = {}
+				if sys_name not in self.per_config_logs[model_key]:
+					self.per_config_logs[model_key][sys_name] = {}
 
 				print( f"System: {sys_name} " + "-"*20 )
 				t_s = time.perf_counter()
@@ -570,14 +576,21 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["unique_models"] = unique_models
 
-				if "dockq" not in self.per_config_logs[model_key][sys_name]:
-					dock_dict = self.run_dockq_calc_per_sys(
+				# if "dockq" not in self.per_config_logs[model_key][sys_name]:
+				dock_dict = self.run_dockq_calc_per_sys(
+					model_ids = model_ids,
+					model_files = model_files,
+					native_file = native_file,
+					native_sys_chain_map = native_sys_chain_map
+				)
+				self.per_config_logs[model_key][sys_name]["dockq"]  =dock_dict
+
+				if "molprob" not in self.per_config_logs[model_key][sys_name]:
+					molprob_dict = self.run_molprobity_calc_per_sys(
 						model_ids = model_ids,
-						model_files = model_files,
-						native_file = native_file,
-						native_sys_chain_map = native_sys_chain_map
+						model_files = model_files
 					)
-					self.per_config_logs[model_key][sys_name]["dockq"]  =dock_dict
+					self.per_config_logs[model_key][sys_name]["dockmolprob"] = molprob_dict
 
 				t_e = time.perf_counter()
 				time_taken = t_e - t_s
@@ -700,7 +713,7 @@ class Analysis():
 		Inputs:
 		----------
 		model_ids: a list of integer identifiers for a model.
-		model_files: a list of file paths for the predicted model.
+		model_files: a list of structure file paths for all experiemntal/predicted models.
 		native_file: file path for the native structure of the system.
 		native_sys_chain_map: dict containing mapping between the native
 			and system chain IDs.
@@ -720,14 +733,48 @@ class Analysis():
 			model_ids2 = [1000],
 			model_files2 = [native_file],
 			native_sys_chain_map = native_sys_chain_map,
+			use_native_chains_for_model2 = True,
 			tmp_dir_path = self.dockq_tmp_dir_path,
 			cpu_cores = self.cpu_cores
 		)
 		dockq_dict = dockq_obj.forward()
 		return dockq_dict
 
+	################################################################################
+	def run_molprobity_calc_per_sys(
+		self,
+		model_ids: List[int],
+		model_files: List[str]
+	):
+		"""
+		For a given system, run Molprobity validation for models.
+
+		Inputs:
+		----------
+		model_ids: a list of integer identifiers for a model.
+		model_files: a list of file paths for the predicted model.
+		native_file: file path for the native structure of the system.
+		native_sys_chain_map: dict containing mapping between the native
+			and system chain IDs.
+
+		Returns:
+		----------
+		molprob_dict: dict containng various MolProbity metrics.
+		{
+			model_id: {
+				molrpobity metric name: value
+			}
+		}
+		"""
+		molprob_obj = Molprobity(
+			model_ids = model_ids,
+			model_files = model_files,
+			tmp_dir_path = self.molprob_tmp_dir_path,
+			cpu_cores = self.cpu_cores
+		)
+		molprob_dict = molprob_obj.forward()
+		return molprob_dict
+
 
 if __name__ == "__main__":
 	Analysis().forward()
-	pass
-
