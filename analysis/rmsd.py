@@ -15,6 +15,18 @@ class StructuralSimilarity():
 	"""
 	Contains methods for computing RMSD.
 	Given two sets of models, we compute all-v-all similarity.
+
+	Inputs:
+	----------
+	model_ids1: a list of integer identifiers for all modls in set 1 (model1).
+	model_files1: a list of structure file paths for all experiemntal/predicted
+		models in set 1 (model1).
+	model_ids2: a list of integer identifiers for all modls in set 2 (model2).
+	model_files2: a list of structure file paths for all experiemntal/predicted
+		models in set 2 (model2).
+	tmp_dir_path: path for a temporary dir to store intermediate files.
+	cpu_cores: no. of CPU coress to be used for parallelizing DockQ computation.
+	mol, mm, ter: see utils/tools/usalign()
 	"""
 	def __init__(
 		self,
@@ -51,18 +63,8 @@ class StructuralSimilarity():
 		self.struct_models_exist()
 		self.create_tmp_dir()
 
-		# # Sanity check.
-		# if self.rmsd_config.metric not in ["rmsd", "tm"]:
-		# 	raise ValueError( "Incorrect structural similarity metric specified. Use rmsd/tm..." )
-		# if self.rmsd_config.similarity_cutoff < 0.0:
-		# 	raise ValueError( f"Cannot use negative similarity cutoff..." )
-		# if self.rmsd_config.metric == "tm":
-		# 	if self.rmsd_config.similarity_cutoff > 1.0:
-		# 		raise ValueError( "Similarity cutoff for TM-score cannot be >1.0..." )
-
 		self.compute_structural_similarity_parallel()
 
-		# if self.rmsd_config.clean_up:
 		self.remove_tmp_dir()
 		return self.similarity_dict
 
