@@ -11,6 +11,7 @@ from config import get_config_dict
 from model_configs import BOLTZ, GRASP, ALPHALINK
 from data_satisfaction import XlSatisfaction
 from rmsd import StructuralSimilarity
+from dockq import DockQ
 from utils.mappings import (
 	yield_restraints,
 	get_entity_chain_mapping,
@@ -20,6 +21,7 @@ from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
 	get_xl_file_path,
+	get_native_struct_file,
 	get_model_output_dir_path,
 	return_model_sys_file,
 	get_benchmark_analysis_dir_path
@@ -47,6 +49,8 @@ class Analysis():
 
 		# Path to store the metadata for all systems.
 		self.pred_metadata = {}
+		# Contains native to system chain mapping for all systems.
+		self.native_sys_chain_map = {}
 		# Contains system index and residue position mapping.
 		self.sys_index_res_pos_map = {}
 		# Contains XLs with system indices for all benchmark systems.
@@ -69,9 +73,11 @@ class Analysis():
 		self.get_sys_pred_metadata()
 
 		self.get_residues_to_sys_index_mapping()
+		self.create_native_sys_chain_mapping()
+
 		self.create_xl_gt_features()
 
-		self.run_analysis()
+		self.run_analysis_per_config()
 
 
 	def create_required_files( self ):
@@ -86,8 +92,16 @@ class Analysis():
 			self.analysis_dir,
 			"tmp_struct_sim"
 		)
+		self.dockq_tmp_dir_path = os.path.join(
+			self.analysis_dir,
+			"tmp_dockq"
+		)
 
-		self.logs_file = os.path.join(
+		self.per_config_logs_file = os.path.join(
+			self.analysis_dir,
+			f"Logs_{self.benchmark_name}_{self.model}.npy"
+		)
+		self.cross_config_logs_file = os.path.join(
 			self.analysis_dir,
 			f"Logs_{self.benchmark_name}_{self.model}.npy"
 		)
@@ -105,13 +119,22 @@ class Analysis():
 		"""
 		Initialize the log dict or load a pre-existing one.
 		"""
-		if os.path.exists( self.logs_file ):
-			self.analysis_logs = np.load( self.logs_file, allow_pickle = True  ).item()
+		if os.path.exists( self.per_config_logs_file ):
+			self.per_config_logs = np.load(
+				self.per_config_logs_file, allow_pickle = True
+			).item()
 		else:
-			self.analysis_logs = {}
+			self.per_config_logs = {}
+
+		if os.path.exists( self.cross_config_logs_file ):
+			self.cross_config_logs = np.load(
+				self.cross_config_logs_file, allow_pickle = True
+			).item()
+		else:
+			self.cross_config_logs = {}
 
 
-	def return_config_names( self, model: str ):
+	def return_config_names( self, model: str ) -> List[str]:
 		"""
 		Return the configs for the specified model.
 		See model_configs.py for the existing configs.
@@ -150,9 +173,20 @@ class Analysis():
 		self.benchmark = pd.read_csv( benchmark_file )
 
 
-	def get_xl_max_bound( self, config_name: str ):
+	def get_xl_max_bound( self, config_name: str ) -> float:
 		"""
 		Set the XL max bound according to the XL type used.
+
+		Inputs:
+		----------
+		config_name: str identifier for the model configuration
+			used for prediction.
+			See model_configs.py.
+
+		Returns:
+		----------
+		xl_max_bound: max-bound for the cross-link type
+			specified in the config.
 		"""
 
 		if self.model_config[config_name]["xl_type"] is None:
@@ -179,6 +213,13 @@ class Analysis():
 			of predicted structures.
 		No output files would be returned if the prediction failed.
 			e.g. Boltz2 -> 6iww, 7agf
+
+		self.pred_metadata: {
+			sys_name: {
+				model_ids: List[int],
+				model_files: List[str]
+			}
+		}
 		"""
 		# for model in ["alphalink2", "grasp", "boltz2"]:
 		for config_name in self.return_config_names( model = self.model ):
@@ -216,6 +257,38 @@ class Analysis():
 				sys_name = sys_name
 			)
 			self.sys_index_res_pos_map[sys_name] = mapping
+
+	################################################################################
+	def create_native_sys_chain_mapping( self ):
+		"""
+		Map the native chain IDs to the system chain IDs.
+		The auth_asym_ids are stored as comma-separated string:
+			A:B,C:D
+			':' separates multiple instances of an entity.
+		
+		self.native_sys_chain_map: {
+			sys_name: {
+				native_chain: sys_chain
+			}
+		}
+		"""
+		for i in self.benchmark.index:
+			sys_name = self.benchmark.loc[i, "PDB ID"]
+			auth_asym_ids = self.benchmark.loc[i, "Auth Asym ID"].split( "," )
+
+			sys_chains = list( self.sys_index_res_pos_map[sys_name].keys() )
+			native_chains = []
+			# "A:B,C:D" -> ["A:B", "C:D"]
+			native_chains.extend( auth_asym_ids )
+			# "A:B:C:D" -> [A, B, C, D]
+			native_chains = ":".join( native_chains ).split( ":" )
+
+			if sys_name == "8kbh":
+				print( auth_asym_ids )
+				print( native_chains )
+				print( sys_chains )
+				# exit()
+			self.native_sys_chain_map[sys_name] = dict( zip( native_chains, sys_chains ) )
 
 	################################################################################
 	################################################################################
@@ -439,54 +512,82 @@ class Analysis():
 
 	################################################################################
 	################################################################################
-	def run_analysis( self ):
+	def run_analysis_per_config( self ):
 		"""
 		Measure the following:
 			Data satisfaction
 			Structural similarity
+			Select unique models based on structural similarity
 			DockQ wrt native
 		"""
 		for model_key in self.pred_metadata:
 			print( f"\nRunning analysis for {model_key}..." )
 			_, config_name = model_key.split( "_" )
-			if model_key not in self.analysis_logs:
-				self.analysis_logs[model_key] = {}
+			if model_key not in self.per_config_logs:
+				self.per_config_logs[model_key] = {}
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
+			remove = False
 			for sys_name in self.pred_metadata[model_key]:
+				self.per_config_logs[model_key][sys_name] = {}
+
+				print( f"System: {sys_name} " + "-"*20 )
 				t_s = time.perf_counter()
-				if sys_name in self.analysis_logs[model_key]:
-					continue
+
 				model_ids = self.pred_metadata[model_key][sys_name]["model_ids"]
 				model_files = self.pred_metadata[model_key][sys_name]["model_files"]
+				native_file = get_native_struct_file(
+					base_dir = self.base_dir,
+					benchmark_name = self.benchmark_name,
+					sys_name = sys_name
+				)
+
+				native_sys_chain_map = self.native_sys_chain_map[sys_name]
 
 				if len( model_ids ) == 0:
 					continue
 
-				xl_metrics = self.run_data_satisfaction_calc_per_sys(
-					sys_name = sys_name,
-					model_ids = model_ids,
-					model_files = model_files,
-					xl_max_bound = xl_max_bound
-				)
-				similarity_dict = self.run_struct_similarity_calc_per_sys(
-					model_ids = model_ids,
-					model_files = model_files
-				)
-				unique_models = self.get_unique_models_per_sys(
-					xl_metrics = xl_metrics,
-					similarity_dict = similarity_dict,
-					model_files = model_files
-				)
+				if "xl_metrics" not in self.per_config_logs[model_key][sys_name]:
+					xl_metrics = self.run_data_satisfaction_calc_per_sys(
+						sys_name = sys_name,
+						model_ids = model_ids,
+						model_files = model_files,
+						xl_max_bound = xl_max_bound
+					)
+					self.per_config_logs[model_key][sys_name]["xl_metrics"] = xl_metrics
+
+				if "struct_similarity" not in self.per_config_logs[model_key][sys_name]:
+					similarity_dict = self.run_struct_similarity_calc_per_sys(
+						model_ids = model_ids,
+						model_files = model_files
+					)
+					self.per_config_logs[model_key][sys_name]["struct_similarity"] = similarity_dict
+
+				if "unique_models" not in self.per_config_logs[model_key][sys_name]:
+					unique_models = self.get_unique_models_per_sys(
+						xl_metrics = xl_metrics,
+						similarity_dict = similarity_dict,
+						model_files = model_files
+					)
+					self.per_config_logs[model_key][sys_name]["unique_models"] = unique_models
+
+				if "dockq" not in self.per_config_logs[model_key][sys_name]:
+					dock_dict = self.run_dockq_calc_per_sys(
+						model_ids = model_ids,
+						model_files = model_files,
+						native_file = native_file,
+						native_sys_chain_map = native_sys_chain_map
+					)
+					self.per_config_logs[model_key][sys_name]["dockq"]  =dock_dict
+
 				t_e = time.perf_counter()
 				time_taken = t_e - t_s
-				self.analysis_logs[model_key][sys_name] = {
-					"xl_metrics": xl_metrics,
-					"struct_similarity": similarity_dict,
-					"unique_models": unique_models,
-					"time_taken": time_taken
-				}
-				print( f"Time taken for {sys_name} = {time_taken/60} minutes..." )
-				np.save( self.logs_file, self.analysis_logs, allow_pickle = True )
+
+				if "time_taken" not in self.per_config_logs[model_key][sys_name]:
+					self.per_config_logs[model_key][sys_name]["time_taken"]  =time_taken
+				# print( f"Time taken for {sys_name} = {time_taken/60} minutes..." )
+				np.save(
+					self.per_config_logs_file, self.per_config_logs, allow_pickle = True
+					)
 
 	################################################################################
 	def run_data_satisfaction_calc_per_sys(
@@ -499,6 +600,20 @@ class Analysis():
 		"""
 		Given the predicted models for a system, compute data
 			satisfaction for all predicted models.
+
+		Inputs:
+		----------
+		sys_name: name of the complex modeled. For the benchmark,
+			it's the PDB ID.
+		model_ids: a list of integer identifiers for a model.
+		model_files: a list of file paths for the predicted model.
+		xl_max_bound: max-bound for the cross-link type
+			specified in the config.
+
+		Returns:
+		----------
+		xl_metrics: dict containing the XL metrics computed for
+			all the given models.
 		"""
 		xl_sat_obj = XlSatisfaction(
 			model_ids = model_ids,
@@ -516,8 +631,15 @@ class Analysis():
 		model_files: List[str]
 		):
 		"""
-		Given the predicted models for a system, compute the
-			structural similarity across all models.
+		For a given system, compute the all-v-all structural similarity.
+
+		Inputs:
+		----------
+		model_ids: a list of integer identifiers for a model.
+		model_files: a list of file paths for the predicted model.
+
+		Returns:
+		----------
 		"""
 		sim_obj = StructuralSimilarity(
 			model_ids1 = model_ids,
@@ -543,7 +665,9 @@ class Analysis():
 			identify unique models (TM-score < 0.7) and obtain
 			xl metrics for the subset.
 		"""
-		unique_models = {k: [] for k in ["model_id", "xl_satisfaction", "struct_file"]}
+		unique_models = {
+			k: [] for k in ["model_id", "xl_satisfaction", "struct_file"]
+		}
 		# Fraction of XLs satisfied per model.
 		xl_satisfied = xl_metrics["xl_satisfaction"]
 		# For all i-th models.
@@ -559,6 +683,49 @@ class Analysis():
 				unique_models["xl_satisfaction"].append( xl_satisfied[k_i] )
 				unique_models["struct_file"].append( model_files[k_i] )
 		return unique_models
+
+	################################################################################
+	def run_dockq_calc_per_sys(
+		self,
+		model_ids: List[int],
+		model_files: List[str],
+		native_file: str,
+		native_sys_chain_map: Dict[str, str]
+	):
+		"""
+		For a given system, compute the DockQ for all models wrt the
+			native structure.
+		For the native model, a random model_id is given - 1000.
+
+		Inputs:
+		----------
+		model_ids: a list of integer identifiers for a model.
+		model_files: a list of file paths for the predicted model.
+		native_file: file path for the native structure of the system.
+		native_sys_chain_map: dict containing mapping between the native
+			and system chain IDs.
+
+		Returns:
+		----------
+		dock_dict: dict contaiing DockQ of all models wrt the native structure.
+		{
+			model_id: {
+				native_id: dockq
+			}
+		}
+		"""
+		dockq_obj = DockQ(
+			model_ids1 = model_ids,
+			model_files1 = model_files,
+			model_ids2 = [1000],
+			model_files2 = [native_file],
+			native_sys_chain_map = native_sys_chain_map,
+			tmp_dir_path = self.dockq_tmp_dir_path,
+			cpu_cores = self.cpu_cores
+		)
+		dockq_dict = dockq_obj.forward()
+		return dockq_dict
+
 
 if __name__ == "__main__":
 	Analysis().forward()
