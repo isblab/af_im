@@ -585,6 +585,7 @@ class Parser():
 
 def remap_chains_pdb(
 	struct_file: str,
+	map_dict: Dict[str, str] | None,
 	remapped_file: str = None ):
 	"""
 	Rename all chains in the given .pdb file.
@@ -601,7 +602,10 @@ def remap_chains_pdb(
 		raise ValueError( f"Incorrect file format: {ext}. required .pdb..." )
 
 	# Thie returns an iterable starting from A.
-	new_ids = iter( string.ascii_uppercase )
+	if map_dict is None:
+		new_ids = iter( string.ascii_uppercase )
+	else:
+		new_ids = iter( map_dict.values() )
 
 	structure = Parser( struct_file ).structure
 	for model in structure:
@@ -616,7 +620,9 @@ def remap_chains_pdb(
 def remap_chains_cif(
 	struct_file: str,
 	map_dict: Dict[str, str],
-	remapped_file: str = None ):
+	remapped_file: str = None,
+	use_native_chains: bool = False
+	):
 	"""
 	Map all chains in the given structure (.cif file) as specified in the map_dict.
 	e.g. For mapping chains from [H, L, C] to [A, B, C],
@@ -625,32 +631,61 @@ def remap_chains_cif(
 		"H": "A", "L": "B", "C": "C"
 	}
 	Modify both the label_asym_id and auth_asym_id.
+
+	Inputs:
+	----------
+	struct_file: path to the structure file for ehich the chain
+		IDs are to be remapped.
+	map_dict: dict containing native to system chain mapping.
+	remapped_file: file path for the structure file with chain
+		IDs remapped.
+	use_native_chains: if True, uses the native chain ID mapping in the given map_dict.
+		If False, redefines the map_dict using the auth_asym_ids in the input .cif file.
 	"""
-	base, ext = os.path.splitext( struct_file )
+	base, ext = os.path.splitext(struct_file)
 	if remapped_file is None:
 		remapped_file = base + "_remapped" + ext
-	else:
-		pass
 
-	if "cif" in ext:
-		io = MMCIFIO()
-	else:
-		raise ValueError( f"Incorrect file format: {ext}. required .cif..." )
+	if "cif" not in ext:
+		raise ValueError( f"Incorrect file format: {ext}. Required .cif..." )
 
 	mmcif_dict = MmcifDictParser( struct_file ).mmcif_dict
-	asym_to_auth = dict(
-		zip( mmcif_dict["_atom_site.label_asym_id"], mmcif_dict["_atom_site.auth_asym_id"] )
-	)
 
+	if not use_native_chains:
+		original_chains = set(mmcif_dict["_atom_site.auth_asym_id"])
+		sys_chains = list( map_dict.values() )
+		map_dict = dict( zip( original_chains, sys_chains ) )
+
+	# map asym_id to auth_asym_id..
+	# Raise an error if an asym_id maps to multiple auth_asym_ids.
+	asym_to_auth = {}
+	for label, auth in zip( mmcif_dict["_atom_site.label_asym_id"],
+							mmcif_dict["_atom_site.auth_asym_id"] ):
+		if label in asym_to_auth and asym_to_auth[label] != auth:
+			raise ValueError(
+				f"label_asym_id '{label}' maps to multiple auth_asym_ids"
+				)
+		asym_to_auth[label] = auth
+
+	# Remap auth_asym_id directly.
 	mmcif_dict["_atom_site.auth_asym_id"] = [
 		map_dict.get(chain_id, chain_id)
 		for chain_id in mmcif_dict["_atom_site.auth_asym_id"]
 	]
+
+	# Remap label_asym_id via its auth equivalent.
 	mmcif_dict["_atom_site.label_asym_id"] = [
-		map_dict.get(
-			asym_to_auth[chain_id], asym_to_auth[chain_id] )
+		map_dict.get( asym_to_auth.get( chain_id, chain_id ),
+						asym_to_auth.get( chain_id, chain_id ) )
 		for chain_id in mmcif_dict["_atom_site.label_asym_id"]
 	]
+
+	# Keep _struct_asym consistent.
+	if "_struct_asym.id" in mmcif_dict:
+		mmcif_dict["_struct_asym.id"] = [
+			map_dict.get( chain_id, chain_id )
+			for chain_id in mmcif_dict["_struct_asym.id"]
+		]
 
 	io = MMCIFIO()
 	io.set_dict( mmcif_dict )
