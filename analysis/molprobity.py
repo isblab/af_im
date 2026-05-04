@@ -5,6 +5,7 @@ Run MolProbity and provide the validation output.
 from typing import List, Tuple, Dict
 import os, shutil
 from multiprocessing import Pool
+import tqdm
 
 from utils.utils import run_subprocess
 
@@ -12,6 +13,13 @@ from utils.utils import run_subprocess
 class Molprobity():
 	"""
 	Perform Molprobity validation on the set of input models.
+
+	Inputs:
+	----------
+	model_ids: a list of integer identifiers for all models.
+	model_files: a list of structure file paths for all experiemntal/predicted models.
+	tmp_dir_path: path for a temporary dir to store intermediate files.
+	cpu_cores: no. of CPU coress to be used for parallelizing DockQ computation.
 	"""
 	def __init__(
 		self,
@@ -58,7 +66,10 @@ class Molprobity():
 		"""
 		models = zip( self.model_ids, self.model_files )
 		with Pool( self.cpu_cores ) as p:
-			for result in p.imap_unordered( self.validate, models ):
+			for result in tqdm.tqdm(
+				p.imap_unordered( self.validate, models ),
+				total = len( self.model_ids )
+				):
 				self.molprob_dict.update( result )
 
 
@@ -70,7 +81,7 @@ class Molprobity():
 		Get the Molprobity metrics.
 		"""
 		model_id, model_file = models
-		output_dir = os.path.join( self.tmp_dir, f"model_{model_id}" )
+		output_dir = os.path.join( self.tmp_dir_path, f"model_{model_id}" )
 
 		summary_dict = self.run_molprobity( model_file = model_file,
 							output_dir = output_dir )		
