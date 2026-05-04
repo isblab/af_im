@@ -2,7 +2,7 @@
 Contains wrapper for RMSD computation using USalign.
 """
 from typing import List, Tuple, Dict, Iterable
-import os, copy, time, warnings
+import os, copy, time, shutil
 from ml_collections import ConfigDict
 from multiprocessing import Pool
 import tqdm
@@ -77,8 +77,7 @@ class StructuralSimilarity():
 
 
 	def remove_tmp_dir( self ):
-		cmd = ["rm", "-r", f"{self.tmp_dir_path}"]
-		run_subprocess( cmd )
+		shutil.rmtree( self.tmp_dir_path )
 
 
 	def struct_models_exist( self ):
