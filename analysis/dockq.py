@@ -6,7 +6,6 @@ import os, shutil
 from multiprocessing import Pool
 import tqdm
 
-from utils.utils import run_subprocess
 from utils.tools import dockq
 from utils.pdb_utils import remap_chains_cif, remap_chains_pdb
 
@@ -15,6 +14,24 @@ class DockQ():
 	"""
 	Contains methods for computing DockQ.
 	Given two sets of models, we compute all-v-all DockQ.
+
+	Inputs:
+	----------
+	model_ids1: a list of integer identifiers for all modls in set 1 (model1).
+	model_files1: a list of structure file paths for all experiemntal/predicted
+		models in set 1 (model1).
+	model_ids2: a list of integer identifiers for all modls in set 2 (model2).
+	model_files2: a list of structure file paths for all experiemntal/predicted
+		models in set 2 (model2).
+	native_sys_chain_map: dict containing mapping between the native
+		and system chain IDs.
+	use_native_chains_for_model2: If True, sets the use_native_chains arg for
+		remap_chains_cif() to True, else False.
+		This stands on the assumption that model1's would always be the predicted
+			model and the model2's could be predicted models or the native structure.
+		For predicted models, the chain IDs may not be the native chain IDs.
+	tmp_dir_path: path for a temporary dir to store intermediate files.
+	cpu_cores: no. of CPU coress to be used for parallelizing DockQ computation.
 	"""
 	def __init__(
 		self,
@@ -23,6 +40,7 @@ class DockQ():
 		model_ids2: List[int],
 		model_files2: List[str],
 		native_sys_chain_map: Dict[str, str],
+		use_native_chains_for_model2: bool,
 		tmp_dir_path: str,
 		cpu_cores: int,
 	):
@@ -32,6 +50,7 @@ class DockQ():
 		self.model_files2 = model_files2
 		self.tmp_dir_path = tmp_dir_path
 
+		self.use_native_chains_for_model2 = use_native_chains_for_model2
 		self.native_sys_chain_map = native_sys_chain_map
 
 		self.cpu_cores = cpu_cores
@@ -80,13 +99,16 @@ class DockQ():
 		remapped_files1 = self.remap_chains_in_struct(
 			model_ids = self.model_ids1,
 			model_files = self.model_files1,
-			remap_prefix = "model1"
+			remap_prefix = "model1",
+			use_native_chains = False
 		)
 		self.remapped_dict["model_files1"] = remapped_files1
+
 		remapped_files2 = self.remap_chains_in_struct(
 			model_ids = self.model_ids2,
 			model_files = self.model_files2,
-			remap_prefix = "model2"
+			remap_prefix = "model2",
+			use_native_chains = self.use_native_chains_for_model2
 		)
 		self.remapped_dict["model_files2"] = remapped_files2
 
@@ -95,7 +117,8 @@ class DockQ():
 		self,
 		model_ids: List[int],
 		model_files: List[str],
-		remap_prefix: str
+		remap_prefix: str,
+		use_native_chains: bool
 	) -> List[str]:
 		"""
 		For running DockQ, the chain IDs in the native
@@ -125,7 +148,8 @@ class DockQ():
 				remap_chains_cif(
 					struct_file = model_file,
 					map_dict = self.native_sys_chain_map,
-					remapped_file = remapped_file
+					remapped_file = remapped_file,
+					use_native_chains = use_native_chains
 				)
 			elif ext == ".pdb":
 				remap_chains_pdb(
@@ -194,8 +218,8 @@ class DockQ():
 		for model_id2, model_file2 in zip(
 			self.model_ids2, self.remapped_dict["model_files2"]
 		):
-			print( model_file1 )
-			print( model_file2 )
+			# print( model_file1 )
+			# print( model_file2 )
 			d = dockq(
 				native_file = model_file1,
 				model_file = model_file2
