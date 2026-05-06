@@ -70,6 +70,8 @@ class DockQ():
 		self.compute_dockq_parallel()
 
 		self.remove_tmp_dir()
+		return self.dock_dict
+
 
 	def create_tmp_dir( self ):
 		"""
