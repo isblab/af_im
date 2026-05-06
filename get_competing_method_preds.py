@@ -929,11 +929,14 @@ class CompetingMethodsRunner():
 			"predict",
 			f"{self.inputs['restraints_file'][sys_name]}",
 			"--out_dir", f"{self.inputs['sys_dir_path'][sys_name]}",  # output dir.
+			"--num_subsampled_msa", f"{self.model_config.num_subsampled_msa}",
 			"--recycling_steps", f"{self.model_config.recycling_steps}",
 			"--sampling_steps", f"{self.model_config.sampling_steps}",
 			"--diffusion_samples", f"{self.model_config.diffusion_samples}",
 			# "--use_msa_server"  # We use pre-computed alignments.
 		]
+		if self.model_config.subsample_msa:
+			cmd.append( "--subsample_msa" )
 		# subprocess.call() doe snot allow conrol over the process, so using Popen.
 		proc = subprocess.Popen( cmd, env = env )
 		return proc
