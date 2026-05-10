@@ -92,7 +92,7 @@ class Molprobity():
 		self,
 		model_file: str,
 		output_dir: str
-		):
+		) -> Dict[str, float]:
 		"""
 		Run Molprobity validation using Phenix.
 		requires a PDB file with just 1 model.
