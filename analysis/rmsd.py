@@ -99,9 +99,26 @@ class StructuralSimilarity():
 
 	################################################################################
 	################################################################################
+	def prepr_input_for_parallel( self ):
+		"""
+		Create a list of all-v-all combinations of model1-model2 pairs
+			for parallel processing.
+		"""
+		parallel_input = []
+		total = 0
+		for m1, f1 in zip( self.model_ids1, self.model_files1 ):
+			for m2, f2 in zip( self.model_ids2, self.model_files2 ):
+				parallel_input.append(
+					( m1, f1, m2, f2 )
+				)
+				total += 1
+		return parallel_input, total
+
+
 	def compute_structural_similarity_parallel( self ):
 		"""
-		Parallelize similarity computation across all models in set1 (model_is1).
+		# Parallelize similarity computation across all models in set1 (model_is1).
+		We parallelize across pairs of model1-model2.
 		self.similarity_dict
 		{
 			model_id1: {
@@ -112,43 +129,56 @@ class StructuralSimilarity():
 			}
 		}
 		"""
-		model1s = list( zip( self.model_ids1, self.model_files1 ) )
+		parallel_input, total = self.prepr_input_for_parallel()
+		# model1s = list( zip( self.model_ids1, self.model_files1 ) )
 		with Pool( self.cpu_cores ) as p:
 			for result in tqdm.tqdm(
 				p.imap_unordered(
 					self.compute_structural_similarity_sequentially,
-					model1s,
+					parallel_input,
+					# model1s,
 					chunksize = self.cpu_cores//2
 				),
-				total = len( model1s )
+				total = total
+				# total = len( model1s )
 			):
-				model_id1, sim_dict = result
-				self.similarity_dict[model_id1] = sim_dict
+				model_id1, model_id2, rmsd, tm = result
+				if model_id1 not in self.similarity_dict:
+					self.similarity_dict[model_id1] = {}
+
+				self.similarity_dict[model_id1][model_id2] = {
+					"rmsd": rmsd, "tm": tm
+				}
+				# model_id1, sim_dict = result
+				# self.similarity_dict[model_id1] = sim_dict
 
 
 	def compute_structural_similarity_sequentially(
 		self,
-		model1: Tuple[int, str]
+		input_pair: Tuple
+		# model1: Tuple[int, str]
 		) -> Tuple[int, Dict[int, Dict]]:
 		"""
 		Compute the similarity of the model1 with all models in set 2 (model_ids2).
 		This is done sequentially.
 		"""
-		sim_dict = {}
-		model_id1, model_file1 = model1
-		for i, model_id2 in enumerate( self.model_ids2 ):
-			model_file2 = self.model_files2[i]
-			rmsd, tm = self.get_similarity_from_usalign(
-				model_id1 = model_id1,
-				model_file1 = model_file1,
-				model_id2 = model_id2,
-				model_file2 = model_file2
-			)
-			sim_dict[model_id2] = {
-				"rmsd": rmsd,
-				"tm": tm
-			}
-		return model_id1, sim_dict
+		# sim_dict = {}
+		# model_id1, model_file1 = model1
+		model_id1, model_file1, model_id2, model_file2 = input_pair
+		# for i, model_id2 in enumerate( self.model_ids2 ):
+			# model_file2 = self.model_files2[i]
+		rmsd, tm = self.get_similarity_from_usalign(
+			model_id1 = model_id1,
+			model_file1 = model_file1,
+			model_id2 = model_id2,
+			model_file2 = model_file2
+		)
+		return model_id1, model_id2, rmsd, tm
+		# 	sim_dict[model_id2] = {
+		# 		"rmsd": rmsd,
+		# 		"tm": tm
+		# 	}
+		# return model_id1, sim_dict
 
 
 	def get_similarity_from_usalign(

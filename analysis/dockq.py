@@ -58,7 +58,7 @@ class DockQ():
 		# Dict to store remapped file paths.
 		self.remapped_dict = {}
 		# Dict to store the structural similarity.
-		self.dock_dict = {}
+		self.dockq_dict = {}
 
 
 	def forward( self ):
@@ -70,7 +70,7 @@ class DockQ():
 		self.compute_dockq_parallel()
 
 		self.remove_tmp_dir()
-		return self.dock_dict
+		return self.dockq_dict
 
 
 	def create_tmp_dir( self ):
@@ -168,10 +168,27 @@ class DockQ():
 
 	################################################################################
 	################################################################################
+	def prepr_input_for_parallel( self ):
+		"""
+		Create a list of all-v-all combinations of model1-model2 pairs
+			for parallel processing.
+		"""
+		parallel_input = []
+		total = 0
+		for m1, f1 in zip( self.model_ids1, self.remapped_dict["model_files1"] ):
+			for m2, f2 in zip( self.model_ids2, self.remapped_dict["model_files2"] ):
+				parallel_input.append(
+					( m1, f1, m2, f2 )
+				)
+				total += 1
+		return parallel_input, total
+
+
 	def compute_dockq_parallel( self ):
 		"""
-		Parallelize computaing DockQ across all model1's.
-		For each model1 we compute DockQ wrt all model2's.
+		# Parallelize computaing DockQ across all model1's.
+		# For each model1 we compute DockQ wrt all model2's.
+		We parallelize across pairs of model1-model2.
 
 		self.dockq_dict: {
 			model_id1: {
@@ -179,24 +196,52 @@ class DockQ():
 			}
 		}
 		"""
-		model1s = list( zip( self.model_ids1, self.remapped_dict["model_files1"] ) )
-		# model1s = list( zip( self.model_ids1, self.model_files1 ) )
+		parallel_input, total = self.prepr_input_for_parallel()
+
 		with Pool( self.cpu_cores ) as p:
 			for result in tqdm.tqdm(
 				p.imap_unordered(
 					self.compute_dockq_sequential,
-					model1s,
+					parallel_input,
 					chunksize = self.cpu_cores//2
 				),
-				total = len( model1s )
+				desc = "DockQ",
+				total = total
 			):
-				model_id1, dock_dict = result
-				self.dock_dict[model_id1] = dock_dict
+				model_id1, model_id2, d = result
+				if not model_id1 in self.dockq_dict:
+					self.dockq_dict[model_id1] = {}
+				self.dockq_dict[model_id1][model_id2] = d
+				# if model_id2 in self.dock_dict[model_id1]:
+				# 	self.dock_dict[model_id1][model_id2] = d
+				# else:
+				# 	self.dock_dict[model_id1] = {
+				# 		model_id2: d
+				# 	}
+				# model_id1, dock_dict = result
+				# self.dock_dict[model_id1] = dock_dict
+
+
+
+		# model1s = list( zip( self.model_ids1, self.remapped_dict["model_files1"] ) )
+		# # model1s = list( zip( self.model_ids1, self.model_files1 ) )
+		# with Pool( self.cpu_cores ) as p:
+		# 	for result in tqdm.tqdm(
+		# 		p.imap_unordered(
+		# 			self.compute_dockq_sequential,
+		# 			model1s,
+		# 			chunksize = self.cpu_cores//2
+		# 		),
+		# 		total = len( model1s )
+		# 	):
+		# 		model_id1, dock_dict = result
+		# 		self.dock_dict[model_id1] = dock_dict
 
 
 	def compute_dockq_sequential(
 		self,
-		model1: Tuple[int, str]
+		input_pair: Tuple,
+		# model1: Tuple[int, str]
 		) -> Tuple[int, Dict[int, float]]:
 		"""
 		For the given model1, compute DockQ wrt all model2's.
@@ -215,17 +260,19 @@ class DockQ():
 				model_id2: dockq
 			}
 		"""
-		model_id1, model_file1 = model1
-		dockq_dict = {}
-		for model_id2, model_file2 in zip(
-			self.model_ids2, self.remapped_dict["model_files2"]
-		):
+		# model_id1, model_file1 = model1
+		model_id1, model_file1, model_id2, model_file2 = input_pair
+		# dockq_dict = {}
+		# for model_id2, model_file2 in zip(
+		# 	self.model_ids2, self.remapped_dict["model_files2"]
+		# ):
 			# print( model_file1 )
 			# print( model_file2 )
-			d = dockq(
-				native_file = model_file1,
-				model_file = model_file2
-			)
-			dockq_dict[model_id2] = d
-		return model_id1, dockq_dict
+		d = dockq(
+			native_file = model_file1,
+			model_file = model_file2
+		)
+		return model_id1, model_id2, d
+			# dockq_dict[model_id2] = d
+		# return model_id1, dockq_dict
 		
