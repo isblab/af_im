@@ -139,6 +139,7 @@ class StructuralSimilarity():
 					# model1s,
 					chunksize = self.cpu_cores//2
 				),
+				desc = "USalign",
 				total = total
 				# total = len( model1s )
 			):

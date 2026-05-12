@@ -68,6 +68,7 @@ class Molprobity():
 		with Pool( self.cpu_cores ) as p:
 			for result in tqdm.tqdm(
 				p.imap_unordered( self.validate, models ),
+				desc = "Molprobity",
 				total = len( self.model_ids )
 				):
 				self.molprob_dict.update( result )
