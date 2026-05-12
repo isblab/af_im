@@ -365,18 +365,24 @@ class CreateBenchmark():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = "short" )
+			xl_type = "short",
+			frac_fp = self.dataset_configs.jwalk.frac_tp_fp[1]
+			)
 		long_xl_file = get_xl_file_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = "long" )
-		fp_xl_file = get_xl_file_path(
-			base_dir = self.base_dir,
-			benchmark_name = self.benchmark_name,
-			sys_name = sys_name,
-			xl_type = "fp" )
-		return short_xl_file, long_xl_file, fp_xl_file
+			xl_type = "long",
+			frac_fp = self.dataset_configs.jwalk.frac_tp_fp[1]
+			)
+		# fp_xl_file = get_xl_file_path(
+		# 	base_dir = self.base_dir,
+		# 	benchmark_name = self.benchmark_name,
+		# 	sys_name = sys_name,
+		# 	xl_type = "fp",
+		# 	frac_fp = self.dataset_configs.frac_tp_fp[1]
+		# 	)
+		return short_xl_file, long_xl_file #, fp_xl_file
 
 	################################################################################
 	def create_sys_dir( self, sys_name: str ) -> str:
@@ -524,7 +530,7 @@ class CreateBenchmark():
 		----------
 		sys_dict: dict containing the configs for the system to be modeled.
 		"""
-		short_xl_file, long_xl_file, fp_xl_file = self.get_sys_xl_file_paths(
+		short_xl_file, long_xl_file = self.get_sys_xl_file_paths(
 			sys_name = sys_name
 		)
 		sys_dict = {
@@ -539,11 +545,11 @@ class CreateBenchmark():
 				"xl_max_bound": self.dataset_configs.jwalk.long_linker,
 				"file_name": long_xl_file,
 			},
-			"fp_xl_restraint": {
-				# FP XLs are evaluated at short_linker length.
-				"xl_max_bound": self.dataset_configs.jwalk.short_linker,
-				"file_name": fp_xl_file,
-			}
+			# "fp_xl_restraint": {
+			# 	# FP XLs are evaluated at short_linker length.
+			# 	"xl_max_bound": self.dataset_configs.jwalk.short_linker,
+			# 	"file_name": fp_xl_file,
+			# }
 		}
 		# }
 		return sys_dict
@@ -587,7 +593,8 @@ class CreateBenchmark():
 			Aka entry_id.
 		"""
 		xl_file_paths = self.get_sys_xl_file_paths( sys_name = sys_name )
-		xl_types = ( "short_xls", "long_xls", "fp_xls" )
+		xl_types = ( "short_xls", "long_xls")
+		# xl_types = ( "short_xls", "long_xls", "fp_xls" )
 		for xl_type, xl_file in zip( xl_types, xl_file_paths ):
 			xl_df = self.xl_datasets[sys_name][xl_type]
 			xl_df.to_csv( xl_file, index = False )
