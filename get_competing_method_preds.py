@@ -42,8 +42,6 @@ class CompetingMethodsRunner():
 		self,
 		model:str,
 		config_name: str,
-		# xl_type: str,
-		# guided_pred: bool,
 		device: str
 		):
 		self.config_dict = get_config_dict()
@@ -54,8 +52,6 @@ class CompetingMethodsRunner():
 
 		self.model = model # grasp/alphalink2
 		self.config_name = config_name
-		# self.xl_type = xl_type
-		# self.guided_pred = guided_pred
 		self.device = device
 
 		self.model_config = {}
@@ -214,8 +210,6 @@ class CompetingMethodsRunner():
 						# 	XL type (short/long/fp) specific dir
 		System specific dir will be created later.
 		"""
-		# pred_type = "" if self.model_config.guided_pred else "unguided"
-
 		self.output_dir = get_model_output_dir_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
@@ -299,75 +293,6 @@ class CompetingMethodsRunner():
 
 	################################################################################
 	################################################################################
-	# def yield_restraints( self,
-	# 	sys_name: str,
-	# 	xl_file: str,
-	# 	entity_chain_map: Dict[int, Dict],
-	# 	numeric_chain_ids: bool ):
-	# 	"""
-	# 	A generator that yields restrained residue pairs.
-	# 	Accounts for ambiguity.
-
-	# 	Note:
-	# 	For homomeric complexes, different chains in the experimental
-	# 		structure may be missing different sets of residues.
-	# 		We select the residues to be modeled from only 1 of the chains.
-	# 			As a result some XLs may not be modeled.
-	# 			We ignore these XLs here.
-	# 	XLs have previously been mapped to the 1-indexed seq_id in .cif files.
-	# 		However, the residue positions for the modeled seq may or may not
-	# 			start from 1.
-	# 		So, we get the index for the the modeled residues.
-	# 		residue no = residue index + 1
-	# 	Sanity checks if the Xl'd residue is Lys or not.
-	# 		JWalk only rturns Lys-Lys XLs.
-	# 	"""
-	# 	xl_df = pd.read_csv( xl_file )
-
-	# 	for row in xl_df.iterrows():
-	# 		p1, p2 = row[1]["prot1"], row[1]["prot2"]
-	# 		r1, r2, label = row[1]["res1"], row[1]["res2"], row[1]["label"]
-	# 		r1, r2 = int( r1 ), int( r2 )
-
-	# 		entity_id1 = int( p1.split( "_" )[1] )
-	# 		entity_id2 = int( p2.split( "_" )[1] )
-
-	# 		# Get the residue indices.
-	# 		try:
-	# 			r1_idx = np.where( entity_chain_map[entity_id1]["residues"] == r1 )[0][0]
-	# 		except:
-	# 			continue
-
-	# 		try:
-	# 			r2_idx = np.where( entity_chain_map[entity_id2]["residues"] == r2 )[0][0]
-	# 		except:
-	# 			continue
-	# 		res1 = r1_idx + 1
-	# 		res2 = r2_idx + 1
-
-	# 		seq1 = entity_chain_map[entity_id1]["seq"]
-	# 		seq2 = entity_chain_map[entity_id2]["seq"]
-
-	# 		# For ambiguous XLs, we consider all combinations.
-	# 		for chain_id1 in entity_chain_map[entity_id1]["chains"]:
-	# 			if not numeric_chain_ids:
-	# 				chain_id1 = get_chain_id( chain_id1 - 1  ) # 0-indexed.
-	# 			for chain_id2 in entity_chain_map[entity_id2]["chains"]:
-	# 				if not numeric_chain_ids:
-	# 					chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
-
-	# 				if seq1[r1_idx] != "K":
-	# 					raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
-	# 						f"Chain: {chain_id1}; residue {res1} is not a Lys..." )
-
-	# 				if seq2[r2_idx] != "K":
-	# 					raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
-	# 						f"Chain: {chain_id2}; residue {res2} is not a Lys..." )
-
-	# 				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2
-
-	################################################################################
-	################################################################################
 	def create_restraints_file_grasp( self, sys_name: str ):
 		"""
 		Create a .txt file containing the Xl residues.
@@ -395,7 +320,8 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type
+			xl_type = self.model_config.xl_type,
+			frac_fp = self.model_config.frac_fp
 		)
 
 		entity_chain_map = get_entity_chain_mapping(
@@ -482,7 +408,7 @@ class CompetingMethodsRunner():
 			with open( pkl_feat_file, "wb" ) as f_out:
 				shutil.copyfileobj( f_in, f_out )
 
-		if self.model_config.guided_pred:
+		if self.model_config.pred_type == "unguided":
 			restraints_file = self.inputs['restraints_file'][sys_name]
 		else:
 			restraints_file = None
@@ -836,7 +762,8 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type
+			xl_type = self.model_config.xl_type,
+			frac_fp = self.model_config.frac_fp
 		)
 
 		entity_chain_map = get_entity_chain_mapping(
@@ -870,7 +797,8 @@ class CompetingMethodsRunner():
 				base_dir = self.base_dir,
 				benchmark_name = self.benchmark_name,
 				sys_name = sys_name,
-				xl_type = self.model_config["xl_type"]
+				xl_type = self.model_config["xl_type"],
+				frac_fp = self.model_config.frac_fp
 			)
 
 			# Will add all Xl restraints as contacts for conditioning Boltz-2.
@@ -923,7 +851,6 @@ class CompetingMethodsRunner():
 		env["CUDA_VISIBLE_DEVICES"] = str( gpu_id )
 		# So the device must be changed to cuda:0.
 		device = "cuda:0"
-
 		cmd = [
 			"boltz",
 			"predict",
@@ -933,6 +860,8 @@ class CompetingMethodsRunner():
 			"--recycling_steps", f"{self.model_config.recycling_steps}",
 			"--sampling_steps", f"{self.model_config.sampling_steps}",
 			"--diffusion_samples", f"{self.model_config.diffusion_samples}",
+			"--max_parallel_samples", f"{self.model_config.max_parallel_samples}",
+			"--step_scale", f"{self.model_config.step_scale}"
 			# "--use_msa_server"  # We use pre-computed alignments.
 		]
 		if self.model_config.subsample_msa:
@@ -976,6 +905,7 @@ class CompetingMethodsRunner():
 		base = os.path.abspath( os.getcwd() )
 		gpu_id = int( self.device.split( ":" )[1] )
 		for idx, sys_name in enumerate( self.benchmark["PDB ID"] ):
+			# if sys_name in self.logs["completed"] and sys_name not in ["6iww", "7agf"]:
 			if sys_name in self.logs["completed"]:
 				print( f"Already completed for {sys_name}" )
 				continue
@@ -1037,14 +967,6 @@ if __name__ == "__main__":
 		"-c", "--config_name",
 		type = str, required = True,
 		help = "Specify the model config to be used. See model_configs.py." )
-	# parser.add_argument(
-	# 	"-x", "--xl_type",
-	# 	type = str, required = True,
-	# 	help = "cross-link type to be used: short/long/fp..." )
-	# parser.add_argument(
-	# 	"-p", "--guided_pred",
-	# 	action = "store_true",
-	# 	help = "If specified use restraints for prediction else run unguided prediction..." )
 	parser.add_argument(
 		"-d", "--device",
 		type = str, required = True,
@@ -1054,7 +976,5 @@ if __name__ == "__main__":
 	CompetingMethodsRunner(
 		model = args.model,
 		config_name = args.config_name,
-		# xl_type = args.xl_type,
-		# guided_pred = args.guided_pred,
 		device = args.device
 		).forward()
