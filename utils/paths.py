@@ -83,7 +83,7 @@ def get_benchmark_csv_file(
 
 	Return:
 	----------
-	stat_file_path: path to the benchmark .csv file.
+	csv_file_path: path to the benchmark .csv file.
 	"""
 	if raw_file:
 		file_name = f"{benchmark_name}_benchmark.csv"
@@ -131,7 +131,8 @@ def get_xl_file_path(
 	base_dir: str,
 	benchmark_name: str,
 	sys_name: str,
-	xl_type: str
+	xl_type: str,
+	frac_fp: str
 	) -> str:
 	"""
 	Return the path to the XLs .csv file for the given system.
@@ -154,7 +155,8 @@ def get_xl_file_path(
 
 	xl_file_path = os.path.join(
 		data_dir,
-		f"interprotein_xls_{xl_type}.csv" )
+		# f"interprotein_xls_{xl_type}.csv" )
+		f"interprotein_xls_{xl_type}_{frac_fp}.csv" )
 	return xl_file_path
 
 ################################################################################
@@ -488,7 +490,7 @@ def return_model_sys_file(
 	benchmark_name: str,
 	config_name: str,
 	sys_name: str
-) -> Tuple[List[str], List[str]] | Tuple[List[str], List[str], List[str]]:
+) -> Tuple:
 	"""
 	Return the system-specific predicted output files for the given model.
 
