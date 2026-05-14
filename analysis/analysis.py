@@ -13,6 +13,7 @@ from data_satisfaction import XlSatisfaction
 from rmsd import StructuralSimilarity
 from dockq import DockQ
 from molprobity import Molprobity
+from variability import EnsembleVariability
 from utils.mappings import (
 	yield_restraints,
 	get_entity_chain_mapping,
@@ -45,7 +46,7 @@ class Analysis():
 		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
 
 		self.model = "boltz2"
-		self.cpu_cores = 50
+		self.cpu_cores = 100
 		self.model_config = {}
 
 		# Path to store the metadata for all systems.
@@ -76,7 +77,7 @@ class Analysis():
 		self.get_residues_to_sys_index_mapping()
 		self.create_native_sys_chain_mapping()
 
-		self.create_xl_gt_features()
+		# self.create_xl_gt_features()
 
 		self.run_analysis_per_config()
 
@@ -230,7 +231,12 @@ class Analysis():
 		for config_name in self.return_config_names( model = self.model ):
 			# print( self.model_config[config_name].keys() )
 			# print( self.model_config.keys() )
-			self.xl_type = self.model_config[config_name]["xl_type"]
+			if self.model_config[config_name]["xl_type"] is None:
+				xl_type = "short"
+			else:
+				xl_type = self.model_config[config_name]["xl_type"]
+
+			# self.xl_type = self.model_config[config_name]["xl_type"]
 			model_key = f"{self.model}_{config_name}"
 			self.pred_metadata[model_key] = {}
 
@@ -245,7 +251,9 @@ class Analysis():
 				model_ids = np.arange( 0, len( out_files[0] ), 1 )
 				self.pred_metadata[model_key][sys_name] = {
 					"model_ids": model_ids,
-					"model_files": out_files[0]
+					"model_files": out_files[0],
+					"xl_type": xl_type,
+					"frac_fp": self.model_config[config_name]["frac_fp"]
 				}
 
 	################################################################################
@@ -288,28 +296,33 @@ class Analysis():
 			# "A:B:C:D" -> [A, B, C, D]
 			native_chains = ":".join( native_chains ).split( ":" )
 
-			if sys_name == "8kbh":
-				print( auth_asym_ids )
-				print( native_chains )
-				print( sys_chains )
-				# exit()
 			self.native_sys_chain_map[sys_name] = dict( zip( native_chains, sys_chains ) )
 
 	################################################################################
 	################################################################################
-	def create_xl_gt_features( self ):
+	def create_xl_gt_features(
+		self,
+		model_key: str
+		):
 		"""
 		Wrapper for creating XL ground truth features for all systems in
 			the benchmark.
 		"""
+		self.xl_res_dict = {}
 
 		for sys_name in self.benchmark["PDB ID"]:
-			xl_dict = self.create_xl_gt_features_per_sys( sys_name = sys_name )
+			xl_dict = self.create_xl_gt_features_per_sys(
+				sys_name = sys_name,
+				xl_type = self.pred_metadata[model_key][sys_name]["xl_type"],
+				frac_fp = self.pred_metadata[model_key][sys_name]["frac_fp"]
+			)
 			self.xl_res_dict[sys_name] = xl_dict
 
 
 	def create_xl_gt_features_per_sys( self,
-		sys_name: str
+		sys_name: str,
+		xl_type: str,
+		frac_fp: float
 		):
 		"""
 		Create a dict containing all the cross-linked residue.
@@ -340,7 +353,9 @@ class Analysis():
 		xl_dict = {}
 
 		xl_flat_amb_dict = self.get_all_ambiguous_xls_per_sys(
-			sys_name = sys_name
+			sys_name = sys_name,
+			xl_type = xl_type,
+			frac_fp = frac_fp
 		)
 		# Sanity check: at this stage XLs must exist.
 		if any( [len( v ) == 0 for k, v in xl_flat_amb_dict.items()] ):
@@ -356,7 +371,9 @@ class Analysis():
 
 
 	def get_all_ambiguous_xls_per_sys( self,
-		sys_name: str
+		sys_name: str,
+		xl_type: str,
+		frac_fp: float
 		) -> Dict[str, List]:
 		"""
 		For the given system,
@@ -391,7 +408,8 @@ class Analysis():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.xl_type
+			xl_type = xl_type,
+			frac_fp = frac_fp
 		)
 		entity_chain_map = get_entity_chain_mapping(
 			base_dir = self.base_dir,
@@ -521,9 +539,12 @@ class Analysis():
 		"""
 		Measure the following:
 			Data satisfaction
-			Structural similarity
-			Select unique models based on structural similarity
+			Structural similarity across all predicted model
+			TM-score wrt native
 			DockQ wrt native
+			Select unique models based on structural similarity
+			Molprobity
+			Per-residue RMSF (also obtain the per-residue pLDDT)
 		"""
 		for model_key in self.pred_metadata:
 			print( f"\nRunning analysis for {model_key}..." )
@@ -531,12 +552,14 @@ class Analysis():
 			if model_key not in self.per_config_logs:
 				self.per_config_logs[model_key] = {}
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
+			self.create_xl_gt_features( model_key = model_key )
 
-			for sys_name in self.pred_metadata[model_key]:
+			total = len( self.pred_metadata[model_key] )
+			for i, sys_name in enumerate( self.pred_metadata[model_key] ):
 				if sys_name not in self.per_config_logs[model_key]:
 					self.per_config_logs[model_key][sys_name] = {}
 
-				print( f"System: {sys_name} " + "-"*20 )
+				print( f"\n{i}/{total}. System: {sys_name} " + "-"*20 )
 				t_s = time.perf_counter()
 
 				model_ids = self.pred_metadata[model_key][sys_name]["model_ids"]
@@ -553,6 +576,7 @@ class Analysis():
 					continue
 
 				if "xl_metrics" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing XL satisfaction..." )
 					xl_metrics = self.run_data_satisfaction_calc_per_sys(
 						sys_name = sys_name,
 						model_ids = model_ids,
@@ -562,41 +586,84 @@ class Analysis():
 					self.per_config_logs[model_key][sys_name]["xl_metrics"] = xl_metrics
 
 				if "struct_similarity" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing structural similarity..." )
 					similarity_dict = self.run_struct_similarity_calc_per_sys(
-						model_ids = model_ids,
-						model_files = model_files
+						model_ids1 = model_ids,
+						model_ids2 = model_ids,
+						model_files1 = model_files,
+						model_files2 = model_files
 					)
 					self.per_config_logs[model_key][sys_name]["struct_similarity"] = similarity_dict
 
-				if "unique_models" not in self.per_config_logs[model_key][sys_name]:
-					unique_models = self.get_unique_models_per_sys(
-						xl_metrics = xl_metrics,
-						similarity_dict = similarity_dict,
-						model_files = model_files
+				if "tm" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing structural similarity wrt native structure..." )
+					dock_dict = self.run_struct_similarity_calc_per_sys(
+						model_ids1 = model_ids,
+						model_ids2 = [1000],
+						model_files1 = model_files,
+						model_files2 = [native_file]
 					)
-					self.per_config_logs[model_key][sys_name]["unique_models"] = unique_models
+					self.per_config_logs[model_key][sys_name]["tm"]  = dock_dict
 
-				# if "dockq" not in self.per_config_logs[model_key][sys_name]:
-				dock_dict = self.run_dockq_calc_per_sys(
-					model_ids = model_ids,
-					model_files = model_files,
-					native_file = native_file,
-					native_sys_chain_map = native_sys_chain_map
-				)
-				self.per_config_logs[model_key][sys_name]["dockq"]  =dock_dict
+				if "interface_similarity" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing interface similarity..." )
+					dock_dict = self.run_dockq_calc_per_sys(
+						model_ids1 = model_ids,
+						model_ids2 = model_ids,
+						model_files1 = model_files,
+						model_files2 = model_files,
+						native_sys_chain_map = native_sys_chain_map,
+						use_native_chains_for_model2 = False
+					)
+					self.per_config_logs[model_key][sys_name]["interface_similarity"]  = dock_dict
+
+				if "dockq" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing interface similarity wrt native structure..." )
+					dock_dict = self.run_dockq_calc_per_sys(
+						model_ids1 = model_ids,
+						model_ids2 = [1000],
+						model_files1 = model_files,
+						model_files2 = [native_file],
+						native_sys_chain_map = native_sys_chain_map,
+						use_native_chains_for_model2 = True
+					)
+					self.per_config_logs[model_key][sys_name]["dockq"]  = dock_dict
 
 				if "molprob" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing Molprobity metrics..." )
 					molprob_dict = self.run_molprobity_calc_per_sys(
 						model_ids = model_ids,
 						model_files = model_files
 					)
-					self.per_config_logs[model_key][sys_name]["dockmolprob"] = molprob_dict
+					self.per_config_logs[model_key][sys_name]["molprob"] = molprob_dict
+
+				if "unique_models" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing no. of unique models..." )
+					xl_metrics = self.per_config_logs[model_key][sys_name]["xl_metrics"]
+					similarity_dict = self.per_config_logs[model_key][sys_name]["struct_similarity"]
+					molprob_dict = self.per_config_logs[model_key][sys_name]["molprob"]
+					dock_dict = self.per_config_logs[model_key][sys_name]["dockq"]
+					unique_models = self.get_unique_models_per_sys(
+						xl_metrics = xl_metrics,
+						similarity_dict = similarity_dict,
+						dock_dict = dock_dict,
+						molprob_dict = molprob_dict,
+						model_files = model_files
+					)
+					self.per_config_logs[model_key][sys_name]["unique_models"] = unique_models
+
+				if "rmsf" not in self.per_config_logs[model_key][sys_name]:
+					rmsf_dict = self.run_rmsf_calc_per_sys(
+						model_ids = model_ids,
+						model_files = model_files
+					)
+					self.per_config_logs[model_key][sys_name]["rmsf"] = rmsf_dict
 
 				t_e = time.perf_counter()
 				time_taken = t_e - t_s
 
 				if "time_taken" not in self.per_config_logs[model_key][sys_name]:
-					self.per_config_logs[model_key][sys_name]["time_taken"]  =time_taken
+					self.per_config_logs[model_key][sys_name]["time_taken"] = time_taken
 				# print( f"Time taken for {sys_name} = {time_taken/60} minutes..." )
 				np.save(
 					self.per_config_logs_file, self.per_config_logs, allow_pickle = True
@@ -640,8 +707,10 @@ class Analysis():
 	################################################################################
 	def run_struct_similarity_calc_per_sys(
 		self,
-		model_ids: List[int],
-		model_files: List[str]
+		model_ids1: List[int],
+		model_ids2: List[int],
+		model_files1: List[str],
+		model_files2: List[str]
 		):
 		"""
 		For a given system, compute the all-v-all structural similarity.
@@ -655,10 +724,10 @@ class Analysis():
 		----------
 		"""
 		sim_obj = StructuralSimilarity(
-			model_ids1 = model_ids,
-			model_files1 = model_files,
-			model_ids2 = model_ids,
-			model_files2 = model_files,
+			model_ids1 = model_ids1,
+			model_files1 = model_files1,
+			model_ids2 = model_ids2,
+			model_files2 = model_files2,
 			tmp_dir_path = self.struct_sim_tmp_dir_path,
 			cpu_cores = self.cpu_cores
 		)
@@ -671,6 +740,8 @@ class Analysis():
 		self,
 		xl_metrics: Dict[str, Any],
 		similarity_dict: Dict[int, Dict[int, Dict]],
+		dock_dict: Dict[int, Dict[int, Dict]],
+		molprob_dict: Dict[str, float],
 		model_files: List[str]
 	):
 		"""
@@ -679,31 +750,35 @@ class Analysis():
 			xl metrics for the subset.
 		"""
 		unique_models = {
-			k: [] for k in ["model_id", "xl_satisfaction", "struct_file"]
+			k: [] for k in ["model_id", "xl_satisfaction", "dockq", "struct_file", "molprob"]
 		}
 		# Fraction of XLs satisfied per model.
 		xl_satisfied = xl_metrics["xl_satisfaction"]
 		# For all i-th models.
 		for k_i in similarity_dict:
-			# Select all models except for k_i==k_j.
+			# Select all models except for k_i==k_j and j>i.
 			sim_ij = np.array(
-				[v["tm"] for k_j, v in similarity_dict[k_i].items() if k_i != k_j]
+				[v["tm"] for k_j, v in similarity_dict[k_i].items() if k_i < k_j]
 			)
 			if np.all( sim_ij < 0.7 ):
 				# By construction, model_id and the model index are the same.
 				# 	See self.get_sys_pred_metadata()
 				unique_models["model_id"].append( k_i )
 				unique_models["xl_satisfaction"].append( xl_satisfied[k_i] )
+				unique_models["dockq"].append( dock_dict[k_i] )
+				unique_models["molprob"].append( molprob_dict[k_i] )
 				unique_models["struct_file"].append( model_files[k_i] )
 		return unique_models
 
 	################################################################################
 	def run_dockq_calc_per_sys(
 		self,
-		model_ids: List[int],
-		model_files: List[str],
-		native_file: str,
-		native_sys_chain_map: Dict[str, str]
+		model_ids1: List[int],
+		model_ids2: List[int],
+		model_files1: List[str],
+		model_files2: List[str],
+		native_sys_chain_map: Dict[str, str],
+		use_native_chains_for_model2: bool
 	):
 		"""
 		For a given system, compute the DockQ for all models wrt the
@@ -728,12 +803,12 @@ class Analysis():
 		}
 		"""
 		dockq_obj = DockQ(
-			model_ids1 = model_ids,
-			model_files1 = model_files,
-			model_ids2 = [1000],
-			model_files2 = [native_file],
+			model_ids1 = model_ids1,
+			model_files1 = model_files1,
+			model_ids2 = model_ids2,
+			model_files2 = model_files2,
 			native_sys_chain_map = native_sys_chain_map,
-			use_native_chains_for_model2 = True,
+			use_native_chains_for_model2 = use_native_chains_for_model2,
 			tmp_dir_path = self.dockq_tmp_dir_path,
 			cpu_cores = self.cpu_cores
 		)
@@ -775,6 +850,37 @@ class Analysis():
 		molprob_dict = molprob_obj.forward()
 		return molprob_dict
 
+	################################################################################
+	def run_rmsf_calc_per_sys(
+		self,
+		model_ids: List[int],
+		model_files: List[str]
+	):
+		"""
+		For a given system, obtain the per-residue RMSF across all models.
+
+		Inputs:
+		----------
+		model_ids: a list of integer identifiers for a model.
+		model_files: a list of file paths for the predicted model.
+
+		Returns:
+		----------
+		rmsf_dict: dict containng various per-residue RMSF and pLDDT.
+		{
+			model_id: {
+				molrpobity metric name: value
+			}
+		}
+		"""
+		ensem_obj = EnsembleVariability(
+			model_ids = model_ids,
+			model_files = model_files,
+			tmp_dir_path = self.molprob_tmp_dir_path,
+			cpu_cores = self.cpu_cores
+		)
+		rmsf_dict = ensem_obj.forward()
+		return rmsf_dict
 
 if __name__ == "__main__":
 	Analysis().forward()
