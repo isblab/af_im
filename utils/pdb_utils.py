@@ -585,7 +585,7 @@ class Parser():
 
 def remap_chains_pdb(
 	struct_file: str,
-	map_dict: Dict[str, str] | None,
+	map_dict: Dict[str, str],
 	remapped_file: str = None ):
 	"""
 	Rename all chains in the given .pdb file.
