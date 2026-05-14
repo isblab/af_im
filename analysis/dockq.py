@@ -132,6 +132,13 @@ class DockQ():
 		model_ids: a list of integer identifiers for a model.
 		model_files: a list of file paths for the predicted model.
 		remap_prefix: prefix for the remapped file.
+		use_native_chains: if True, uses the native chain ID mapping
+			in the given map_dict.
+			This is required because the native chains are defined based
+			on the experimental structure, which may not be the same for
+			the predicted structures.
+			Hence, for predicted structures we redefine native chains based
+			on the auth_asym_ids.
 
 		Returns:
 		----------
@@ -168,10 +175,17 @@ class DockQ():
 
 	################################################################################
 	################################################################################
-	def prepr_input_for_parallel( self ):
+	def prep_input_for_parallel( self ) -> Tuple[List, int]:
 		"""
 		Create a list of all-v-all combinations of model1-model2 pairs
 			for parallel processing.
+		
+		Returns:
+		----------
+		parallel_input: a list of tuples containing the model_id and file path for
+			the structures to compute the DockQ.
+			model_id1, model_file1, model_id2, model_file2
+		total: total no. of model1-model2 pairs.
 		"""
 		parallel_input = []
 		total = 0
@@ -186,9 +200,7 @@ class DockQ():
 
 	def compute_dockq_parallel( self ):
 		"""
-		# Parallelize computaing DockQ across all model1's.
-		# For each model1 we compute DockQ wrt all model2's.
-		We parallelize across pairs of model1-model2.
+		We parallelize computing DockQ across pairs of model1-model2.
 
 		self.dockq_dict: {
 			model_id1: {
@@ -196,7 +208,7 @@ class DockQ():
 			}
 		}
 		"""
-		parallel_input, total = self.prepr_input_for_parallel()
+		parallel_input, total = self.prep_input_for_parallel()
 
 		with Pool( self.cpu_cores ) as p:
 			for result in tqdm.tqdm(
@@ -212,67 +224,31 @@ class DockQ():
 				if not model_id1 in self.dockq_dict:
 					self.dockq_dict[model_id1] = {}
 				self.dockq_dict[model_id1][model_id2] = d
-				# if model_id2 in self.dock_dict[model_id1]:
-				# 	self.dock_dict[model_id1][model_id2] = d
-				# else:
-				# 	self.dock_dict[model_id1] = {
-				# 		model_id2: d
-				# 	}
-				# model_id1, dock_dict = result
-				# self.dock_dict[model_id1] = dock_dict
-
-
-
-		# model1s = list( zip( self.model_ids1, self.remapped_dict["model_files1"] ) )
-		# # model1s = list( zip( self.model_ids1, self.model_files1 ) )
-		# with Pool( self.cpu_cores ) as p:
-		# 	for result in tqdm.tqdm(
-		# 		p.imap_unordered(
-		# 			self.compute_dockq_sequential,
-		# 			model1s,
-		# 			chunksize = self.cpu_cores//2
-		# 		),
-		# 		total = len( model1s )
-		# 	):
-		# 		model_id1, dock_dict = result
-		# 		self.dock_dict[model_id1] = dock_dict
 
 
 	def compute_dockq_sequential(
 		self,
 		input_pair: Tuple,
-		# model1: Tuple[int, str]
 		) -> Tuple[int, Dict[int, float]]:
 		"""
 		For the given model1, compute DockQ wrt all model2's.
 
 		Inputs:
 		----------
-		model_ids1: integer identifiers for the model in set 1 (model1).
-		model_files1: file path for the mdoel in set 1 (model1).
+		input_pair: a tuple containing the model_id and file path for
+			the structures to compute the DockQ.
+			model_id1, model_file1, model_id2, model_file2
 
 		Returns:
 		----------
 		model_ids1: integer identifiers for the model in set 1 (model1).
-		dockq_dict: dict containing DockQ for model_id1 wrt all
-			models in set 2 (model2).
-			{
-				model_id2: dockq
-			}
+		model_ids2: integer identifiers for the model in set 2 (model2).
+		dockq score: DockQ score for the given models.
 		"""
-		# model_id1, model_file1 = model1
 		model_id1, model_file1, model_id2, model_file2 = input_pair
-		# dockq_dict = {}
-		# for model_id2, model_file2 in zip(
-		# 	self.model_ids2, self.remapped_dict["model_files2"]
-		# ):
-			# print( model_file1 )
-			# print( model_file2 )
 		d = dockq(
 			native_file = model_file1,
 			model_file = model_file2
 		)
 		return model_id1, model_id2, d
-			# dockq_dict[model_id2] = d
-		# return model_id1, dockq_dict
 		
