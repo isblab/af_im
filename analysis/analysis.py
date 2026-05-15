@@ -12,6 +12,7 @@ from model_configs import BOLTZ, GRASP, ALPHALINK
 from data_satisfaction import XlSatisfaction
 from rmsd import StructuralSimilarity
 from dockq import DockQ
+from unique_models import UniqueStructures
 from molprobity import Molprobity
 from variability import EnsembleVariability
 from utils.mappings import (
@@ -36,7 +37,7 @@ class Analysis():
 	"""
 	def __init__(
 		self,
-		# model:str,
+		model: str,
 		# xl_type: str
 		):
 		self.config_dict = get_config_dict()
@@ -45,8 +46,9 @@ class Analysis():
 			)
 		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
 
-		self.model = "boltz2"
+		self.model = model
 		self.cpu_cores = 100
+		self.save_every = 1
 		self.model_config = {}
 
 		# Path to store the metadata for all systems.
@@ -68,16 +70,17 @@ class Analysis():
 			DockQ.
 			No. of Unique structures.
 		"""
+		print( f"Running analysis pipeline for {self.model}...\n" + "-"*50  )
 		self.create_required_files()
 		self.create_required_dir()
 		self.init_logs()
 		self.load_benchmark()
 		self.get_sys_pred_metadata()
 
+		print( f"Will save results every {self.save_every} iterations..." )
+
 		self.get_residues_to_sys_index_mapping()
 		self.create_native_sys_chain_mapping()
-
-		# self.create_xl_gt_features()
 
 		self.run_analysis_per_config()
 
@@ -92,22 +95,18 @@ class Analysis():
 		)
 		self.struct_sim_tmp_dir_path = os.path.join(
 			self.analysis_dir,
-			"tmp_struct_sim"
+			f"tmp_struct_sim_{self.model}"
 		)
 		self.dockq_tmp_dir_path = os.path.join(
 			self.analysis_dir,
-			"tmp_dockq"
+			f"tmp_dockq_{self.model}"
 		)
 		self.molprob_tmp_dir_path = os.path.join(
 			self.analysis_dir,
-			"tmp_molprob"
+			f"tmp_molprob_{self.model}"
 		)
 
 		self.per_config_logs_file = os.path.join(
-			self.analysis_dir,
-			f"Logs_{self.benchmark_name}_{self.model}.npy"
-		)
-		self.cross_config_logs_file = os.path.join(
 			self.analysis_dir,
 			f"Logs_{self.benchmark_name}_{self.model}.npy"
 		)
@@ -132,12 +131,12 @@ class Analysis():
 		else:
 			self.per_config_logs = {}
 
-		if os.path.exists( self.cross_config_logs_file ):
-			self.cross_config_logs = np.load(
-				self.cross_config_logs_file, allow_pickle = True
-			).item()
-		else:
-			self.cross_config_logs = {}
+		# if os.path.exists( self.cross_config_logs_file ):
+		# 	self.cross_config_logs = np.load(
+		# 		self.cross_config_logs_file, allow_pickle = True
+		# 	).item()
+		# else:
+		# 	self.cross_config_logs = {}
 
 
 	def return_config_names( self, model: str ) -> List[str]:
@@ -161,7 +160,9 @@ class Analysis():
 		elif model == "alphalink2":
 			self.model_config = ALPHALINK
 
-		config_names = [c for c in self.model_config if c != {}]
+		config_names = [
+			c for c in self.model_config if len( self.model_config[c] ) != 0
+		]
 		return config_names
 
 	################################################################################
@@ -182,6 +183,8 @@ class Analysis():
 	def get_xl_max_bound( self, config_name: str ) -> float:
 		"""
 		Set the XL max bound according to the XL type used.
+		For config==alpha -> unguided prediction
+			We will use the short linker xl_max_bound for evaluation.
 
 		Inputs:
 		----------
@@ -194,16 +197,15 @@ class Analysis():
 		xl_max_bound: max-bound for the cross-link type
 			specified in the config.
 		"""
-
 		if self.model_config[config_name]["xl_type"] is None:
-			xl_max_bound = 0.0
+			xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		elif self.model_config[config_name]["xl_type"] == "short":
 			xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		elif self.model_config[config_name]["xl_type"] == "long":
 			xl_max_bound = self.config_dict.benchmark.jwalk.long_linker
 		else:
 			raise ValueError( f"Invalid XL type: " +
-				f"{self.model_config['xl_type']} specified..."
+				f"{self.model_config[config_name]['xl_type']} specified..."
 			)
 		return xl_max_bound
 
@@ -219,6 +221,8 @@ class Analysis():
 			of predicted structures.
 		No output files would be returned if the prediction failed.
 			e.g. Boltz2 -> 6iww, 7agf
+		For config==alpha -> unguided prediction
+			We will use the short linker xl_max_bound for evaluation.
 
 		self.pred_metadata: {
 			sys_name: {
@@ -227,10 +231,7 @@ class Analysis():
 			}
 		}
 		"""
-		# for model in ["alphalink2", "grasp", "boltz2"]:
 		for config_name in self.return_config_names( model = self.model ):
-			# print( self.model_config[config_name].keys() )
-			# print( self.model_config.keys() )
 			if self.model_config[config_name]["xl_type"] is None:
 				xl_type = "short"
 			else:
@@ -275,7 +276,7 @@ class Analysis():
 	def create_native_sys_chain_mapping( self ):
 		"""
 		Map the native chain IDs to the system chain IDs.
-		The auth_asym_ids are stored as comma-separated string:
+		In the benchmark csv auth_asym_ids, are stored as comma-separated string:
 			A:B,C:D
 			':' separates multiple instances of an entity.
 		
@@ -546,11 +547,15 @@ class Analysis():
 			Molprobity
 			Per-residue RMSF (also obtain the per-residue pLDDT)
 		"""
-		for model_key in self.pred_metadata:
+		for idx, model_key in enumerate( self.pred_metadata ):
 			print( f"\nRunning analysis for {model_key}..." )
 			_, config_name = model_key.split( "_" )
 			if model_key not in self.per_config_logs:
 				self.per_config_logs[model_key] = {}
+			else:
+				if len( self.per_config_logs ) == len( self.benchmark["PDB ID"] ):
+					print( "Already completed..." )
+					continue
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
 			self.create_xl_gt_features( model_key = model_key )
 
@@ -607,6 +612,7 @@ class Analysis():
 
 				if "interface_similarity" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing interface similarity..." )
+					dock_dict = None
 					dock_dict = self.run_dockq_calc_per_sys(
 						model_ids1 = model_ids,
 						model_ids2 = model_ids,
@@ -619,6 +625,7 @@ class Analysis():
 
 				if "dockq" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing interface similarity wrt native structure..." )
+					dock_dict = None
 					dock_dict = self.run_dockq_calc_per_sys(
 						model_ids1 = model_ids,
 						model_ids2 = [1000],
@@ -627,7 +634,7 @@ class Analysis():
 						native_sys_chain_map = native_sys_chain_map,
 						use_native_chains_for_model2 = True
 					)
-					self.per_config_logs[model_key][sys_name]["dockq"]  = dock_dict
+					self.per_config_logs[model_key][sys_name]["dockq"] = dock_dict
 
 				if "molprob" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing Molprobity metrics..." )
@@ -637,22 +644,47 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["molprob"] = molprob_dict
 
-				if "unique_models" not in self.per_config_logs[model_key][sys_name]:
-					print( "Computing no. of unique models..." )
-					xl_metrics = self.per_config_logs[model_key][sys_name]["xl_metrics"]
+				if "unique_struct" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing no. of models with unique structure..." )
 					similarity_dict = self.per_config_logs[model_key][sys_name]["struct_similarity"]
-					molprob_dict = self.per_config_logs[model_key][sys_name]["molprob"]
+					xl_metrics = self.per_config_logs[model_key][sys_name]["xl_metrics"]
+					tm_dict = self.per_config_logs[model_key][sys_name]["tm"]
 					dock_dict = self.per_config_logs[model_key][sys_name]["dockq"]
+					molprob_dict = self.per_config_logs[model_key][sys_name]["molprob"]
+
 					unique_models = self.get_unique_models_per_sys(
+						metric_dict = similarity_dict,
+						metric_name = "tm",
+						threshold = 0.7,
 						xl_metrics = xl_metrics,
-						similarity_dict = similarity_dict,
+						tm_dict = tm_dict,
 						dock_dict = dock_dict,
 						molprob_dict = molprob_dict,
 						model_files = model_files
 					)
-					self.per_config_logs[model_key][sys_name]["unique_models"] = unique_models
+					self.per_config_logs[model_key][sys_name]["unique_struct"] = unique_models
+
+				if "unique_interface" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing no. of models with unique interface..." )
+					interface_dict = self.per_config_logs[model_key][sys_name]["interface_similarity"]
+					xl_metrics = self.per_config_logs[model_key][sys_name]["xl_metrics"]
+					molprob_dict = self.per_config_logs[model_key][sys_name]["molprob"]
+					tm_dict = self.per_config_logs[model_key][sys_name]["tm"]
+					dock_dict = self.per_config_logs[model_key][sys_name]["dockq"]
+					unique_models = self.get_unique_models_per_sys(
+						metric_dict = interface_dict,
+						metric_name = "dockq",
+						threshold = 0.8,
+						xl_metrics = xl_metrics,
+						tm_dict = tm_dict,
+						dock_dict = dock_dict,
+						molprob_dict = molprob_dict,
+						model_files = model_files
+					)
+					self.per_config_logs[model_key][sys_name]["unique_interface"] = unique_models
 
 				if "rmsf" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing per-residue RMSF..." )
 					rmsf_dict = self.run_rmsf_calc_per_sys(
 						model_ids = model_ids,
 						model_files = model_files
@@ -665,6 +697,7 @@ class Analysis():
 				if "time_taken" not in self.per_config_logs[model_key][sys_name]:
 					self.per_config_logs[model_key][sys_name]["time_taken"] = time_taken
 				# print( f"Time taken for {sys_name} = {time_taken/60} minutes..." )
+				# if idx%self.save_every == 0:
 				np.save(
 					self.per_config_logs_file, self.per_config_logs, allow_pickle = True
 					)
@@ -738,36 +771,36 @@ class Analysis():
 	################################################################################
 	def get_unique_models_per_sys(
 		self,
+		metric_dict: Dict[int, Dict[int, Dict]],
+		metric_name: str,
+		threshold: float,
 		xl_metrics: Dict[str, Any],
-		similarity_dict: Dict[int, Dict[int, Dict]],
+		tm_dict: Dict[int, Dict[int, Dict]],
 		dock_dict: Dict[int, Dict[int, Dict]],
 		molprob_dict: Dict[str, float],
 		model_files: List[str]
 	):
 		"""
-		For a given system, given the xl_metrics and similarity_dict,
-			identify unique models (TM-score < 0.7) and obtain
-			xl metrics for the subset.
+		Identify unique models based on the specified structural similarity
+			metric (TM-score, DockQ).
 		"""
 		unique_models = {
-			k: [] for k in ["model_id", "xl_satisfaction", "dockq", "struct_file", "molprob"]
+			k: [] for k in ["model_id", "xl_satisfaction", "tm", "dockq", "struct_file", "molprob"]
 		}
+		representatives = UniqueStructures(
+			metric_dict = metric_dict,
+			metric_name = metric_name,
+			threshold = threshold
+		).forward()
 		# Fraction of XLs satisfied per model.
 		xl_satisfied = xl_metrics["xl_satisfaction"]
-		# For all i-th models.
-		for k_i in similarity_dict:
-			# Select all models except for k_i==k_j and j>i.
-			sim_ij = np.array(
-				[v["tm"] for k_j, v in similarity_dict[k_i].items() if k_i < k_j]
-			)
-			if np.all( sim_ij < 0.7 ):
-				# By construction, model_id and the model index are the same.
-				# 	See self.get_sys_pred_metadata()
-				unique_models["model_id"].append( k_i )
-				unique_models["xl_satisfaction"].append( xl_satisfied[k_i] )
-				unique_models["dockq"].append( dock_dict[k_i] )
-				unique_models["molprob"].append( molprob_dict[k_i] )
-				unique_models["struct_file"].append( model_files[k_i] )
+		for rep_model_id in representatives:
+			unique_models["model_id"].append( rep_model_id )
+			unique_models["xl_satisfaction"].append( xl_satisfied[rep_model_id] )
+			unique_models["tm"].append( tm_dict[rep_model_id] )
+			unique_models["dockq"].append( dock_dict[rep_model_id] )
+			unique_models["molprob"].append( molprob_dict[rep_model_id] )
+			unique_models["struct_file"].append( model_files[rep_model_id] )
 		return unique_models
 
 	################################################################################
@@ -797,8 +830,8 @@ class Analysis():
 		----------
 		dock_dict: dict contaiing DockQ of all models wrt the native structure.
 		{
-			model_id: {
-				native_id: dockq
+			model_id1: {
+				model_id2: dockq
 			}
 		}
 		"""
@@ -883,4 +916,13 @@ class Analysis():
 		return rmsf_dict
 
 if __name__ == "__main__":
-	Analysis().forward()
+	parser = argparse.ArgumentParser(
+		description = "Run analysis pipeline for all model predictions."
+	)
+	parser.add_argument(
+		"-m", "--model",
+		type = str, required = True,
+		help = "Specify the model to use: grasp/alphalink2/boltz2." )
+
+	args = parser.parse_args()
+	Analysis( model = args.model ).forward()
