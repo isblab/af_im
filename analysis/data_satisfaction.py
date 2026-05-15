@@ -114,7 +114,8 @@ class XlSatisfaction():
 			# [N, 3]
 			coords = struct_dict[model_id]["coords"]
 			# [N, N]
-			dist_mat = coords[:, None, :] - coords[None, :, :]
+			diff = coords[:, None, :] - coords[None, :, :]
+			dist_mat = np.linalg.norm( diff, axis = -1 )
 			dist_dict[model_id] = dist_mat
 		return dist_dict
 
