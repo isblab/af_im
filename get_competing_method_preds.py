@@ -16,7 +16,7 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 
-from config import get_config_dict
+from config import db_dir, get_config_dict
 from model_configs import BOLTZ, GRASP, ALPHALINK
 from utils.mappings import (
 	get_entity_chain_mapping,
@@ -27,7 +27,6 @@ from utils.pdb_utils import get_chain_id
 from utils.paths import (
 	BASE_DIR,
 	get_benchmark_csv_file,
-	# get_sys_config_path,
 	get_sys_data_dir_path,
 	get_xl_file_path,
 	get_model_output_dir_path
@@ -181,7 +180,7 @@ class CompetingMethodsRunner():
 			"params/AlphaLink-Multimer_SDA_v2.pt"
 			)
 		# Databases for running AlphaLink2.
-		self.alphafold_dbs_dir = "/data/alpha-fold-db/"
+		self.alphafold_dbs_dir = db_dir
 
 
 	def load_benchmark( self ):
@@ -601,7 +600,8 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type
+			xl_type = self.model_config.xl_type,
+			frac_fp = self.model_config.frac_fp
 		)
 
 		restraints_included = []
