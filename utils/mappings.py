@@ -82,7 +82,6 @@ def yield_restraints(
 			res1 = r1
 			res2 = r2
 
-
 		seq1 = entity_chain_map[entity_id1]["seq"]
 		seq2 = entity_chain_map[entity_id2]["seq"]
 
@@ -105,7 +104,7 @@ def yield_restraints(
 					raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
 						f"Chain: {chain_id2}; residue {res2} is not a Lys..." )
 
-				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2
+				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2, label
 
 ################################################################################
 ################################################################################
