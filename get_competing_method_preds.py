@@ -340,7 +340,7 @@ class CompetingMethodsRunner():
 			entity_chain_map = entity_chain_map,
 			numeric_chain_ids = True ):
 			( entity_id1, entity_id2, chain_id1,
-				chain_id2, res1, res2 ) = row
+				chain_id2, res1, res2, label ) = row
 
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
@@ -348,13 +348,17 @@ class CompetingMethodsRunner():
 			residue1 = f"{chain_id1}-{res1}-K"
 			residue2 = f"{chain_id2}-{res2}-K"
 
-			# ignore suplicate restraints.
-			# 	GRASP is agnostic to A-B and B-A restraint.
-			if f"{residue1},{residue2}" in restraints_included or f"{residue2},{residue1}" in restraints_included:
-				continue
-			restraints_included.append( f"{residue1},{residue2}" )
+			if self.model_config.no_fp_xls and label == 0:
+				# Do not add FP XLs as restraints.
+				print( "Skipping FP XLs..." )
+			else:
+				# ignore suplicate restraints.
+				# 	GRASP is agnostic to A-B and B-A restraint.
+				if f"{residue1},{residue2}" in restraints_included or f"{residue2},{residue1}" in restraints_included:
+					continue
+				restraints_included.append( f"{residue1},{residue2}" )
 
-			w.writelines( f"{residue1}, {residue2}, {cb_max_bound}, {self.fdr}\n" )
+				w.writelines( f"{residue1}, {residue2}, {cb_max_bound}, {self.fdr}\n" )
 		w.close()
 
 
@@ -613,15 +617,19 @@ class CompetingMethodsRunner():
 				entity_chain_map = entity_chain_map,
 				numeric_chain_ids = False ):
 				( entity_id1, entity_id2, chain_id1,
-					chain_id2, res1, res2 ) = row
+					chain_id2, res1, res2, label ) = row
 
-				# ignore duplicate restraints: AB and BA.
-				restraint = f"{res1},{chain_id1},{res2},{chain_id2}"
-				restraint_inv = f"{res2},{chain_id2},{res1},{chain_id1}"
-				if restraint in restraints_included or restraint_inv in restraints_included:
-					continue
-				restraints_included.append( restraint )
-				w.writelines( f"{res1},{chain_id1},{res2},{chain_id2},{self.fdr}\n" )
+				if self.model_config.no_fp_xls and label == 0:
+					# Do not add FP XLs as restraints.
+					print( "Skipping FP XLs..." )
+				else:
+					# ignore duplicate restraints: AB and BA.
+					restraint = f"{res1},{chain_id1},{res2},{chain_id2}"
+					restraint_inv = f"{res2},{chain_id2},{res1},{chain_id1}"
+					if restraint in restraints_included or restraint_inv in restraints_included:
+						continue
+					restraints_included.append( restraint )
+					w.writelines( f"{res1},{chain_id1},{res2},{chain_id2},{self.fdr}\n" )
 		if self.model_config.pred_type == "unguided":
 			w.writelines( "" )
 
@@ -808,16 +816,20 @@ class CompetingMethodsRunner():
 				entity_chain_map = entity_chain_map,
 				numeric_chain_ids = False ):
 				( entity_id1, entity_id2, chain_id1,
-					chain_id2, res1, res2 ) = row
+					chain_id2, res1, res2, label ) = row
 
-				contact = {
-					"contact": {
-						"token1": [chain_id1, int( res1 )-1],
-						"token2": [chain_id2, int( res2 )-1],
-						"max_distance": self.xl_max_bound
+				if self.model_config.no_fp_xls and label == 0:
+					# Do not add FP XLs as restraints.
+					print( "Skipping FP XLs..." )
+				else:
+					contact = {
+						"contact": {
+							"token1": [chain_id1, int( res1 )-1],
+							"token2": [chain_id2, int( res2 )-1],
+							"max_distance": self.xl_max_bound
+						}
 					}
-				}
-				boltz_input["constraints"].append( contact )
+					boltz_input["constraints"].append( contact )
 		elif self.model_config.pred_type == "unguided":
 			boltz_input.pop( "constraints" )
 
