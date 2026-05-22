@@ -360,7 +360,7 @@ class Analysis():
 		)
 		# Sanity check: at this stage XLs must exist.
 		if any( [len( v ) == 0 for k, v in xl_flat_amb_dict.items()] ):
-			raise ValueError( f"No XLs in xl_amb_flat-dict..." )
+			raise ValueError( f"No XLs in xl_amb_flat_dict..." )
 		xl_amb_dict = self.merge_ambiguous_xls(
 			xl_flat_amb_dict = xl_flat_amb_dict
 		)
@@ -403,7 +403,8 @@ class Analysis():
 		"""
 		xl_flat_amb_dict = {k:[] for k in [
 			"entity_id1", "chain_id1", "residue1",
-			"entity_id2", "chain_id2", "residue2"
+			"entity_id2", "chain_id2", "residue2",
+			"label"
 			]}
 		xl_file = get_xl_file_path(
 			base_dir = self.base_dir,
@@ -423,13 +424,15 @@ class Analysis():
 			numeric_chain_ids = False,
 			return_seq_numbering = False ):
 			( entity_id1, entity_id2, chain_id1,
-				chain_id2, res1, res2 ) = row
+				chain_id2, res1, res2,
+					label ) = row
 			xl_flat_amb_dict["entity_id1"].append( entity_id1 )
 			xl_flat_amb_dict["entity_id2"].append( entity_id2 )
 			xl_flat_amb_dict["chain_id1"].append( chain_id1 )
 			xl_flat_amb_dict["chain_id2"].append( chain_id2 )
 			xl_flat_amb_dict["residue1"].append( res1 )
 			xl_flat_amb_dict["residue2"].append( res2 )
+			xl_flat_amb_dict["label"].append( label )
 		return xl_flat_amb_dict
 
 
@@ -463,7 +466,8 @@ class Analysis():
 					chain_id1: np.ndarray,
 					chain_id2: np.ndarray,
 					residue1: np.ndarray,
-					residue2: np.ndarray
+					residue2: np.ndarray,
+					label: np.ndarray
 				}
 			}
 		"""
@@ -489,11 +493,9 @@ class Analysis():
 		for gid in np.unique( xl_pairs ):
 			idx = np.where( xl_pairs == gid )[0]
 			xl_amb_dict[gid] = {
-				# k: xl_flat_amb_dict[k][idx]
 				k: np.array( xl_flat_amb_dict[k] )[idx]
 				for k in xl_flat_amb_dict
 			}
-
 		return xl_amb_dict
 
 
@@ -521,8 +523,9 @@ class Analysis():
 		mapping = self.sys_index_res_pos_map[sys_name]
 
 		for xl_group_idx in xl_amb_dict:
-			xl_dict[xl_group_idx] = {k:[] for k in ["residue1", "residue2"]}
+			xl_dict[xl_group_idx] = {k:[] for k in ["residue1", "residue2", "label"]}
 			for i in range( len( xl_amb_dict[xl_group_idx]["entity_id1"] ) ):
+				label = xl_amb_dict[xl_group_idx]["label"][i]
 				chain_id1 = xl_amb_dict[xl_group_idx]["chain_id1"][i]
 				res1 = xl_amb_dict[xl_group_idx]["residue1"][i]
 				chain_id2 = xl_amb_dict[xl_group_idx]["chain_id2"][i]
@@ -532,6 +535,7 @@ class Analysis():
 				sys_ind2 = mapping[chain_id2]["res_to_ind"][res2]
 				xl_dict[xl_group_idx]["residue1"].append( sys_ind1 )
 				xl_dict[xl_group_idx]["residue2"].append( sys_ind2 )
+				xl_dict[xl_group_idx]["label"].append( label )
 		return xl_dict
 
 	################################################################################
@@ -643,6 +647,14 @@ class Analysis():
 						model_files = model_files
 					)
 					self.per_config_logs[model_key][sys_name]["molprob"] = molprob_dict
+
+				if "molprob_native" not in self.per_config_logs[model_key][sys_name]:
+					print( "Computing Molprobity metrics for native structure..." )
+					molprob_dict = self.run_molprobity_calc_per_sys(
+						model_ids = [1000],
+						model_files = [native_file]
+					)
+					self.per_config_logs[model_key][sys_name]["molprob_native"] = molprob_dict
 
 				if "unique_struct" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing no. of models with unique structure..." )
