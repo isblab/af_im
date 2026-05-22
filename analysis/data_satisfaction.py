@@ -2,7 +2,7 @@
 Contains module for computing data satisfcation for predicted structures.
 	Supports cross-linking (XL) data.
 """
-from typing import List, Dict
+from typing import List, Tuple, Dict, Any
 import numpy as np
 
 from utils.pdb_utils import Parser
@@ -43,8 +43,8 @@ class XlSatisfaction():
 		xl_metrics = {}
 		struct_dict = self.parse_struct()
 		dist_dict = self.compute_distance_matrix( struct_dict = struct_dict )
-		xl_dists = self.subset_xl_distances( dist_dict = dist_dict )
-		xl_metadata = self.compute_xl_metadata( xl_dists = xl_dists )
+		xl_dists, label = self.subset_xl_distances( dist_dict = dist_dict )
+		xl_metadata = self.compute_xl_metadata( xl_dists = xl_dists, label = label )
 		xl_metrics = self.compute_xl_metrics( xl_metadata = xl_metadata )
 		return xl_metrics
 
@@ -122,7 +122,10 @@ class XlSatisfaction():
 	################################################################################
 	def subset_xl_distances( self,
 		dist_dict: Dict[int, np.ndarray]
-	):
+	) -> Tuple[
+		Dict[int, Dict[int, np.ndarray]],
+		Dict[int, Dict[int, np.ndarray]]
+		]:
 		"""
 		For each distance matrix across all predicted model,
 			Select the subset of distances corresponding to the
@@ -143,19 +146,25 @@ class XlSatisfaction():
 		Updates the self.metadata dict.
 		"""
 		xl_dists = {}
+		label = {}
 		for model_id in dist_dict:
 			dist_mat = dist_dict[model_id]
 			xl_dists[model_id] = {}
+			label[model_id] = {}
 			for xl_idx in self.xl_dict:
 				res1 = self.xl_dict[xl_idx]["residue1"]
 				res2 = self.xl_dict[xl_idx]["residue2"]
 				xl_dists[model_id][xl_idx] = dist_mat[res1, res2]
-		return xl_dists
+				# label -> TP or FL XL
+				# All labels for ambiguous XLs woulc be same, so just taking the 1st.
+				label[model_id][xl_idx] = self.xl_dict[xl_idx]["label"][0]
+		return xl_dists, label
 
 	################################################################################
 	def compute_xl_metadata( self,
-		xl_dists: Dict[int, np.ndarray]
-	):
+		xl_dists: Dict[int, Dict[int, np.ndarray]],
+		label: Dict[int, Dict[int, np.ndarray]]
+	) -> Dict[str, np.ndarray]:
 		"""
 		Given the distance map cooresponding to a model_ids,
 			compute XL metadata for XL metric.
@@ -178,7 +187,7 @@ class XlSatisfaction():
 		}
 			where M -> no. of models and T -> no. of XLs.
 		"""
-		metadata = {k:[] for k in ["xl_satisfied", "xl_min_dist", "xl_avg_dist"]}
+		metadata = {k:[] for k in ["xl_satisfied", "xl_min_dist", "xl_avg_dist", "label"]}
 		for model_id in xl_dists:
 			xl_satisfied, xl_min_dist, xl_avg_dist = [], [], []
 			xl_dist = xl_dists[model_id]
@@ -193,18 +202,20 @@ class XlSatisfaction():
 			metadata["xl_satisfied"].append( xl_satisfied )
 			metadata["xl_min_dist"].append( xl_min_dist )
 			metadata["xl_avg_dist"].append( xl_avg_dist )
+			metadata["label"].append( list( label[xl_idx].values() ) )
 
 		xl_metadata = {
 			"xl_satisfied": np.array( metadata["xl_satisfied"] ),
 			"xl_min_dist": np.array( metadata["xl_min_dist"] ),
-			"xl_avg_dist": np.array( metadata["xl_avg_dist"] )
+			"xl_avg_dist": np.array( metadata["xl_avg_dist"] ),
+			"label": np.array( metadata["label"] )
 		}
 		return xl_metadata
 
 	################################################################################
 	def compute_xl_metrics( self,
-		xl_metadata: Dict[int, np.ndarray]
-	):
+		xl_metadata: Dict[str, np.ndarray]
+	) -> Dict[str, Any]:
 		"""
 		Compute the following XL metrics:
 			- xl_sat: Fraction of satisfied XLs.
@@ -230,6 +241,8 @@ class XlSatisfaction():
 		total_xls = xl_metadata["xl_satisfied"].shape[1]
 		satisfied = xl_metadata["xl_satisfied"]
 		xl_sat = satisfied.sum( axis = 1 )/total_xls
+		# Aggregating labels across all models
+		label = xl_metadata["label"].max( axis = 0 )
 
 		# Total no. of times an XL pair is satisfied across all models.
 		xl_pair_sat = satisfied.sum( axis = 0 )
@@ -240,7 +253,7 @@ class XlSatisfaction():
 		xl_metrics = {
 			"xl_satisfaction": xl_sat,
 			"xl_satisfaction_global": xl_sat_global,
-			"xl_pair_satisfaction": xl_pair_sat
+			"xl_pair_satisfaction": xl_pair_sat,
+			"label": label
 		}
 		return xl_metrics
-		
