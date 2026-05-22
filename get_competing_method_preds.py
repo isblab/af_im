@@ -80,7 +80,15 @@ class CompetingMethodsRunner():
 		self.set_xl_max_bound()
 
 		# False discovery rate for AlphaLink2/GRASP.
-		self.fdr = self.config_dict.benchmark.jwalk.frac_tp_fp[1]
+		if self.model_config.no_fp_xls:
+			if self.model == "grasp":
+				# GRASP uses a default FDR of 0.05
+				# 	For few XLs this can run into error.
+				self.fdr = 0.05
+			else:
+				self.fdr = 0.0
+		else:
+			self.fdr = self.config_dict.benchmark.jwalk.frac_tp_fp[1]
 
 		if self.model_config.pred_type == "guided":
 			prefix = "Running restraint guided"
@@ -315,11 +323,12 @@ class CompetingMethodsRunner():
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name )
 		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		xl_type = "short" if self.model_config.xl_type == None else self.model_config.xl_type
 		xl_file = get_xl_file_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type,
+			xl_type = xl_type,
 			frac_fp = self.model_config.frac_fp
 		)
 
@@ -600,11 +609,12 @@ class CompetingMethodsRunner():
 			entity sequence and residues positions.
 		"""
 		# xl_file = os.path.join( data_dir, f"interprotein_xls{self.sys_conf_suff}.csv" )
+		xl_type = "short" if self.model_config.xl_type == None else self.model_config.xl_type
 		xl_file = get_xl_file_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type,
+			xl_type = xl_type,
 			frac_fp = self.model_config.frac_fp
 		)
 
@@ -770,7 +780,7 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.model_config.xl_type,
+			xl_type = self.xl_type,
 			frac_fp = self.model_config.frac_fp
 		)
 
@@ -800,12 +810,13 @@ class CompetingMethodsRunner():
 			}
 			boltz_input["sequences"].append( protein )
 
+		xl_type = "short" if self.model_config.xl_type == None else self.model_config.xl_type
 		if self.model_config.pred_type == "guided":
 			xl_file = get_xl_file_path(
 				base_dir = self.base_dir,
 				benchmark_name = self.benchmark_name,
 				sys_name = sys_name,
-				xl_type = self.model_config["xl_type"],
+				xl_type = xl_type,
 				frac_fp = self.model_config.frac_fp
 			)
 
