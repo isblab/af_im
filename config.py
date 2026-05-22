@@ -4,7 +4,7 @@ Configs for creating the dataset and analysis.
 import os, copy
 import ml_collections as mlc
 
-db_dir = "/data/alpha-fold-db/"
+db_dir = "/data/alpha-fold-db"
 tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
 long_sequence_inference = False
 use_deepspeed_evoformer_attention = False
