@@ -48,8 +48,13 @@ COLOR = {
 	"boltz2": "green",
 	"grasp": "orange"
 }
-XY_LABEL_SIZE = 25
-TITLE_SIZE = 25
+MARKER = {
+	"alphalink2": "s",
+	"boltz2": "v",
+	"grasp": "o"
+}
+XY_LABEL_SIZE = 20
+TITLE_SIZE = 20
 
 CONFIG_DICT = get_config_dict()
 BASE_DIR = os.path.join(
@@ -191,6 +196,7 @@ def prep_pred_time_input(
 			time_taken = data["time"][sys_name]/ 3600
 			records[model]["complex"].append( sys_name )
 			records[model]["time"].append( time_taken )
+		records[model]["avg_time"] = np.mean( records[model]["time"] )
 	return records
 
 
@@ -214,10 +220,12 @@ def prep_xl_satisfaction_input(
 	records: 
 	"""
 	records = {}
-	# for model in ["alphalink2", "boltz2", "grasp"]:
 	for model in MODELS:
 		records[model] = {
-			k:[] for k in ["complex", "mean_xl_sat", "max_xl_sat"]
+			k:[] for k in [
+				"complex", "per_model_xl_sat", "mean_xl_sat",
+				"max_xl_sat", "xl_pair_sat"
+				]
 			}
 		data = load_analysis_dict(
 			model = model,
@@ -228,10 +236,18 @@ def prep_xl_satisfaction_input(
 			if sys_name in IGNORE_SYSTEMS:
 				continue
 			xl_sat = data[sys_name]["xl_metrics"]["xl_satisfaction"]
+			# print( data[sys_name]["xl_metrics"].keys() )
+			xl_pair_sat = data[sys_name]["xl_metrics"]["xl_pair_satisfaction"]
+			# print( data[sys_name]["xl_metrics"].keys() )
+			# label = data[sys_name]["xl_metrics"]["label"]
 
 			records[model]["complex"].append( sys_name )
+			records[model]["per_model_xl_sat"].extend( xl_sat )
 			records[model]["mean_xl_sat"].append( xl_sat.mean() )
 			records[model]["max_xl_sat"].append( xl_sat.max() )
+			records[model]["xl_pair_sat"].append( xl_pair_sat )
+			# records[model]["label"].append( label )
+
 	return records
 
 ################################################################################
@@ -260,7 +276,7 @@ def prep_native_tm_input(
 	records = {}
 	for model in MODELS:
 		records[model] = {
-			k:[] for k in ["complex", "mean_tm", "max_tm"]
+			k:[] for k in ["complex", "per_model_tm", "mean_tm", "max_tm"]
 			}
 		data = load_analysis_dict(
 			model = model,
@@ -277,6 +293,7 @@ def prep_native_tm_input(
 			tm = np.array( tm )
 
 			records[model]["complex"].append( sys_name )
+			records[model]["per_model_tm"].extend( tm )
 			records[model]["mean_tm"].append( tm.mean() )
 			records[model]["max_tm"].append( tm.max() )
 	return records
@@ -305,10 +322,9 @@ def prep_native_dockq_input(
 	records: 
 	"""
 	records = {}
-	# for model in ["alphalink2", "boltz2", "grasp"]:
 	for model in MODELS:
 		records[model] = {
-			k:[] for k in ["complex", "mean_dockq", "max_dockq"]
+			k:[] for k in ["complex", "per_model_dockq", "mean_dockq", "max_dockq"]
 			}
 		data = load_analysis_dict(
 			model = model,
@@ -325,6 +341,7 @@ def prep_native_dockq_input(
 			dockq = np.array( dockq )
 
 			records[model]["complex"].append( sys_name )
+			records[model]["per_model_dockq"].append( dockq )
 			records[model]["mean_dockq"].append( dockq.mean() )
 			records[model]["max_dockq"].append( dockq.max() )
 	return records
@@ -354,7 +371,6 @@ def prep_unique_models_input(
 			"Incorrect similarity metric specified" +
 			" for selecting unique models..."
 		)
-	# for model in ["alphalink2", "boltz2", "grasp"]:
 	for model in MODELS:
 		records[model] = {
 			k:[] for k in ["complex", similarity_metric]
@@ -375,8 +391,40 @@ def prep_unique_models_input(
 	return records
 
 ################################################################################
+def return_molprobity_metric(
+	molprob_dict: Dict,
+	molprob_metric: str
+	):
+	"""
+	Given a dict containing per-model Molprobity metrics, return the following:
+		Per-model metric values
+		Mean metric value
+		Max/Min metric value
+	"""
+	if molprob_metric == "molprob":
+		per_model_metric = np.array(
+			[v["MolProbity score"] for k,v in molprob_dict.items()]
+			)
+		mean_metric = per_model_metric.mean()
+	elif molprob_metric == "clash":
+		per_model_metric = np.array(
+			[v["Clashscore"] for k,v in molprob_dict.items()]
+			)
+		mean_metric = per_model_metric.mean()
+	# Ramachandran favored
+	elif molprob_metric == "favored":
+		per_model_metric = np.array(
+			[v["favored"] for k,v in molprob_dict.items()]
+			)
+		mean_metric = per_model_metric.mean()
+	else:
+		ValueError( f"Unsupported molprobity metric specified: {molprob_metric}..." )
+	return per_model_metric, mean_metric
+
+
 def prep_molprobity_input(
-	config_name: str
+	config_name: str,
+	for_native: bool
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -401,10 +449,15 @@ def prep_molprobity_input(
 	)
 	resolution_dict_file = os.path.join( meta_dir, "resolution_dict.json" )
 	resolution_dict = read_json( resolution_dict_file )
-	# for model in ["alphalink2", "boltz2", "grasp"]:
+
 	for model in MODELS:
 		records[model] = {
-			k:[] for k in ["complex", "mean_molprob", "resolution"]
+			k:[] for k in [
+				"complex",
+				"per_model_molprob", "per_model_clash", "per_model_favored",
+				"mean_molprob", "mean_clash", "mean_favored",
+				"resolution"
+				]
 			}
 		data = load_analysis_dict(
 			model = model,
@@ -414,11 +467,17 @@ def prep_molprobity_input(
 		for sys_name in data:
 			if sys_name in IGNORE_SYSTEMS:
 				continue
-			molprob = np.array(
-				[v["MolProbity score"] for k,v in data[sys_name]["molprob"].items()]
-				)
 			records[model]["complex"].append( sys_name )
-			records[model]["mean_molprob"].append( molprob.mean() )
+			molprob_key = "molprob_native" if for_native else "molprob"
+			for m in ["molprob", "clash", "favored"]:
+				per_model_metric, mean_metric = return_molprobity_metric(
+					molprob_dict = data[sys_name][molprob_key],
+					molprob_metric = m
+				)
+				records[model][f"per_model_{m}"].extend(
+					per_model_metric.reshape( -1 ).tolist()
+					)
+				records[model][f"mean_{m}"].append( mean_metric )
 			records[model]["resolution"].append( resolution_dict[sys_name] )
 	return records
 
@@ -457,7 +516,6 @@ def prep_rmsf_input(
 				continue
 			rmsf = data[sys_name]["rmsf"]["rmsf_per_residue"].reshape( -1 )
 			plddt = data[sys_name]["rmsf"]["plddt"].mean( axis = 0 ).reshape( -1 )
-			# print( rmsf.shape, "  ", plddt.shape )
 
 			records[model]["complex"].append( sys_name )
 			records[model]["rmsf"].append( rmsf )
@@ -466,10 +524,23 @@ def prep_rmsf_input(
 
 ################################################################################
 def return_metric(
+	config_name: str,
 	metric: str,
-	config_name: str
+	molprob_native: bool = False
 ) -> Dict[str, List]:
 	"""
+	Inputs:
+	----------
+	config_name: str identifier for the model configuration
+		used for prediction.
+		See model_configs.py.
+	metric: 
+	molprob_native: bool flag for molprobity metrics.
+		If true, returns molprobity metrics for the native structure.
+	
+	Returns:
+	----------
+	records: 
 	"""
 	if metric == "time":
 		records = prep_pred_time_input(
@@ -500,6 +571,7 @@ def return_metric(
 	elif metric == "molprob":
 		records = prep_molprobity_input(
 			config_name = config_name,
+			for_native = molprob_native
 		)
 	elif metric == "rmsf":
 		records = prep_rmsf_input(
@@ -526,32 +598,30 @@ def plot_pred_time_taken_across_models(
 		See model_configs.py.
 	"""
 	records = prep_pred_time_input( config_name = config_name )
-	fig, ax = plt.subplots( 1, 1, figsize = ( 20, 10 ) )
-	widths = [-0.25, 0, 0.25]
+	fig, ax = plt.subplots( 1, 1, figsize = ( 7, 7 ) )
 
 	for i, model in enumerate( MODELS ):
-		X = np.arange( 0, len( records[model]["complex"] ), 1 )
 		ax.bar(
-			X+widths[i],
-			records[model]["time"], 0.1, # widths[i],
-			color = COLOR[model],
-			label = f"{METHOD_LABELS[model]}"
+			i,
+			records[model]["avg_time"],
+			0.5,
+			color = COLOR[model]
 		)
 
-		ax.set_xticks( X )
-		ax.tick_params( axis = "both", width = 2, length = 5 )
-		ax.set_xticklabels(
-			records[model]["complex"], rotation = 90, fontsize = 16
-			)
-		ax.set_ylabel( f"Time taken (hours)", fontsize = XY_LABEL_SIZE )
-		ax.set_xlabel( "Complexes", fontsize = XY_LABEL_SIZE )
-		ax.legend( title = "Method" )
-		ax.tick_params(
-			axis = "both",
-			labelsize = 20,
-			length = 10,
-			width = 4
+	ax.set_xticks( [0, 1, 2] )
+	ax.tick_params( axis = "both", width = 2, length = 5 )
+	ax.set_xticklabels(
+		["AlphaLink2", "Boltz2", "GRASP"],
+		rotation = 0, fontsize = 12
 		)
+	ax.set_ylabel( f"Average time taken (hours)", fontsize = XY_LABEL_SIZE-5 )
+	ax.set_xlabel( "Method", fontsize = XY_LABEL_SIZE-5 )
+	ax.tick_params(
+		axis = "both",
+		labelsize = 20,
+		length = 10,
+		width = 4
+	)
 
 	plt.tight_layout()
 	file = os.path.join(
@@ -576,7 +646,7 @@ def plot_xl_satisfaction_across_models(
 	"""
 	records = prep_xl_satisfaction_input( config_name = config_name )
 
-	fig, ax = plt.subplots( 2, 1, figsize = ( 25, 20 ) )
+	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
 		# Create a scatter plot for each method.
 		for j, model in enumerate( MODELS ):
@@ -584,7 +654,9 @@ def plot_xl_satisfaction_across_models(
 			ax[i].scatter(
 				X,
 				np.array( records[model][f"{agg}_xl_sat"] ), # + 0.01*( i+1 )
+				s = 100,
 				c = COLOR[model],
+				marker = MARKER[model],
 				label = METHOD_LABELS[model]
 			)
 
@@ -597,7 +669,7 @@ def plot_xl_satisfaction_across_models(
 		ax[i].set_ylabel( f"{agg.capitalize()} XL satisfaction", fontsize = XY_LABEL_SIZE )
 		ax[i].set_xlabel( "Complexes", fontsize = XY_LABEL_SIZE )
 		ax[i].set_ylim( -0.1, 1.1 )
-		ax[i].legend( title = "Method" )
+		ax[i].legend()
 		# ax[i].xticks( rotation = 90 )
 		ax[i].tick_params(
 			axis = "both",
@@ -628,13 +700,18 @@ def plot_native_tm_across_models(
 	"""
 	records = prep_native_dockq_input( config_name = config_name )
 
-	fig, ax = plt.subplots( 2, 1, figsize = ( 25, 20 ) )
+	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
 		# Create a scatter plot for each method.
 		for j, model in enumerate( MODELS ):
 			X = np.arange( 0, len( records[model]["complex"] ), 1 )
-			ax[i].scatter( X, records[model][f"{agg}_dockq"],
-			c = COLOR[model], label = METHOD_LABELS[model]
+			ax[i].scatter(
+				X,
+				records[model][f"{agg}_dockq"],
+				s = 100,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
 			)
 
 		ax[i].axhline( THRESHOLD["tm"], color = "red" )
@@ -645,8 +722,8 @@ def plot_native_tm_across_models(
 			)
 		ax[i].set_ylabel( f"{agg.capitalize()} TM-score", fontsize = XY_LABEL_SIZE )
 		ax[i].set_xlabel( "Complexes", fontsize = XY_LABEL_SIZE )
-		ax[i].set_ylim( 0.0, 1.1 )
-		ax[i].legend( title = "Method" )
+		ax[i].set_ylim( -0.1, 1.1 )
+		ax[i].legend()
 		# ax[i].xticks( rotation = 90 )
 		ax[i].tick_params(
 			axis = "both",
@@ -677,13 +754,18 @@ def plot_native_dockq_across_models(
 	"""
 	records = prep_native_dockq_input( config_name = config_name )
 
-	fig, ax = plt.subplots( 2, 1, figsize = ( 25, 20 ) )
+	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
 		# Create a scatter plot for each method.
 		for j, model in enumerate( MODELS ):
 			X = np.arange( 0, len( records[model]["complex"] ), 1 )
-			ax[i].scatter( X, records[model][f"{agg}_dockq"],
-			c = COLOR[model], label = METHOD_LABELS[model]
+			ax[i].scatter(
+				X,
+				records[model][f"{agg}_dockq"],
+				s = 100,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
 			)
 
 		ax[i].axhline( 0.23, color = "red" )
@@ -694,8 +776,8 @@ def plot_native_dockq_across_models(
 			)
 		ax[i].set_ylabel( f"{agg.capitalize()} DockQ", fontsize = XY_LABEL_SIZE )
 		ax[i].set_xlabel( "Complexes", fontsize = XY_LABEL_SIZE )
-		ax[i].set_ylim( 0.0, 1.1 )
-		ax[i].legend( title = "Method" )
+		ax[i].set_ylim( -0.1, 1.1 )
+		ax[i].legend()
 		# ax[i].xticks( rotation = 90 )
 		ax[i].tick_params(
 			axis = "both",
@@ -732,7 +814,7 @@ def plot_unique_models_across_models(
 		config_name = config_name,
 		similarity_metric = "unique_interface" )
 
-	fig, ax = plt.subplots( 2, 1, figsize = ( 25, 20 ) )
+	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	widths = [-0.25, 0, 0.25]
 	# Create a scatter plot for each method.
 	labels = ["Unique structure", "Unique interface"]
@@ -763,8 +845,8 @@ def plot_unique_models_across_models(
 			ax[j].set_title( f"{labels[j]}", fontsize = TITLE_SIZE )
 			ax[j].set_ylabel( f"No. of unique models", fontsize = XY_LABEL_SIZE )
 			ax[j].set_xlabel( "Complexes", fontsize = XY_LABEL_SIZE )
-			ax[j].set_ylim( 0.0, 25+1 )
-			ax[j].legend( title = "Method" )
+			ax[j].set_ylim( 0, 25+1 )
+			ax[j].legend()
 			# ax[j].xticks( rotation = 90 )
 			ax[j].tick_params(
 				axis = "both",
@@ -781,12 +863,12 @@ def plot_unique_models_across_models(
 	plt.close()
 
 ################################################################################
-def plot_molprobity_across_models(
+def plot_molprobity_metrics_across_models(
 	config_name: str
 ):
 	"""
-	Plot the mean Molprobity score for all models
-		across all complexes as a scatter plot.
+	Plot the Molprobity metrics for all models
+		across all complexes.
 
 	Inputs:
 	----------
@@ -794,32 +876,143 @@ def plot_molprobity_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_molprobity_input( config_name = config_name )
-
-	fig, ax = plt.subplots( 1, 3, figsize = ( 25, 10 ) )
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.arange( 0, len( records[model]["complex"] ), 1 )
-		ax[i].scatter(
-			records[model]["resolution"],
-			records[model]["mean_molprob"],
-			c = COLOR[model], label = METHOD_LABELS[model]
-			)
-
-		ax[i].plot( [0, 4], [0, 4], c = "gray" )
-		ax[i].set_title( METHOD_LABELS[model], fontsize = TITLE_SIZE )
-		ax[i].set_ylabel( f"MolProbity score", fontsize = XY_LABEL_SIZE )
-		ax[i].set_xlabel( "Experimental resolution", fontsize = XY_LABEL_SIZE )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 20,
-			length = 10,
-			width = 4
+	records_pred = return_metric(
+		config_name = config_name,
+		metric = "molprob",
+		molprob_native = False
+		)
+	records_native = return_metric(
+		config_name = config_name,
+		metric = "molprob",
+		molprob_native = True
+		)
+	molprob_score_file = os.path.join(
+		MOLPROB_DIR, f"molprobity_score_{config_name}.png"
+		)
+	molprob_other_metrics_file = os.path.join(
+		MOLPROB_DIR, f"other_molprob_{config_name}.png"
 		)
 
+	plot_molprobity_score(
+		records_pred = records_pred,
+		records_native = records_native,
+		plot_file = molprob_score_file
+	)
+	plot_other_molprobity_metrics(
+		records_pred = records_pred,
+		records_native = records_native,
+		plot_file = molprob_other_metrics_file
+	)
+
+
+def plot_molprobity_score(
+	records_pred: Dict[str, List],
+	records_native: Dict[str, List],
+	plot_file: str
+):
+	"""
+	Create the following plots for the MolProbity score
+		for all models across all complexes:
+		- Mean MolProbity score for predicted and native.
+		- Mean MolProbity score for predicted vs 
+			resolution
+
+	Inputs:
+	----------
+	"""
+	if len( MODELS ) == 3:
+		fig, axes = plt.subplots( 3, 2, figsize = ( 12, 12 ) )
+	elif len( MODELS ) == 2:
+		fig, axes = plt.subplots( 2, 2, figsize = ( 10, 12 ) )
+	elif len( MODELS ) == 1:
+		fig, axes = plt.subplots( 1, 2, figsize = ( 8, 12 ) )
+	# Create a scatter plot for each method.
+	for i, model in enumerate( MODELS ):
+		xlabels = ["MolProbity Score for native", "Experimental resolution"]
+		for j, native_metric in enumerate( ["mean_molprob", "resolution"] ):
+			if len( MODELS ) == 1:
+				ax = axes[j]
+			else:
+				ax = axes[i, j]
+			ax.scatter(
+				records_native[model][native_metric],
+				records_pred[model]["mean_molprob"],
+				c = COLOR[model], label = METHOD_LABELS[model]
+				)
+
+			ax.plot( [0, 5], [0, 5], c = "gray" )
+			ax.set_title( METHOD_LABELS[model], fontsize = TITLE_SIZE )
+			ax.set_xlabel( xlabels[j], fontsize = XY_LABEL_SIZE )
+			ax.set_ylabel( f"MolProbity score", fontsize = XY_LABEL_SIZE )
+			ax.tick_params(
+				axis = "both",
+				labelsize = 20,
+				length = 10,
+				width = 4
+			)
 	plt.tight_layout()
-	file = os.path.join( MOLPROB_DIR, f"molprobity_{config_name}.png" )
-	plt.savefig( file, dpi = 300 )
+	plt.savefig( plot_file, dpi = 300 )
+	plt.close()
+
+
+def plot_other_molprobity_metrics(
+	records_pred: Dict[str, List],
+	records_native: Dict[str, List],
+	plot_file: str
+):
+	"""
+	Plot other MolProbity metrics, including clashscore,
+		ramachandran favored for all models across all
+		complexes as a scatter plot.
+
+	Inputs:
+	----------
+	config_name: str identifier for the model configuration
+		used for prediction.
+		See model_configs.py.
+	"""
+	if len( MODELS ) == 3:
+		fig, axes = plt.subplots( 3, 2, figsize = ( 15, 15 ) )
+	elif len( MODELS ) == 2:
+		fig, axes = plt.subplots( 2, 2, figsize = ( 12, 15 ) )
+	elif len( MODELS ) == 1:
+		fig, axes = plt.subplots( 1, 2, figsize = ( 8, 15 ) )
+	# Create a scatter plot for each method.
+	for i, model in enumerate( MODELS ):
+		# Plot histograms for clashscore and Ramachandran favored
+		for j, metric in enumerate( ["clash", "favored"] ):
+			if len( MODELS ) == 1:
+				ax = axes[j]
+			else:
+				ax = axes[i, j]
+			ax.scatter(
+				records_native[model][f"mean_{metric}"],
+				records_pred[model][f"mean_{metric}"]
+			)
+
+			ax.set_title( METHOD_LABELS[model], fontsize = TITLE_SIZE )
+			if metric == "clash":
+				ax.set_xlim( 0 )
+				ax.set_ylim( 0 )
+				ax.axhline( 5, c = "red" )
+				ax.axvline( 5, c = "red" )
+				ax.set_xlabel( f"Clash score (native)", fontsize = XY_LABEL_SIZE )
+				ax.set_ylabel( f"Clash score", fontsize = XY_LABEL_SIZE )
+			elif metric == "favored":
+				ax.set_xlim( 0, 110 )
+				ax.set_ylim( 0, 110 )
+				ax.axhline( 98, c = "red" )
+				ax.axvline( 98, c = "red" )
+				ax.set_xlabel( f"Ramachandran favored (native)", fontsize = XY_LABEL_SIZE )
+				ax.set_ylabel( f"Ramachandran favored", fontsize = XY_LABEL_SIZE )
+			ax.tick_params(
+				axis = "both",
+				labelsize = 20,
+				length = 10,
+				width = 4
+			)
+	plt.tight_layout()
+	plt.savefig( plot_file, dpi = 300 )
 	plt.close()
 
 ################################################################################
@@ -925,6 +1118,70 @@ def plot_rmsf_contour( config_name: str ):
 		plt.close()
 
 ################################################################################
+def plot_xlsat_v_dockq(
+	config_name: str
+):
+	"""
+	Pot the mean/max XL satisfaction vs DockQ across all complexes for
+		all specified models.
+
+	Inputs:
+	----------
+	config_name: str identifier for the model configuration
+		used for prediction.
+		See model_configs.py.
+	"""
+	if len( MODELS ) == 3:
+		fig, axes = plt.subplots( 1, 3, figsize = ( 20, 8 ) )
+	elif len( MODELS ) == 2:
+		fig, axes = plt.subplots( 1, 2, figsize = ( 15, 8 ) )
+	elif len( MODELS ) == 1:
+		fig, axes = plt.subplots( 1, 1, figsize = ( 15, 8 ) )
+
+	for i, model in enumerate( MODELS ):
+		records_xl = return_metric(
+			metric = "xl_sat",
+			config_name = config_name
+		)
+		records_dockq = return_metric(
+			metric = "dockq",
+			config_name = config_name
+		)
+
+		if len( MODELS ) == 1:
+			ax = axes
+		else:
+			ax = axes[i]
+
+		ax.scatter(
+			records_xl[model][f"per_model_xl_sat"],
+			records_dockq[model][f"per_model_dockq"]
+			)
+		# ax.axhline( THRESHOLD["xl_sat"], color = "red" )
+		# ax.axvline( THRESHOLD["dockq"], color = "red" )
+		ax.set_title( METHOD_LABELS[model], fontsize = TITLE_SIZE )
+		ax.set_xlabel( f"Per model XL satisfaction", fontsize = XY_LABEL_SIZE )
+		ax.set_ylabel( f"Per model DockQ", fontsize = XY_LABEL_SIZE )
+
+		ax.plot( [0, 1], [0, 1], c = "gray" )
+
+		ax.set_xlim( -0.05, 1.05 )
+		ax.set_ylim( -0.05, 1.05 )
+		ax.tick_params(
+			axis = "both",
+			labelsize = 16,
+			length = 10,
+			width = 4
+		)
+	plt.tight_layout()
+	file = os.path.join(
+		MEAN_MAX_DIR,
+	f"{config_name}_xlsat_v_dockq.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
 def plot_mean_v_max_metrics(
 	config_name: str
 ):
@@ -940,11 +1197,11 @@ def plot_mean_v_max_metrics(
 		See model_configs.py.
 	"""
 	if len( MODELS ) == 3:
-		fig, axes = plt.subplots( 3, 2, figsize = ( 20, 20 ) )
+		fig, axes = plt.subplots( 3, 2, figsize = ( 10, 15 ) )
 	elif len( MODELS ) == 2:
-		fig, axes = plt.subplots( 2, 2, figsize = ( 15, 15 ) )
+		fig, axes = plt.subplots( 2, 2, figsize = ( 10, 15 ) )
 	elif len( MODELS ) == 1:
-		fig, axes = plt.subplots( 1, 2, figsize = ( 15, 8 ) )
+		fig, axes = plt.subplots( 1, 2, figsize = ( 10, 7 ) )
 
 	for i, model in enumerate( MODELS ):
 		titles = ["XL satisfaction", "DockQ"]
@@ -962,9 +1219,9 @@ def plot_mean_v_max_metrics(
 				records[model][f"mean_{metric}"],
 				records[model][f"max_{metric}"],
 				)
-			if THRESHOLD[metric] is not None:
-				ax.axhline( THRESHOLD[metric], color = "red" )
-				ax.axvline( THRESHOLD[metric], color = "red" )
+			# if THRESHOLD[metric] is not None:
+			# 	ax.axhline( THRESHOLD[metric], color = "red" )
+			# 	ax.axvline( THRESHOLD[metric], color = "red" )
 			ax.set_title( METHOD_LABELS[model], fontsize = TITLE_SIZE )
 			ax.set_xlabel( f"Mean {titles[j]}", fontsize = XY_LABEL_SIZE )
 			ax.set_ylabel( f"Max {titles[j]}", fontsize = XY_LABEL_SIZE )
@@ -995,7 +1252,6 @@ def plot_tm_v_dockq(
 	For all methods, plot the mean DockQ wrt native vs mean TM-score wrt native
 		for each complex.
 
-
 	Inputs:
 	----------
 	config_name: str identifier for the model configuration
@@ -1003,11 +1259,11 @@ def plot_tm_v_dockq(
 		See model_configs.py.
 	"""
 	if len( MODELS ) == 3:
-		fig, axes = plt.subplots( 3, 2, figsize = ( 20, 20 ) )
+		fig, axes = plt.subplots( 3, 2, figsize = ( 10, 15 ) )
 	elif len( MODELS ) == 2:
-		fig, axes = plt.subplots( 2, 2, figsize = ( 15, 15 ) )
+		fig, axes = plt.subplots( 2, 2, figsize = ( 10, 10 ) )
 	elif len( MODELS ) == 1:
-		fig, axes = plt.subplots( 1, 2, figsize = ( 15, 8 ) )
+		fig, axes = plt.subplots( 1, 2, figsize = ( 10, 7 ) )
 
 	for i, model in enumerate( MODELS ):
 		for j, agg in enumerate( ["mean", "max"] ):
@@ -1055,6 +1311,31 @@ def plot_tm_v_dockq(
 	plt.close()
 
 ################################################################################
+# def plot_restraint_v_sampling():
+# 	"""
+# 	For Boltz2 only.
+# 	We wanna asess the effect of two hyperparameters on structural accuracy (DockQ):
+# 		Restraint-guidance: 0 (unguided) and 1 (guided)
+# 		Sampling diversity: 1.638 (default; less diverse) and 1.0 (more diverse)
+# 	We plot the restraint-guidance vs sampling diversity with the DockQ denoted
+# 		by the colour.
+# 	"""
+# 	model = "boltz2"
+
+# 	for r, config_name1 in zip( [0, 1], ["alpha", "beta1"] ):
+# 		records_r = return_metric( config_name = config_name1, metric = "dockq" )
+# 		dockq_r = records_r[model]["per_model_dockq"]
+# 		for s, config_name2 in zip( [0, 1], ["alpha2", "epsilon1"] ):
+# 			records_s = return_metric( config_name = config_name2, metric = "dockq" )
+# 			dockq_s = records_s[model]["per_model_dockq"]
+
+# 			plt.scatter( dockq_r, dockq_s, label = f"{config_name1}-{config_name2}" )
+# 	plt.legend()
+# 	plt.tight_layout()
+# 	plt.show()
+# 	plt.close()
+
+################################################################################
 def plot_cross_configs(
 	config1: str,
 	config2: str
@@ -1079,13 +1360,27 @@ def plot_cross_configs(
 	np.random.seed( 1 )
 
 	MAX_ROWS, MAX_COLS = 2, 3
-	agg = "mean"
+	agg = "max"
 
 	for model in MODELS:
-		fig, ax = plt.subplots( 2, 3, figsize = ( 25, 20 ) )
-		titles = ["XL satisfaction", "TM-score", "DockQ", "MolProbity score", "Number of unique structure", "Number of unique interface"]
+		fig, ax = plt.subplots( 2, 3, figsize = ( 15, 10 ) )
+		titles = [
+			f"{agg.capitalize()} XL satisfaction",
+			f"{agg.capitalize()} TM-score",
+			f"{agg.capitalize()} DockQ",
+			"Mean MolProbity score",
+			"Mean Clash score",
+			"Unique interface"
+			]
 		r, c = 0, 0
-		for i, metric in enumerate( ["xl_sat", "tm", "dockq", "molprob", "unique_struct", "unique_interface"] ):
+		for i, metric in enumerate(
+			[
+				"xl_sat", "tm", "dockq", "molprob-score",
+				"molprob-clash", "unique_interface"
+			]
+		):
+			if "molprob" in metric:
+				metric, sub_metric = metric.split( "-" )
 			records1 = return_metric(
 				metric = metric,
 				config_name = config1
@@ -1094,8 +1389,13 @@ def plot_cross_configs(
 				metric = metric,
 				config_name = config2
 			)
-			if metric in ["unique_struct", "unique_interface"]:
-				# Adding an epx noise to differential points with the same value.
+			if "molprob" in metric:
+				if sub_metric == "score":
+					key = f"mean_molprob"
+				elif sub_metric == "clash":
+					key = f"mean_clash"
+			elif metric in ["unique_struct", "unique_interface"]:
+				# Adding an eps noise to differential points with the same value.
 				key = metric
 				eps = np.random.normal( 0, 0.2, len( records2[model][key] ) )
 			else:
@@ -1105,16 +1405,19 @@ def plot_cross_configs(
 				records1[model][key] + eps,
 				records2[model][key] + eps,
 				)
-			if THRESHOLD[metric] is not None:
-				ax[r,c].axhline( THRESHOLD[metric], color = "red" )
-				ax[r, c].axvline( THRESHOLD[metric], color = "red" )
+
 			ax[r,c].set_title( titles[i], fontsize = TITLE_SIZE )
 			ax[r,c].set_xlabel( f"{config1}", fontsize = XY_LABEL_SIZE )
 			ax[r,c].set_ylabel( f"{config2}", fontsize = XY_LABEL_SIZE )
 			if metric in ["unique_struct", "unique_interface"]:
 				ax[r,c].plot( [0, 26], [0, 26], c = "gray" )
-			elif metric == "molprob":
-				ax[r,c].plot( [0, 4], [0, 4], c = "gray" )
+			elif "molprob" in metric:
+				if sub_metric == "score":
+					ax[r,c].plot( [0, 5], [0, 5], c = "gray" )
+				elif sub_metric == "clash":
+					max_y1 = max( records1[model][key] )
+					max_y2 = max( records2[model][key] )
+					ax[r,c].plot( [0, max_y1], [0, max_y2], c = "gray" )
 			else:
 				ax[r,c].plot( [0, 1], [0, 1], c = "gray" )
 
@@ -1153,7 +1456,9 @@ def plot( config_name: str ):
 
 	plot_unique_models_across_models( config_name = config_name )
 
-	plot_molprobity_across_models( config_name = config_name )
+	plot_molprobity_metrics_across_models( config_name = config_name )
+
+	plot_xlsat_v_dockq( config_name = config_name )
 
 	plot_mean_v_max_metrics( config_name = config_name )
 
@@ -1162,9 +1467,11 @@ def plot( config_name: str ):
 	# plot_rmsf_contour( config_name = config_name )
 
 if __name__ == "__main__":
-
+	# MODELS = ["boltz2"]
+	# plot_restraint_v_sampling()
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	plot_pred_time_taken_across_models( config_name = "beta1" )
+	# plot_molprobity_metrics_across_models( config_name = "beta1" )
 	print( f"\nUsing: {MODELS} " + "-"*20 )
 	# Per-config plots.
 	for config_name in ["beta1"]:
@@ -1174,7 +1481,6 @@ if __name__ == "__main__":
 	# Following configs are specific for Boltz2 and GRASP
 	MODELS = ["boltz2", "grasp"]
 	print( f"\nUsing: {MODELS} " + "-"*20 )
-	print( f"Creating plots for config: {config_name}..." )
 	for config_name in ["alpha", "beta2", "beta3", "gamma"]:
 		print( f"Creating plots for config: {config_name}..." )
 		plot( config_name = config_name )
@@ -1195,25 +1501,40 @@ if __name__ == "__main__":
 	# Following configs are specific for Boltz2
 	MODELS = ["boltz2"]
 	print( f"\nUsing: {MODELS} " + "-"*20 )
-	for config_name in ["delta1", "delta2", "delta3", "epsilon1", "zeta1", "theta1"]:
+	for config_name in ["beta4", "delta1", "delta2", "delta3", "epsilon1", "epsilon2", "epsilon3", "zeta1", "theta1", "iota1"]:
 		print( f"Creating plots for config: {config_name}..." )
 		plot( config_name = config_name )
 
 	# Cross-config plots
 	print( "\nCreating cross-config plots..." )
 	for config1, config2 in [
+		["alpha", "alpha2"],
+		["alpha", "beta4"],
 		["alpha", "delta1"],
 		["alpha", "delta2"],
 		["alpha", "delta3"],
 		["alpha", "epsilon1"],
 		["alpha", "zeta1"],
 		["alpha", "theta1"],
+		["alpha2", "beta4"],
+		["alpha2", "epsilon1"],
+		# --------------------
+		["beta1", "beta4"],
 		["beta1", "delta1"],
 		["beta1", "delta2"],
 		["beta1", "delta3"],
 		["beta1", "epsilon1"],
+		["beta2", "epsilon2"],
+		["beta3", "epsilon3"],
 		["beta1", "zeta1"],
-		["beta1", "theta1"]
+		["beta1", "theta1"],
+		# --------------------
+		["epsilon1", "epsilon2"],
+		["epsilon1", "epsilon3"],
+		["epsilon1", "epsilon4"],
+		# --------------------
+		["epsilon1", "iota1"],
+		["delta1", "iota1"],
 	]:
 		print( f"{config1}-{config2}..." )
 		plot_cross_configs(
