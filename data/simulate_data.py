@@ -52,6 +52,8 @@ class SimulateCrosslinks():
 		self.cores = cores
 		self.aa1 = aa1
 		self.aa2 = aa2
+		# If true, reinitialize logs even when the file exists.
+		self.reinit_logs = False
 
 		self.xl_file_paths = {}
 		self.xls_dict = {}
@@ -89,7 +91,7 @@ class SimulateCrosslinks():
 		Create an empty logs dict with all required keys.
 		"""
 		self.logs_file = os.path.join( self.jwalk_dir, "Logs_jwalk.json" )
-		if os.path.exists( self.logs_file ):
+		if os.path.exists( self.logs_file ) and not self.reinit_logs:
 			self.jwalk_logs = read_json( self.logs_file )
 		else:
 			self.jwalk_logs = {
