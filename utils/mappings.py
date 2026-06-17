@@ -237,3 +237,44 @@ def map_residue_positions_to_system_indices(
 			sys_ind_start = sys_ind_end
 	return sys_index_res_pos_map
 
+
+################################################################################
+################################################################################
+def map_xls_to_seq_id(
+	xl_df: pd.DataFrame,
+	pdb_num_seq_id_map: Dict[str, Dict[int, int]]
+) -> pd.DataFrame:
+	"""
+	Given a dataframe for inter-protein XLs, map the pdb_seq_num
+		to the corresponding seq_id.
+	Columns: Protein1, Residue1, Protein1, Residue1
+	"""
+	drop_index = []
+	for i in xl_df.index:
+		chain1 = xl_df.iloc[i, 0]
+		res1 = int( xl_df.iloc[i, 1] )
+		chain2 = xl_df.iloc[i, 2]
+		res2 = int( xl_df.iloc[i, 3] )
+
+		if chain1 not in pdb_num_seq_id_map:
+			drop_index.append( i )
+			continue
+		if chain2 not in pdb_num_seq_id_map:
+			drop_index.append( i )
+			continue
+		chain1_map = pdb_num_seq_id_map[chain1]
+		chain2_map = pdb_num_seq_id_map[chain2]
+
+		# Ignore XLs for residues not in pdb_seq_num
+		# 	(not selected for modeling).
+		if res1 not in chain1_map:
+			drop_index.append( i )
+			continue
+		if res2 not in chain2_map:
+			drop_index.append( i )
+			continue
+
+		xl_df.iloc[i, 1] = chain1_map[res1]
+		xl_df.iloc[i, 3] = chain2_map[res2]
+	xl_df = xl_df.drop( drop_index )
+	return xl_df
