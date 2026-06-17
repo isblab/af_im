@@ -37,7 +37,9 @@ class SimulateCrosslinks():
 		short_linker: float,
 		long_linker: float,
 		num_inter_xls: int,
-		cores: int
+		cores: int,
+		aa1: str = "LYS",
+		aa2: str = "LYS",
 		):
 		self.jwalk_exec = jwalk_exec
 		self.pdb_ids_list = pdb_ids_list
@@ -48,6 +50,8 @@ class SimulateCrosslinks():
 		self.long_linker = long_linker
 		self.num_inter_xls = num_inter_xls
 		self.cores = cores
+		self.aa1 = aa1
+		self.aa2 = aa2
 
 		self.xl_file_paths = {}
 		self.xls_dict = {}
@@ -101,15 +105,19 @@ class SimulateCrosslinks():
 		For each entry, create the path for the JWalk XLs .csv file.
 		"""
 		for entry_id in self.pdb_ids_list:
+			if self.aa1 == "LYS" and self.aa2 == "LYS":
+				xl_file = f"{entry_id}_jwalk.csv"
+			else:
+				xl_file = f"{entry_id}_jwalk_{self.aa1}-{self.aa2}.csv"
 			self.xl_file_paths[entry_id] = os.path.join(
 				self.jwalk_dir,
-				f"{entry_id}_jwalk.csv" )
+				xl_file )
 
 	################################################################################
 	def run_jwalk( self, entry_id: str ):
 		"""
 		Run Jwalk to obtain XLs given a .pdb file.
-		Remove the structure file once JWalk ru is complete.
+		Remove the structure file once JWalk run is complete.
 
 		Inputs:
 		----------
@@ -118,6 +126,8 @@ class SimulateCrosslinks():
 		cmd = [
 		f"{self.jwalk_exec}",
 		"-i", f"./{entry_id}.pdb",
+		"-aa1", f"{self.aa1}",
+		"-aa2", f"{self.aa2}"
 		# "-i", f"{struct_file}",
 		]
 
@@ -161,8 +171,8 @@ class SimulateCrosslinks():
 		"""
 		for idx, entry_id in enumerate( self.pdb_ids_list ):
 			print( f"{idx}/{len( self.pdb_ids_list )} --> {entry_id}" )
-			xl_file = os.path.join( self.jwalk_dir, f"{entry_id}_jwalk.csv" )
-			if entry_id in self.jwalk_logs["entry_id_with_xls"][0]:
+			xl_file = self.xl_file_paths[entry_id]
+			if entry_id in self.jwalk_logs["entry_id_with_xls"][0] and os.path.exists( xl_file ):
 				print( f"JWalk XLs already exist for {entry_id}..." )
 				continue
 			else:
@@ -176,7 +186,7 @@ class SimulateCrosslinks():
 				else:
 					self.jwalk_logs["entry_id_with_xls"][0].append( entry_id )
 					self.jwalk_logs["entry_id_with_xls"][1] += 1
-					xl_df.to_csv( self.xl_file_paths[entry_id], index = False )
+					xl_df.to_csv( xl_file, index = False )
 				# Remove the JWalk results dir.
 				run_subprocess( ["rm", "-r", f"./Jwalk_results/"] )
 				# Log after processing each entry_id.
