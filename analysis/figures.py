@@ -1,26 +1,17 @@
 """
 Given the analysis data across the benchmark for all the models
 	create the required plots.
-For per-config analysis, plot the following across all complexes:
-	- XL satisfaction: unguided, short and long XLs
-	- No. of unique structures
-	- DockQ wrt native
-	- Molprobity vs resolution
 """
-from typing import List, Dict, Any
+from typing import List, Dict
 import os, warnings
 import numpy as np
-import pandas as pd
 from scipy.stats import gaussian_kde
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from config import get_config_dict
 
-from utils.utils import read_json
+from utils.analysis_utils import return_metric
 from utils.paths import (
-	get_meta_dir_path,
-	get_model_output_dir_path,
 	get_benchmark_analysis_dir_path
 )
 warnings.filterwarnings( "ignore" )
@@ -111,477 +102,6 @@ for d in [
 	os.makedirs( d, exist_ok = True )
 
 ################################################################################
-################################################################################
-def load_logs_dict( model: str, config_name: str ):
-	"""
-	Load the logs dict for the specified model and config.
-	"""
-	model_out_dir = get_model_output_dir_path(
-		base_dir = BASE_DIR,
-		benchmark_name = BENCHMARK_NAME,
-		model = model,
-		config_name = config_name
-	)
-	logs_file = os.path.join(
-		model_out_dir, f"Logs_{model}.json"
-	)
-	logs_dict = read_json( logs_file )
-	return logs_dict
-
-
-def load_analysis_dict(
-	model: str,
-	config_name: str
-):
-	"""
-	For the given model and config, load and
-		return  the analysis dict.
-
-	Inputs:
-	----------
-	model: identifier for the model being used: alphalInk2/grasp/boltz2
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	The analysis results for the specified model config.
-	"""
-	per_config_logs_file = os.path.join(
-		ANALYSIS_DIR,
-		f"Logs_{BENCHMARK_NAME}_{model}.npy"
-	)
-	analysis_dict = np.load(
-		per_config_logs_file, allow_pickle = True
-	 ).item()
-
-	model_key = f"{model}_{config_name}"
-	return analysis_dict[model_key]
-
-################################################################################
-# Prepare inputs for plotting the the various metrics
-################################################################################
-def prep_pred_time_input(
-	config_name: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the time taken for prediction.
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	records: dict containing the complexes and their
-		respective prediction time.
-	"""
-	records = {}
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in ["complex", "time"]
-			}
-		data = load_logs_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data["completed"]:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			time_taken = data["time"][sys_name]/ 3600
-			records[model]["complex"].append( sys_name )
-			records[model]["time"].append( time_taken )
-		records[model]["avg_time"] = np.mean( records[model]["time"] )
-	return records
-
-
-def prep_xl_satisfaction_input(
-	config_name: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the following:
-		Mean XL satisfaction
-		Max XL satisfaction
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	records: 
-	"""
-	records = {}
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in [
-				"complex", "per_model_xl_sat", "mean_xl_sat",
-				"max_xl_sat", "xl_pair_sat"
-				]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			xl_sat = data[sys_name]["xl_metrics"]["xl_satisfaction"]
-			# print( data[sys_name]["xl_metrics"].keys() )
-			xl_pair_sat = data[sys_name]["xl_metrics"]["xl_pair_satisfaction"]
-			# print( data[sys_name]["xl_metrics"].keys() )
-			# label = data[sys_name]["xl_metrics"]["label"]
-
-			records[model]["complex"].append( sys_name )
-			records[model]["per_model_xl_sat"].extend( xl_sat )
-			records[model]["mean_xl_sat"].append( xl_sat.mean() )
-			records[model]["max_xl_sat"].append( xl_sat.max() )
-			records[model]["xl_pair_sat"].append( xl_pair_sat )
-			# records[model]["label"].append( label )
-
-	return records
-
-################################################################################
-def prep_native_tm_input(
-	config_name: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the following:
-		Mean TM-score wrt native
-		Max TM-score wrt native
-	TM-score is stored as a nested dict with,
-		model_id1: {model_id2: tm}
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-	models: list of models for which to gather data.
-
-	Returns:
-	----------
-	records: 
-	"""
-	records = {}
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in ["complex", "per_model_tm", "mean_tm", "max_tm"]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			tm = []
-			for model_id1 in data[sys_name]["tm"]:
-				for k, v in data[sys_name]["tm"][model_id1].items():
-					tm.append( v["tm"] )
-			tm = np.array( tm )
-
-			records[model]["complex"].append( sys_name )
-			records[model]["per_model_tm"].extend( tm )
-			records[model]["mean_tm"].append( tm.mean() )
-			records[model]["max_tm"].append( tm.max() )
-	return records
-
-################################################################################
-def prep_native_dockq_input(
-	config_name: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the following:
-		Mean DockQ wrt native
-		Max DockQ wrt native
-	DockQ is stored as a nested dict with,
-		model_id1: {model_id2: dockq}
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-	models: list of models for which to gather data.
-
-	Returns:
-	----------
-	records: 
-	"""
-	records = {}
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in ["complex", "per_model_dockq", "mean_dockq", "max_dockq"]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			dockq = []
-			for model_id1 in data[sys_name]["dockq"]:
-				for k, v in data[sys_name]["dockq"][model_id1].items():
-					dockq.append( v )
-			dockq = np.array( dockq )
-
-			records[model]["complex"].append( sys_name )
-			records[model]["per_model_dockq"].append( dockq )
-			records[model]["mean_dockq"].append( dockq.mean() )
-			records[model]["max_dockq"].append( dockq.max() )
-	return records
-
-################################################################################
-def prep_unique_models_input(
-	config_name: str,
-	similarity_metric: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes plot bar plot for the no. of unique structures.
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	records: 
-	"""
-	records = {}
-	if similarity_metric not in ["unique_struct", "unique_interface"]:
-		raise ValueError(
-			"Incorrect similarity metric specified" +
-			" for selecting unique models..."
-		)
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in ["complex", similarity_metric]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			unique_models = len(
-				data[sys_name][similarity_metric]["model_id"]
-			)
-
-			records[model]["complex"].append( sys_name )
-			records[model][similarity_metric].append( unique_models )
-	return records
-
-################################################################################
-def return_molprobity_metric(
-	molprob_dict: Dict,
-	molprob_metric: str
-	):
-	"""
-	Given a dict containing per-model Molprobity metrics, return the following:
-		Per-model metric values
-		Mean metric value
-		Max/Min metric value
-	"""
-	if molprob_metric == "molprob":
-		per_model_metric = np.array(
-			[v["MolProbity score"] for k,v in molprob_dict.items()]
-			)
-		mean_metric = per_model_metric.mean()
-	elif molprob_metric == "clash":
-		per_model_metric = np.array(
-			[v["Clashscore"] for k,v in molprob_dict.items()]
-			)
-		mean_metric = per_model_metric.mean()
-	# Ramachandran favored
-	elif molprob_metric == "favored":
-		per_model_metric = np.array(
-			[v["favored"] for k,v in molprob_dict.items()]
-			)
-		mean_metric = per_model_metric.mean()
-	else:
-		ValueError( f"Unsupported molprobity metric specified: {molprob_metric}..." )
-	return per_model_metric, mean_metric
-
-
-def prep_molprobity_input(
-	config_name: str,
-	for_native: bool
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the following:
-		Molprobity score for the predicted model
-		Resolution of the experimental structure
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	"""
-	records = {}
-
-	meta_dir = get_meta_dir_path(
-		base_dir = BASE_DIR,
-		benchmark_name = BENCHMARK_NAME
-	)
-	resolution_dict_file = os.path.join( meta_dir, "resolution_dict.json" )
-	resolution_dict = read_json( resolution_dict_file )
-
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in [
-				"complex",
-				"per_model_molprob", "per_model_clash", "per_model_favored",
-				"mean_molprob", "mean_clash", "mean_favored",
-				"resolution"
-				]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			records[model]["complex"].append( sys_name )
-			molprob_key = "molprob_native" if for_native else "molprob"
-			for m in ["molprob", "clash", "favored"]:
-				per_model_metric, mean_metric = return_molprobity_metric(
-					molprob_dict = data[sys_name][molprob_key],
-					molprob_metric = m
-				)
-				records[model][f"per_model_{m}"].extend(
-					per_model_metric.reshape( -1 ).tolist()
-					)
-				records[model][f"mean_{m}"].append( mean_metric )
-			records[model]["resolution"].append( resolution_dict[sys_name] )
-	return records
-
-################################################################################
-def prep_rmsf_input(
-	config_name: str
-) -> Dict[str, List]:
-	"""
-	For all the methods (AlphaLink2, Boltz2, GRASP), across all
-		complexes obtain the following:
-		Per-residue RMSF
-		pLDDT
-
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-
-	Returns:
-	----------
-	"""
-	records = {}
-
-	for model in MODELS:
-		records[model] = {
-			k:[] for k in ["complex", "rmsf", "plddt"]
-			}
-		data = load_analysis_dict(
-			model = model,
-			config_name = config_name
-		)
-
-		for sys_name in data:
-			if sys_name in IGNORE_SYSTEMS:
-				continue
-			rmsf = data[sys_name]["rmsf"]["rmsf_per_residue"].reshape( -1 )
-			plddt = data[sys_name]["rmsf"]["plddt"].mean( axis = 0 ).reshape( -1 )
-
-			records[model]["complex"].append( sys_name )
-			records[model]["rmsf"].append( rmsf )
-			records[model]["plddt"].append( plddt )
-	return records
-
-################################################################################
-def return_metric(
-	config_name: str,
-	metric: str,
-	molprob_native: bool = False
-) -> Dict[str, List]:
-	"""
-	Inputs:
-	----------
-	config_name: str identifier for the model configuration
-		used for prediction.
-		See model_configs.py.
-	metric: 
-	molprob_native: bool flag for molprobity metrics.
-		If true, returns molprobity metrics for the native structure.
-	
-	Returns:
-	----------
-	records: 
-	"""
-	if metric == "time":
-		records = prep_pred_time_input(
-			config_name = config_name,
-		)
-	elif metric == "xl_sat":
-		records = prep_xl_satisfaction_input(
-			config_name = config_name,
-		)
-	elif metric == "tm":
-		records = prep_native_tm_input(
-			config_name = config_name,
-		)
-	elif metric == "dockq":
-		records = prep_native_dockq_input(
-			config_name = config_name,
-		)
-	elif metric == "unique_struct":
-		records = prep_unique_models_input(
-			config_name = config_name,
-			similarity_metric = "unique_struct"
-		)
-	elif metric == "unique_interface":
-		records = prep_unique_models_input(
-			config_name = config_name,
-			similarity_metric = "unique_interface"
-		)
-	elif metric == "molprob":
-		records = prep_molprobity_input(
-			config_name = config_name,
-			for_native = molprob_native
-		)
-	elif metric == "rmsf":
-		records = prep_rmsf_input(
-			config_name = config_name,
-		)
-	else:
-		raise ValueError( f"Unknown metric specified - {metric}..." )
-	return records
-
-################################################################################
 # Create plots fo rthe required metrics
 ################################################################################
 def plot_pred_time_taken_across_models(
@@ -597,7 +117,7 @@ def plot_pred_time_taken_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_pred_time_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "time" )
 	fig, ax = plt.subplots( 1, 1, figsize = ( 7, 7 ) )
 
 	for i, model in enumerate( MODELS ):
@@ -644,7 +164,7 @@ def plot_xl_satisfaction_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_xl_satisfaction_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "xl_sat" )
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -698,7 +218,7 @@ def plot_native_tm_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_native_dockq_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "dockq" )
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -752,7 +272,7 @@ def plot_native_dockq_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_native_dockq_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "dockq" )
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -807,10 +327,10 @@ def plot_unique_models_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records_tm = prep_unique_models_input(
+	records_tm = return_metric(
 		config_name = config_name,
-		similarity_metric = "unique_struct" )
-	records_dockq = prep_unique_models_input(
+		metric = "unique_struct" )
+	records_dockq = return_metric(
 		config_name = config_name,
 		similarity_metric = "unique_interface" )
 
@@ -878,6 +398,7 @@ def plot_molprobity_metrics_across_models(
 	"""
 	records_pred = return_metric(
 		config_name = config_name,
+		models = MODELS,
 		metric = "molprob",
 		molprob_native = False
 		)
@@ -1027,7 +548,7 @@ def plot_rmsf_scatter( config_name: str ):
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_rmsf_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "rmsf" )
 	MAX_ROWS = 6
 	MAX_COLS = 6
 
@@ -1072,7 +593,7 @@ def plot_rmsf_contour( config_name: str ):
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = prep_rmsf_input( config_name = config_name )
+	records = return_metric( config_name = config_name, metric = "rmsf" )
 
 	fig, ax = plt.subplots( 1, 3, figsize = ( 25, 10 ) )
 
@@ -1141,10 +662,12 @@ def plot_xlsat_v_dockq(
 	for i, model in enumerate( MODELS ):
 		records_xl = return_metric(
 			metric = "xl_sat",
+			models = MODELS,
 			config_name = config_name
 		)
 		records_dockq = return_metric(
 			metric = "dockq",
+			models = MODELS,
 			config_name = config_name
 		)
 
@@ -1208,7 +731,8 @@ def plot_mean_v_max_metrics(
 		for j, metric in enumerate( ["xl_sat", "dockq"] ):
 			records = return_metric(
 				metric = metric,
-				config_name = config_name
+				config_name = config_name,
+				models = MODELS,
 			)
 			if len( MODELS ) == 1:
 				ax = axes[j]
@@ -1269,11 +793,13 @@ def plot_tm_v_dockq(
 		for j, agg in enumerate( ["mean", "max"] ):
 			records_tm = return_metric(
 				metric = "tm",
-				config_name = config_name
+				config_name = config_name,
+				models = MODELS,
 			)
 			records_dockq = return_metric(
 				metric = "dockq",
-				config_name = config_name
+				config_name = config_name,
+				models = MODELS,
 			)
 
 			if len( MODELS ) == 1:
@@ -1383,11 +909,13 @@ def plot_cross_configs(
 				metric, sub_metric = metric.split( "-" )
 			records1 = return_metric(
 				metric = metric,
-				config_name = config1
+				config_name = config1,
+				models = MODELS
 			)
 			records2 = return_metric(
 				metric = metric,
-				config_name = config2
+				config_name = config2,
+				models = MODELS
 			)
 			if "molprob" in metric:
 				if sub_metric == "score":
@@ -1488,6 +1016,8 @@ if __name__ == "__main__":
 	print( "\nCreating cross-config plots..." )
 	for config1, config2 in [
 		["alpha", "beta1"],
+		["alpha", "beta2"],
+		["alpha", "beta3"],
 		["beta1", "beta2"],
 		["beta1", "beta3"],
 	]:
