@@ -20,6 +20,7 @@ from utils.utils import ( open_file_handler,
 							read_json, write_json,
 							write_configdict_to_json )
 from utils.api_utils import PdbRestApi
+from utils.mappings import map_xls_to_seq_id
 from api_data_modules import( DownloadPdbStructure,
 								SeqResDict )
 
@@ -486,35 +487,39 @@ class Metadata():
 		drop_pdb = []
 		for pdb_id in self.xls_dict:
 			for xl_type in ["short_xls", "long_xls", "fp_xls"]:
-				df = self.xls_dict[pdb_id][xl_type]
-				drop_index = []
-				for i in df.index:
-					chain1 = df.iloc[i, 0]
-					res1 = int( df.iloc[i, 1] )
-					chain2 = df.iloc[i, 2]
-					res2 = int( df.iloc[i, 3] )
+				# df = self.xls_dict[pdb_id][xl_type]
+				df = map_xls_to_seq_id(
+					xl_df = self.xls_dict[pdb_id][xl_type],
+					pdb_num_seq_id_map = self.pdb_num_seq_id_map[pdb_id]
+				)
+				# drop_index = []
+				# for i in df.index:
+				# 	chain1 = df.iloc[i, 0]
+				# 	res1 = int( df.iloc[i, 1] )
+				# 	chain2 = df.iloc[i, 2]
+				# 	res2 = int( df.iloc[i, 3] )
 
-					if chain1 not in self.pdb_num_seq_id_map[pdb_id]:
-						drop_index.append( i )
-						continue
-					if chain2 not in self.pdb_num_seq_id_map[pdb_id]:
-						drop_index.append( i )
-						continue
-					chain1_map = self.pdb_num_seq_id_map[pdb_id][chain1]
-					chain2_map = self.pdb_num_seq_id_map[pdb_id][chain2]
+				# 	if chain1 not in self.pdb_num_seq_id_map[pdb_id]:
+				# 		drop_index.append( i )
+				# 		continue
+				# 	if chain2 not in self.pdb_num_seq_id_map[pdb_id]:
+				# 		drop_index.append( i )
+				# 		continue
+				# 	chain1_map = self.pdb_num_seq_id_map[pdb_id][chain1]
+				# 	chain2_map = self.pdb_num_seq_id_map[pdb_id][chain2]
 
-					# Ignore XLs for residues not in pdb_seq_num
-					# 	(not selected for modeling).
-					if res1 not in chain1_map:
-						drop_index.append( i )
-						continue
-					if res2 not in chain2_map:
-						drop_index.append( i )
-						continue
+				# 	# Ignore XLs for residues not in pdb_seq_num
+				# 	# 	(not selected for modeling).
+				# 	if res1 not in chain1_map:
+				# 		drop_index.append( i )
+				# 		continue
+				# 	if res2 not in chain2_map:
+				# 		drop_index.append( i )
+				# 		continue
 
-					df.iloc[i, 1] = chain1_map[res1]
-					df.iloc[i, 3] = chain2_map[res2]
-				df = df.drop( drop_index )
+				# 	df.iloc[i, 1] = chain1_map[res1]
+				# 	df.iloc[i, 3] = chain2_map[res2]
+				# df = df.drop( drop_index )
 				if len( df ) == 0:
 					drop_pdb.append( pdb_id )
 					break
