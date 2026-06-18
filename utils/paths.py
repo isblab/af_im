@@ -153,10 +153,12 @@ def get_xl_file_path(
 		benchmark_name = benchmark_name,
 		sys_name = sys_name )
 
-	xl_file_path = os.path.join(
-		data_dir,
-		# f"interprotein_xls_{xl_type}.csv" )
-		f"interprotein_xls_{xl_type}_{frac_fp}.csv" )
+	if xl_type in ["S1", "S2", "S1_2"]:
+		file = f"interprotein_xls_{xl_type}.csv"
+	else:
+		file = f"interprotein_xls_{xl_type}_{frac_fp}.csv"
+
+	xl_file_path = os.path.join( data_dir, file )
 	return xl_file_path
 
 ################################################################################
