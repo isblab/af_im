@@ -110,6 +110,7 @@ class CompetingMethodsRunner():
 		self.create_required_file()
 		self.init_logs()
 		self.load_benchmark()
+		self.systems_to_model()
 
 		self.create_system_specifc_inputs()
 
@@ -129,6 +130,16 @@ class CompetingMethodsRunner():
 			self.logs = {k:{} for k in ["completed", "time", "memory"]}
 
 
+	def systems_to_model( self ):
+		"""
+		Initialize the systems (complexes) to be modeled.
+		"""
+		if self.model_config.multi_state:
+			self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
+		else:
+			self.sys_to_model = self.benchmark["PDB ID"]
+
+
 	def set_xl_max_bound( self ):
 		"""
 		Set the XL max bound according to the XL type used.
@@ -139,6 +150,8 @@ class CompetingMethodsRunner():
 			self.xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		elif self.model_config.xl_type == "long":
 			self.xl_max_bound = self.config_dict.benchmark.jwalk.long_linker
+		elif self.model_config.xl_type in ["S1", "S2", "S1_2"]:
+			self.xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		else:
 			raise ValueError( f"Invalid XL type: " +
 				f"{self.model_config['xl_type']} specified..."
@@ -243,7 +256,7 @@ class CompetingMethodsRunner():
 			"sys_dir_path", "fasta_file", "restraints_file", "feat_dict_file"]}
 		self.inputs["sys_dir_path"] = {}
 
-		for sys_name in self.benchmark["PDB ID"]:
+		for sys_name in self.sys_to_model:
 			data_dir = get_sys_data_dir_path(
 				base_dir = self.base_dir,
 				benchmark_name = self.benchmark_name,
@@ -354,8 +367,10 @@ class CompetingMethodsRunner():
 			seq1 = entity_chain_map[entity_id1]["seq"]
 			seq2 = entity_chain_map[entity_id2]["seq"]
 
-			residue1 = f"{chain_id1}-{res1}-K"
-			residue2 = f"{chain_id2}-{res2}-K"
+			aa1 = seq1[res1-1]
+			aa2 = seq1[res2-1]
+			residue1 = f"{chain_id1}-{res1}-{aa1}"
+			residue2 = f"{chain_id2}-{res2}-{aa2}"
 
 			if self.model_config.no_fp_xls and label == 0:
 				# Do not add FP XLs as restraints.
@@ -772,6 +787,7 @@ class CompetingMethodsRunner():
 		sys_name: name of the complex modeled. For the benchmark,
 			it's the PDB ID.
 		"""
+		xl_type = "short" if self.model_config.xl_type == None else self.model_config.xl_type
 		data_dir = get_sys_data_dir_path(
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
@@ -780,7 +796,7 @@ class CompetingMethodsRunner():
 			base_dir = self.base_dir,
 			benchmark_name = self.benchmark_name,
 			sys_name = sys_name,
-			xl_type = self.xl_type,
+			xl_type = xl_type,
 			frac_fp = self.model_config.frac_fp
 		)
 
@@ -810,7 +826,6 @@ class CompetingMethodsRunner():
 			}
 			boltz_input["sequences"].append( protein )
 
-		xl_type = "short" if self.model_config.xl_type == None else self.model_config.xl_type
 		if self.model_config.pred_type == "guided":
 			xl_file = get_xl_file_path(
 				base_dir = self.base_dir,
@@ -899,7 +914,7 @@ class CompetingMethodsRunner():
 		"""
 		Create input files for running GRASP/AlphaLink2 on the benchmark.
 		"""
-		for sys_name in self.benchmark["PDB ID"]:
+		for sys_name in self.sys_to_model:
 			# if sys_name in self.logs["completed"]:
 			# 	print( f"Already completed for {sys_name}" )
 			# 	continue
@@ -927,7 +942,7 @@ class CompetingMethodsRunner():
 		"""
 		base = os.path.abspath( os.getcwd() )
 		gpu_id = int( self.device.split( ":" )[1] )
-		for idx, sys_name in enumerate( self.benchmark["PDB ID"] ):
+		for idx, sys_name in enumerate( self.sys_to_model ):
 			# if sys_name in self.logs["completed"] and sys_name not in ["6iww", "7agf"]:
 			if sys_name in self.logs["completed"]:
 				print( f"Already completed for {sys_name}" )
