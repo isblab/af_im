@@ -180,6 +180,16 @@ class Analysis():
 		self.benchmark = pd.read_csv( benchmark_file )
 
 
+	def systems_to_model( self, config_name: str ):
+		"""
+		Initialize the systems (complexes) to be modeled.
+		"""
+		if self.model_config[config_name].multi_state:
+			self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
+		else:
+			self.sys_to_model = self.benchmark["PDB ID"]
+
+
 	def get_xl_max_bound( self, config_name: str ) -> float:
 		"""
 		Set the XL max bound according to the XL type used.
@@ -203,6 +213,8 @@ class Analysis():
 			xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		elif self.model_config[config_name]["xl_type"] == "long":
 			xl_max_bound = self.config_dict.benchmark.jwalk.long_linker
+		elif self.model_config[config_name]["xl_type"] in ["S1", "S2", "S1_2"]:
+			xl_max_bound = self.config_dict.benchmark.jwalk.short_linker
 		else:
 			raise ValueError( f"Invalid XL type: " +
 				f"{self.model_config[config_name]['xl_type']} specified..."
@@ -240,8 +252,9 @@ class Analysis():
 			# self.xl_type = self.model_config[config_name]["xl_type"]
 			model_key = f"{self.model}_{config_name}"
 			self.pred_metadata[model_key] = {}
+			self.systems_to_model( config_name = config_name )
 
-			for sys_name in self.benchmark["PDB ID"]:
+			for sys_name in self.sys_to_model:
 				out_files = return_model_sys_file(
 					model = self.model,
 					base_dir = self.base_dir,
@@ -311,7 +324,7 @@ class Analysis():
 		"""
 		self.xl_res_dict = {}
 
-		for sys_name in self.benchmark["PDB ID"]:
+		for sys_name in self.sys_to_model:
 			xl_dict = self.create_xl_gt_features_per_sys(
 				sys_name = sys_name,
 				xl_type = self.pred_metadata[model_key][sys_name]["xl_type"],
@@ -554,10 +567,16 @@ class Analysis():
 		for idx, model_key in enumerate( self.pred_metadata ):
 			print( f"\nRunning analysis for {model_key}..." )
 			_, config_name = model_key.split( "_" )
+			self.systems_to_model( config_name = config_name )
+
+			# print( self.sys_to_model )
+			# self.get_residues_to_sys_index_mapping()
+			# self.create_native_sys_chain_mapping()
+
 			if model_key not in self.per_config_logs:
 				self.per_config_logs[model_key] = {}
 			else:
-				if len( self.per_config_logs ) == len( self.benchmark["PDB ID"] ):
+				if len( self.per_config_logs ) == len( self.sys_to_model ):
 					print( "Already completed..." )
 					continue
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
