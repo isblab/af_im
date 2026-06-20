@@ -347,7 +347,8 @@ def get_sys_fasta_file_path(
 def get_native_struct_file(
 	base_dir: str,
 	benchmark_name: str,
-	sys_name: str
+	sys_name: str,
+	struct_format: str = "cif"
 ) -> str:
 	"""
 	Return the path to the native structure file for the given system.
@@ -358,13 +359,19 @@ def get_native_struct_file(
 	benchmark_name: name of the benchmark.
 	sys_name: we use the PDB ID as a unique identifier for a complex.
 		Aka entry_id.
+		struct_format: pdb or cif.
 	"""
+	if struct_format not in ["pdb", "cif"]:
+		raise ValueError(
+			"Unsupported file format specified: " +
+			f"{struct_format}. Must be pdb or cif..."
+		)
 	data_dir = get_sys_data_dir_path(
 		base_dir = base_dir,
 		benchmark_name = benchmark_name,
 		sys_name = sys_name
 	)
-	native_struct_file = os.path.join( data_dir, f"{sys_name}.cif" )
+	native_struct_file = os.path.join( data_dir, f"{sys_name}.{struct_format}" )
 	return native_struct_file
 
 
