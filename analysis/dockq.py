@@ -6,7 +6,7 @@ import os, shutil
 from multiprocessing import Pool
 import tqdm
 
-from utils.tools import dockq
+from utils.tools import dockq, dockq_cli
 from utils.pdb_utils import remap_chains_cif, remap_chains_pdb
 
 
@@ -39,8 +39,8 @@ class DockQ():
 		model_files1: List[str],
 		model_ids2: List[int],
 		model_files2: List[str],
-		native_sys_chain_map: Dict[str, str],
-		use_native_chains_for_model2: bool,
+		# native_sys_chain_map: Dict[str, str],
+		# use_native_chains_for_model2: bool,
 		tmp_dir_path: str,
 		cpu_cores: int,
 	):
@@ -50,8 +50,8 @@ class DockQ():
 		self.model_files2 = model_files2
 		self.tmp_dir_path = tmp_dir_path
 
-		self.use_native_chains_for_model2 = use_native_chains_for_model2
-		self.native_sys_chain_map = native_sys_chain_map
+		# self.use_native_chains_for_model2 = use_native_chains_for_model2
+		# self.native_sys_chain_map = native_sys_chain_map
 
 		self.cpu_cores = cpu_cores
 
@@ -65,7 +65,7 @@ class DockQ():
 		"""
 		"""
 		self.create_tmp_dir()
-		self.run_chain_remapping()
+		# self.run_chain_remapping()
 
 		self.compute_dockq_parallel()
 
@@ -189,10 +189,16 @@ class DockQ():
 		"""
 		parallel_input = []
 		total = 0
-		for m1, f1 in zip( self.model_ids1, self.remapped_dict["model_files1"] ):
-			for m2, f2 in zip( self.model_ids2, self.remapped_dict["model_files2"] ):
+		# for m1, f1 in zip( self.model_ids1, self.remapped_dict["model_files1"] ):
+		# 	for m2, f2 in zip( self.model_ids2, self.remapped_dict["model_files2"] ):
+		for m1, f1 in zip( self.model_ids1, self.model_files1 ):
+			for m2, f2 in zip( self.model_ids2, self.model_files2 ):
+				out_file = os.path.join(
+					self.tmp_dir_path,
+					f"dockq_out_{m1}-{m2}.txt"
+					)
 				parallel_input.append(
-					( m1, f1, m2, f2 )
+					( m1, f1, m2, f2, out_file )
 				)
 				total += 1
 		return parallel_input, total
@@ -245,10 +251,15 @@ class DockQ():
 		model_ids2: integer identifiers for the model in set 2 (model2).
 		dockq score: DockQ score for the given models.
 		"""
-		model_id1, model_file1, model_id2, model_file2 = input_pair
-		d = dockq(
+		model_id1, model_file1, model_id2, model_file2, out_file = input_pair
+		# d = dockq(
+		# 	native_file = model_file1,
+		# 	model_file = model_file2
+		# )
+		d = dockq_cli(
 			native_file = model_file1,
-			model_file = model_file2
+			model_file = model_file2,
+			out_file = out_file
 		)
 		return model_id1, model_id2, d
 		

@@ -10,7 +10,7 @@ from MDAnalysis.core.universe import Universe
 from MDAnalysis.core.groups import AtomGroup
 from DockQ.DockQ import load_PDB, run_on_all_native_interfaces
 
-from utils.utils import run_subprocess
+from utils.utils import run_subprocess, open_file_handler
 
 ################################################################################
 # ----------------------------------> EMAN2 <------------------------------- --#
@@ -211,6 +211,40 @@ def dockq( native_file: str, model_file: str ) -> float:
 	native = load_PDB( native_file )
 	dockq_result = run_on_all_native_interfaces( model, native )
 	dockq = dockq_result[1]
+
+	return dockq
+
+
+def dockq_cli( native_file: str, model_file: str, out_file: str ) -> float:
+	"""
+	Use the DockQ CLI for computing the DockQ between the native and model structures.
+	This computes the optimal alignment by itself and does not require remapping the chains
+		in the input structures.
+	We just read the Total DockQ line. Example,
+		Total DockQ over 3 native interfaces: 0.653 with BAC:ABC model:native mapping
+
+	Inputs:
+	----------
+	native_file: path to the native structure file.
+	model_file: path to the model structure file.
+	out_file: path to the file for redirecting the DockQ output.
+	"""
+	cmd = [
+		"DockQ",
+		f"{model_file}",
+		f"{native_file}",
+		"--short"
+	]
+	run_subprocess( command = cmd, stdout_file = out_file )
+
+	f = open_file_handler( out_file, "r" )
+	for line in f.readlines():
+		if "Total DockQ over " in line:
+			dockq = float( line.strip().split( ": " )[1][:3] )
+	f.close()
+
+	cmd = ["rm", f"{out_file}"]
+	run_subprocess( cmd )
 
 	return dockq
 
