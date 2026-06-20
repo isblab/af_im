@@ -80,7 +80,8 @@ def load_analysis_dict(
 # Prepare inputs for plotting the the various metrics
 ################################################################################
 def prep_pred_time_input(
-	config_name: str
+	config_name: str,
+	models: List[str]
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -98,7 +99,7 @@ def prep_pred_time_input(
 		respective prediction time.
 	"""
 	records = {}
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in ["complex", "time"]
 			}
@@ -118,7 +119,8 @@ def prep_pred_time_input(
 
 
 def prep_xl_satisfaction_input(
-	config_name: str
+	config_name: str,
+	models: List[str]
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -137,7 +139,7 @@ def prep_xl_satisfaction_input(
 	records: 
 	"""
 	records = {}
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in [
 				"complex", "per_model_xl_sat", "mean_xl_sat",
@@ -169,7 +171,9 @@ def prep_xl_satisfaction_input(
 
 ################################################################################
 def prep_native_tm_input(
-	config_name: str
+	config_name: str,
+	models: List[str],
+	native_model_id: int = 1000,
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -191,7 +195,7 @@ def prep_native_tm_input(
 	records: 
 	"""
 	records = {}
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in ["complex", "per_model_tm", "mean_tm", "max_tm"]
 			}
@@ -205,8 +209,9 @@ def prep_native_tm_input(
 				continue
 			tm = []
 			for model_id1 in data[sys_name]["tm"]:
-				for k, v in data[sys_name]["tm"][model_id1].items():
-					tm.append( v["tm"] )
+				k,v = data[sys_name]["dockq"][model_id1][native_model_id].items()
+				# for k, v in data[sys_name]["tm"][model_id1].items():
+				tm.append( v["tm"] )
 			tm = np.array( tm )
 
 			records[model]["complex"].append( sys_name )
@@ -217,7 +222,9 @@ def prep_native_tm_input(
 
 ################################################################################
 def prep_native_dockq_input(
-	config_name: str
+	config_name: str,
+	models: List[str],
+	native_model_id: int = 1000,
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -239,7 +246,7 @@ def prep_native_dockq_input(
 	records: 
 	"""
 	records = {}
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in ["complex", "per_model_dockq", "mean_dockq", "max_dockq"]
 			}
@@ -253,8 +260,9 @@ def prep_native_dockq_input(
 				continue
 			dockq = []
 			for model_id1 in data[sys_name]["dockq"]:
-				for k, v in data[sys_name]["dockq"][model_id1].items():
-					dockq.append( v )
+				d = data[sys_name]["dockq"][model_id1][native_model_id]
+				# for k, v in data[sys_name]["dockq"][model_id1].items():
+				dockq.append( d )
 			dockq = np.array( dockq )
 
 			records[model]["complex"].append( sys_name )
@@ -266,7 +274,8 @@ def prep_native_dockq_input(
 ################################################################################
 def prep_unique_models_input(
 	config_name: str,
-	similarity_metric: str
+	similarity_metric: str,
+	models: List[str]
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -288,7 +297,7 @@ def prep_unique_models_input(
 			"Incorrect similarity metric specified" +
 			" for selecting unique models..."
 		)
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in ["complex", similarity_metric]
 			}
@@ -310,7 +319,7 @@ def prep_unique_models_input(
 ################################################################################
 def return_molprobity_metric(
 	molprob_dict: Dict,
-	molprob_metric: str
+	molprob_metric: str,
 	):
 	"""
 	Given a dict containing per-model Molprobity metrics, return the following:
@@ -341,7 +350,8 @@ def return_molprobity_metric(
 
 def prep_molprobity_input(
 	config_name: str,
-	for_native: bool
+	for_native: bool,
+	models: List[str]
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -367,7 +377,7 @@ def prep_molprobity_input(
 	resolution_dict_file = os.path.join( meta_dir, "resolution_dict.json" )
 	resolution_dict = read_json( resolution_dict_file )
 
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in [
 				"complex",
@@ -400,7 +410,8 @@ def prep_molprobity_input(
 
 ################################################################################
 def prep_rmsf_input(
-	config_name: str
+	config_name: str,
+	models: List[str]
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -419,7 +430,7 @@ def prep_rmsf_input(
 	"""
 	records = {}
 
-	for model in MODELS:
+	for model in models:
 		records[model] = {
 			k:[] for k in ["complex", "rmsf", "plddt"]
 			}
@@ -466,37 +477,45 @@ def return_metric(
 	if metric == "time":
 		records = prep_pred_time_input(
 			config_name = config_name,
+			models = models
 		)
 	elif metric == "xl_sat":
 		records = prep_xl_satisfaction_input(
 			config_name = config_name,
+			models = models
 		)
 	elif metric == "tm":
 		records = prep_native_tm_input(
 			config_name = config_name,
+			models = models
 		)
 	elif metric == "dockq":
 		records = prep_native_dockq_input(
 			config_name = config_name,
+			models = models
 		)
 	elif metric == "unique_struct":
 		records = prep_unique_models_input(
 			config_name = config_name,
-			similarity_metric = "unique_struct"
+			similarity_metric = "unique_struct",
+			models = models
 		)
 	elif metric == "unique_interface":
 		records = prep_unique_models_input(
 			config_name = config_name,
-			similarity_metric = "unique_interface"
+			similarity_metric = "unique_interface",
+			models = models
 		)
 	elif metric == "molprob":
 		records = prep_molprobity_input(
 			config_name = config_name,
-			for_native = molprob_native
+			for_native = molprob_native,
+			models = models
 		)
 	elif metric == "rmsf":
 		records = prep_rmsf_input(
 			config_name = config_name,
+			models = models
 		)
 	else:
 		raise ValueError( f"Unknown metric specified - {metric}..." )
