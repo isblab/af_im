@@ -635,6 +635,9 @@ def get_grasp_sys_files(
 	for file in glob.glob(
 		f"{sys_dir}/unrelaxed_model_1_multimer_v3_v11_*_final.pdb" ):
 		struct_file_list.append( file )
+	for file in glob.glob(
+		f"{sys_dir}/model_1_multimer_v3_v11_*_info.tsv" ):
+		output_file_list.append( file )
 
 	return struct_file_list, output_file_list
 
