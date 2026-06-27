@@ -215,7 +215,7 @@ def dockq( native_file: str, model_file: str ) -> float:
 	return dockq
 
 
-def dockq_cli( native_file: str, model_file: str, out_file: str ) -> float:
+def dockq_cli( native_file: str, model_file: str, out_file: str, err_file: str ) -> float:
 	"""
 	Use the DockQ CLI for computing the DockQ between the native and model structures.
 	This computes the optimal alignment by itself and does not require remapping the chains
@@ -235,16 +235,25 @@ def dockq_cli( native_file: str, model_file: str, out_file: str ) -> float:
 		f"{native_file}",
 		"--short"
 	]
-	run_subprocess( command = cmd, stdout_file = out_file )
+	stderr_file = run_subprocess(
+		command = cmd,
+		stdout_file = out_file,
+		stderr_file = err_file,
+		verbose = False
+		)
 
-	f = open_file_handler( out_file, "r" )
-	for line in f.readlines():
-		if "Total DockQ over " in line:
-			dockq = float( line.strip().split( ": " )[1][:3] )
-	f.close()
+	# If no interface found, DockQ will error out.
+	if stderr_file is None:
+		f = open_file_handler( out_file, "r" )
+		for line in f.readlines():
+			if "Total DockQ over " in line:
+				dockq = float( line.strip().split( ": " )[1][:3] )
+		f.close()
 
-	cmd = ["rm", f"{out_file}"]
-	run_subprocess( cmd )
+		cmd = ["rm", f"{out_file}"]
+		run_subprocess( cmd )
+	else:
+		dockq = 0.0
 
 	return dockq
 
