@@ -321,7 +321,9 @@ def remove_dir( dir_path: str ):
 ################################################################################
 def run_subprocess( command: List,
 	stdout_file: str = None,
-	stderr_file: str = "err_log" ) -> None:
+	stderr_file: str = "err_log",
+	verbose: bool = True
+	) -> None:
 	"""
 	Run shell command using subprocess.
 
@@ -345,6 +347,7 @@ def run_subprocess( command: List,
 				w = open_file_handler( stdout_file, "w" )
 				w.write( result.stdout )
 				w.close()
+				return None
 				
 				# retcode = subprocess.run( command,
 				# 						stdout_obj = w,
@@ -353,7 +356,8 @@ def run_subprocess( command: List,
 				# 						check = True )
 
 		except subprocess.CalledProcessError as e:
-			print( "Writing error to log file..." )
+			if verbose:
+				print( "Writing error to log file..." )
 			current_datetime = datetime.now()
 			timestamp = current_datetime.strftime( "%d_%m_%Y_%H_%M_%S" )
 			stderr_file = f"{stderr_file}_{timestamp}.txt"
@@ -363,6 +367,7 @@ def run_subprocess( command: List,
 			w.write( traceback.format_exc() )
 			w.close()
 			time.sleep( 5 )
+			return stderr_file
 
 	else:
 		raise ValueError( "Command cannot be empty..." )
