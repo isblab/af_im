@@ -25,6 +25,7 @@ class UniqueStructures():
 		self,
 		metric_dict: Dict[int, Dict[int, float]],
 		metric_name: str,
+		method: str,
 		threshold: float
 		):
 		"""
@@ -36,8 +37,8 @@ class UniqueStructures():
 		"""
 		self.metric_dict = metric_dict
 		self.metric_name = metric_name
+		self.method = method
 		self.threshold = threshold
-
 
 
 	def forward( self ):
@@ -55,10 +56,59 @@ class UniqueStructures():
 		representatives: list of model IDs corresponding to one representative
 			per cluster.
 		"""
+		if self.method == 'similarity_rejection':
+			unique_models = self.similarity_rejection_pipeline()
+		elif self.method == "graph_pipeline":
+			unique_models = self.graph_pipeline()
+		else:
+			raise ValueError( f"Unsupported method: {self.method} specified..." )
+		return unique_models
+
+	################################################################################
+	################################################################################
+	def similarity_rejection_pipeline( self ):
+		"""
+		For ech model i, identify all similar models j.
+		Remove the similar models from the pool.
+		The remaining models are unique at the specified similarity cutoff.
+		"""
+		ignore_models = set()
+		for model_i in self.metric_dict:
+			if model_i in ignore_models:
+				continue
+			for model_j in self.metric_dict[model_i]:
+				# Ignore self-similarity.
+				if model_i == model_j:
+					continue
+				if model_j in ignore_models:
+					continue
+
+				if self.metric_name == "tm":
+					metric_ij = self.metric_dict[model_i][model_j][self.metric_name]
+				else:
+					metric_ij = self.metric_dict[model_i][model_j]
+
+				if metric_ij >= self.threshold:
+					ignore_models.add( model_j )
+
+		all_models = set( list( self.metric_dict.keys() ) )
+		unique_models = list( all_models - ignore_models )
+		return unique_models
+
+	################################################################################
+	################################################################################
+	def graph_pipeline( self ):
+		"""
+		Use connected components to identify unique models.
+		We represent models as graph nodes.
+		Two models are connected if their similarity metric exceeds a threshold.
+		Connected components are interpreted as clusters of structurally
+			similar models.
+		"""
 		G = self.create_graph()
 		clusters = self.find_connected_components( G = G )
-		representatives = self.select_cluster_representative( clusters = clusters )
-		return representatives
+		unique_models = self.select_cluster_representative( clusters = clusters )
+		return unique_models
 
 
 	def create_graph( self ) -> nx.Graph:
