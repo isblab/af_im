@@ -1,9 +1,8 @@
 """
 Contains a wrapper module for performing analysis for the benchmark.
 """
-from typing import List, Dict, Any
-import os, argparse, json, shutil, time
-import pickle as pkl
+from typing import List, Tuple, Dict, Any
+import os, argparse, time
 import numpy as np
 import pandas as pd
 
@@ -14,6 +13,7 @@ from rmsd import StructuralSimilarity
 from dockq import DockQ
 from unique_models import UniqueStructures
 from molprobity import Molprobity
+from confidence_parser import ConfidenceMetadataParser
 from variability import EnsembleVariability
 from utils.mappings import (
 	yield_restraints,
@@ -21,11 +21,9 @@ from utils.mappings import (
 	map_residue_positions_to_system_indices
 )
 from utils.paths import (
-	BASE_DIR,
 	get_benchmark_csv_file,
 	get_xl_file_path,
 	get_native_struct_file,
-	get_model_output_dir_path,
 	return_model_sys_file,
 	get_benchmark_analysis_dir_path
 )
@@ -38,6 +36,7 @@ class Analysis():
 	def __init__(
 		self,
 		model: str,
+		run_multistate: bool
 		# xl_type: str
 		):
 		self.config_dict = get_config_dict()
@@ -47,6 +46,7 @@ class Analysis():
 		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
 
 		self.model = model
+		self.run_multistate = run_multistate
 		self.cpu_cores = 100
 		self.save_every = 1
 		self.model_config = {}
@@ -80,7 +80,6 @@ class Analysis():
 		print( f"Will save results every {self.save_every} iterations..." )
 
 		self.get_residues_to_sys_index_mapping()
-		self.create_native_sys_chain_mapping()
 
 		self.run_analysis_per_config()
 
@@ -131,13 +130,6 @@ class Analysis():
 		else:
 			self.per_config_logs = {}
 
-		# if os.path.exists( self.cross_config_logs_file ):
-		# 	self.cross_config_logs = np.load(
-		# 		self.cross_config_logs_file, allow_pickle = True
-		# 	).item()
-		# else:
-		# 	self.cross_config_logs = {}
-
 
 	def return_config_names( self, model: str ) -> List[str]:
 		"""
@@ -160,9 +152,16 @@ class Analysis():
 		elif model == "alphalink2":
 			self.model_config = ALPHALINK
 
-		config_names = [
-			c for c in self.model_config if len( self.model_config[c] ) != 0
-		]
+		config_names = []
+		for c in self.model_config:
+			if len( self.model_config[c] ) != 0:
+				if self.run_multistate:
+					if self.model_config[c].multi_state:
+						config_names.append( c )
+				else:
+					if not self.model_config[c].multi_state:
+						config_names.append( c )
+		print( f"Running analysis for: {config_names}" )
 		return config_names
 
 	################################################################################
@@ -183,6 +182,12 @@ class Analysis():
 	def systems_to_model( self, config_name: str ):
 		"""
 		Initialize the systems (complexes) to be modeled.
+
+		Inputs:
+		----------
+		config_name: str identifier for the model configuration
+			used for prediction.
+			See model_configs.py.
 		"""
 		if self.model_config[config_name].multi_state:
 			self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
@@ -263,9 +268,11 @@ class Analysis():
 					sys_name = sys_name
 				)
 				model_ids = np.arange( 0, len( out_files[0] ), 1 )
+
 				self.pred_metadata[model_key][sys_name] = {
 					"model_ids": model_ids,
 					"model_files": out_files[0],
+					"confidence_files": out_files[1],
 					"xl_type": xl_type,
 					"frac_fp": self.model_config[config_name]["frac_fp"]
 				}
@@ -569,16 +576,13 @@ class Analysis():
 			_, config_name = model_key.split( "_" )
 			self.systems_to_model( config_name = config_name )
 
-			# print( self.sys_to_model )
-			# self.get_residues_to_sys_index_mapping()
-			# self.create_native_sys_chain_mapping()
-
 			if model_key not in self.per_config_logs:
 				self.per_config_logs[model_key] = {}
-			else:
-				if len( self.per_config_logs ) == len( self.sys_to_model ):
-					print( "Already completed..." )
-					continue
+			# else:
+			# 	if len( self.per_config_logs[model_key] ) == len( self.sys_to_model ):
+			# 		print( "Already completed..." )
+			# 		continue
+				# pass
 			xl_max_bound = self.get_xl_max_bound( config_name = config_name )
 			self.create_xl_gt_features( model_key = model_key )
 
@@ -592,13 +596,12 @@ class Analysis():
 
 				model_ids = self.pred_metadata[model_key][sys_name]["model_ids"]
 				model_files = self.pred_metadata[model_key][sys_name]["model_files"]
-				native_file = get_native_struct_file(
-					base_dir = self.base_dir,
-					benchmark_name = self.benchmark_name,
-					sys_name = sys_name
-				)
+				confidence_files = self.pred_metadata[model_key][sys_name]["confidence_files"]
 
-				native_sys_chain_map = self.native_sys_chain_map[sys_name]
+				native_files, native_model_ids = self.get_native_struct_for_config(
+					sys_name = sys_name,
+					config_name = config_name
+				)
 
 				if len( model_ids ) == 0:
 					continue
@@ -625,13 +628,13 @@ class Analysis():
 
 				if "tm" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing structural similarity wrt native structure..." )
-					dock_dict = self.run_struct_similarity_calc_per_sys(
+					similarity_dict = self.run_struct_similarity_calc_per_sys(
 						model_ids1 = model_ids,
-						model_ids2 = [1000],
+						model_ids2 = native_model_ids,
 						model_files1 = model_files,
-						model_files2 = [native_file]
+						model_files2 = native_files
 					)
-					self.per_config_logs[model_key][sys_name]["tm"]  = dock_dict
+					self.per_config_logs[model_key][sys_name]["tm"]  = similarity_dict
 
 				if "interface_similarity" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing interface similarity..." )
@@ -640,9 +643,7 @@ class Analysis():
 						model_ids1 = model_ids,
 						model_ids2 = model_ids,
 						model_files1 = model_files,
-						model_files2 = model_files,
-						native_sys_chain_map = native_sys_chain_map,
-						use_native_chains_for_model2 = False
+						model_files2 = model_files
 					)
 					self.per_config_logs[model_key][sys_name]["interface_similarity"]  = dock_dict
 
@@ -651,11 +652,9 @@ class Analysis():
 					dock_dict = None
 					dock_dict = self.run_dockq_calc_per_sys(
 						model_ids1 = model_ids,
-						model_ids2 = [1000],
+						model_ids2 = native_model_ids,
 						model_files1 = model_files,
-						model_files2 = [native_file],
-						native_sys_chain_map = native_sys_chain_map,
-						use_native_chains_for_model2 = True
+						model_files2 = native_files
 					)
 					self.per_config_logs[model_key][sys_name]["dockq"] = dock_dict
 
@@ -670,8 +669,8 @@ class Analysis():
 				if "molprob_native" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing Molprobity metrics for native structure..." )
 					molprob_dict = self.run_molprobity_calc_per_sys(
-						model_ids = [1000],
-						model_files = [native_file]
+						model_ids = native_model_ids,
+						model_files = native_files
 					)
 					self.per_config_logs[model_key][sys_name]["molprob_native"] = molprob_dict
 
@@ -705,7 +704,7 @@ class Analysis():
 					unique_models = self.get_unique_models_per_sys(
 						metric_dict = interface_dict,
 						metric_name = "dockq",
-						threshold = 0.8,
+						threshold = 0.23,
 						xl_metrics = xl_metrics,
 						tm_dict = tm_dict,
 						dock_dict = dock_dict,
@@ -713,6 +712,16 @@ class Analysis():
 						model_files = model_files
 					)
 					self.per_config_logs[model_key][sys_name]["unique_interface"] = unique_models
+
+				if "confidence" not in self.per_config_logs[model_key][sys_name]:
+					print( "Fetching overall confidence metrics..." )
+					conf_dict = self.run_confidence_calc_per_sys(
+						model = self.model,
+						model_ids = model_ids,
+						confidence_files = confidence_files
+					)
+					self.per_config_logs[model_key][sys_name]["confidence"] = conf_dict
+
 
 				if "rmsf" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing per-residue RMSF..." )
@@ -729,9 +738,57 @@ class Analysis():
 					self.per_config_logs[model_key][sys_name]["time_taken"] = time_taken
 				# print( f"Time taken for {sys_name} = {time_taken/60} minutes..." )
 				# if idx%self.save_every == 0:
+
 				np.save(
 					self.per_config_logs_file, self.per_config_logs, allow_pickle = True
 					)
+
+	################################################################################
+	def get_native_struct_for_config(
+		self,
+		sys_name: str,
+		config_name: str
+		) -> Tuple[List[str]]:
+		"""
+		Return the native structure file for the given system.
+		For the multi-state benchmark, return the native struct
+			for both states.
+
+		Inputs:
+		----------
+		sys_name: name of the complex modeled. For the benchmark,
+			it's the PDB ID.
+		config_name: str identifier for the model configuration
+			used for prediction.
+			See model_configs.py.
+
+		Returns:
+		----------
+		native_files: a list of native structure files.
+		native_model_ids: a list of model_ids for the native struct.
+		"""
+		if self.model_config[config_name].xl_type in ["S1", "S2", "S1_2"]:
+			native_file = get_native_struct_file(
+				base_dir = self.base_dir,
+				benchmark_name = self.benchmark_name,
+				sys_name = sys_name,
+				struct_format = "pdb"
+			)
+			base, ext = os.path.splitext( native_file )
+			state1_file = f"{base}_S1{ext}"
+			state2_file = f"{base}_S2{ext}"
+			native_files = [state1_file, state2_file]
+			native_model_ids = [1000, 1001]
+		else:
+			native_file = get_native_struct_file(
+				base_dir = self.base_dir,
+				benchmark_name = self.benchmark_name,
+				sys_name = sys_name
+			)
+			native_files = [native_file]
+			native_model_ids = [1000]
+		
+		return native_files, native_model_ids
 
 	################################################################################
 	def run_data_satisfaction_calc_per_sys(
@@ -821,6 +878,7 @@ class Analysis():
 		representatives = UniqueStructures(
 			metric_dict = metric_dict,
 			metric_name = metric_name,
+			method = "similarity_rejection",
 			threshold = threshold
 		).forward()
 		# Fraction of XLs satisfied per model.
@@ -841,8 +899,6 @@ class Analysis():
 		model_ids2: List[int],
 		model_files1: List[str],
 		model_files2: List[str],
-		native_sys_chain_map: Dict[str, str],
-		use_native_chains_for_model2: bool
 	):
 		"""
 		For a given system, compute the DockQ for all models wrt the
@@ -871,8 +927,6 @@ class Analysis():
 			model_files1 = model_files1,
 			model_ids2 = model_ids2,
 			model_files2 = model_files2,
-			native_sys_chain_map = native_sys_chain_map,
-			use_native_chains_for_model2 = use_native_chains_for_model2,
 			tmp_dir_path = self.dockq_tmp_dir_path,
 			cpu_cores = self.cpu_cores
 		)
@@ -892,9 +946,6 @@ class Analysis():
 		----------
 		model_ids: a list of integer identifiers for a model.
 		model_files: a list of file paths for the predicted model.
-		native_file: file path for the native structure of the system.
-		native_sys_chain_map: dict containing mapping between the native
-			and system chain IDs.
 
 		Returns:
 		----------
@@ -913,6 +964,34 @@ class Analysis():
 		)
 		molprob_dict = molprob_obj.forward()
 		return molprob_dict
+
+	################################################################################
+	def run_confidence_calc_per_sys(
+		self,
+		model,
+		model_ids: List[int],
+		confidence_files: List[str]
+	):
+		"""
+		For a given system, fetch the overall confidence metrics.
+
+		Inputs:
+		----------
+		model_ids: a list of integer identifiers for a model.
+		confidence_files: a list of paths for the files containing confidnce metric.
+
+		Returns:
+		----------
+		conf_dict: {
+			model_id: confidence score
+		}
+		"""
+		conf_dict = ConfidenceMetadataParser(
+			model = model,
+			model_ids = model_ids,
+			confidence_files = confidence_files
+		).forward()
+		return conf_dict
 
 	################################################################################
 	def run_rmsf_calc_per_sys(
@@ -954,6 +1033,13 @@ if __name__ == "__main__":
 		"-m", "--model",
 		type = str, required = True,
 		help = "Specify the model to use: grasp/alphalink2/boltz2." )
-
+	parser.add_argument(
+		"-ms", "--multistate",
+		required = False, action = "store_true",
+		default = False,
+		help = "If specified, run only for the multistate benchmark configs." )
 	args = parser.parse_args()
-	Analysis( model = args.model ).forward()
+	Analysis(
+		model = args.model,
+		run_multistate = args.multistate
+		).forward()
