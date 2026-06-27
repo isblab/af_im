@@ -208,10 +208,11 @@ def prep_native_tm_input(
 			if sys_name in IGNORE_SYSTEMS:
 				continue
 			tm = []
-			for model_id1 in data[sys_name]["tm"]:
-				k,v = data[sys_name]["dockq"][model_id1][native_model_id].items()
-				# for k, v in data[sys_name]["tm"][model_id1].items():
-				tm.append( v["tm"] )
+			sorted_model_ids = sorted( list( data[sys_name]["tm"].keys() ) )
+			for model_id1 in sorted_model_ids:
+					tm.append(
+						data[sys_name]["tm"][model_id1][native_model_id]["tm"]
+					)
 			tm = np.array( tm )
 
 			records[model]["complex"].append( sys_name )
@@ -259,14 +260,15 @@ def prep_native_dockq_input(
 			if sys_name in IGNORE_SYSTEMS:
 				continue
 			dockq = []
-			for model_id1 in data[sys_name]["dockq"]:
+			sorted_model_ids = sorted( list( data[sys_name]["dockq"].keys() ) )
+			for model_id1 in sorted_model_ids:
 				d = data[sys_name]["dockq"][model_id1][native_model_id]
 				# for k, v in data[sys_name]["dockq"][model_id1].items():
 				dockq.append( d )
 			dockq = np.array( dockq )
 
 			records[model]["complex"].append( sys_name )
-			records[model]["per_model_dockq"].append( dockq )
+			records[model]["per_model_dockq"].extend( dockq )
 			records[model]["mean_dockq"].append( dockq.mean() )
 			records[model]["max_dockq"].append( dockq.max() )
 	return records
@@ -327,20 +329,21 @@ def return_molprobity_metric(
 		Mean metric value
 		Max/Min metric value
 	"""
+	sorted_model_ids = sorted( list( molprob_dict.keys() ) )
 	if molprob_metric == "molprob":
 		per_model_metric = np.array(
-			[v["MolProbity score"] for k,v in molprob_dict.items()]
+			[molprob_dict[k]["MolProbity score"] for k in sorted_model_ids]
 			)
 		mean_metric = per_model_metric.mean()
 	elif molprob_metric == "clash":
 		per_model_metric = np.array(
-			[v["Clashscore"] for k,v in molprob_dict.items()]
+			[molprob_dict[k]["Clashscore"] for k in sorted_model_ids]
 			)
 		mean_metric = per_model_metric.mean()
 	# Ramachandran favored
 	elif molprob_metric == "favored":
 		per_model_metric = np.array(
-			[v["favored"] for k,v in molprob_dict.items()]
+			[molprob_dict[k]["favored"] for k in sorted_model_ids]
 			)
 		mean_metric = per_model_metric.mean()
 	else:
@@ -451,6 +454,64 @@ def prep_rmsf_input(
 	return records
 
 ################################################################################
+def prep_confidence_metrics_input(
+	config_name: str,
+	models: List[str],
+) -> Dict[str, List]:
+	"""
+	For all the methods (AlphaLink2, Boltz2, GRASP), across all
+		complexes obtain the following:
+		Global confidence metrics
+			ipTM+pTM for AlphaLink2
+			Ranking score for Boltz2
+			Score for GRASP
+
+	Inputs:
+	----------
+	config_name: str identifier for the model configuration
+		used for prediction.
+		See model_configs.py.
+	models: list of models for which to gather data.
+
+	Returns:
+	----------
+	records: 
+	"""
+	records = {}
+	for model in models:
+		records[model] = {
+			k:[] for k in [
+				"complex", "per_model_confidence",
+				"mean_confidence", "max_confidence"
+				]
+			}
+		data = load_analysis_dict(
+			model = model,
+			config_name = config_name
+		)
+
+		for sys_name in data:
+			if sys_name in IGNORE_SYSTEMS:
+				continue
+			sorted_model_ids = sorted( list( data[sys_name]["confidence"].keys() ) )
+			per_model_conf = []
+			for model_id in sorted_model_ids:
+				per_model_conf.append(
+					data[sys_name]["confidence"][model_id]
+				)
+			per_model_conf = np.array( per_model_conf )
+
+			if model == "grasp":
+				# For GRASp, the score ranges from 0-100.
+				per_model_conf = per_model_conf/100
+
+			records[model]["complex"].append( sys_name )
+			records[model]["per_model_confidence"].extend( per_model_conf )
+			records[model]["mean_confidence"].append( per_model_conf.mean() )
+			records[model]["max_confidence"].append( per_model_conf.max() )
+	return records
+
+################################################################################
 def return_metric(
 	config_name: str,
 	models: List[str],
@@ -514,6 +575,11 @@ def return_metric(
 		)
 	elif metric == "rmsf":
 		records = prep_rmsf_input(
+			config_name = config_name,
+			models = models
+		)
+	elif metric == "confidence":
+		records = prep_confidence_metrics_input(
 			config_name = config_name,
 			models = models
 		)
