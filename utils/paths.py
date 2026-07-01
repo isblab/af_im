@@ -45,6 +45,26 @@ def get_meta_dir_path(
 	return meta_dir
 
 
+def get_benchmark_dir_path(
+	base_dir: str,
+	benchmark_name: str ) -> str:
+	"""
+	Return the path to the benchmark dir.
+
+	Input:
+	----------
+	base_dir: dir to store all relevant modeling output.
+	benchmark_name: name of the benchmark.
+
+	Return:
+	----------
+	benchmark_dir_path: path to the metadata dir.
+	"""
+	benchmark_dir_path = os.path.join(
+		base_dir, f"{benchmark_name}_benchmark/" )
+	return benchmark_dir_path
+
+
 def get_sys_data_dir_path(
 	base_dir: str,
 	benchmark_name: str, sys_name: str ) -> str:
