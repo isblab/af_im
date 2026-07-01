@@ -692,6 +692,40 @@ def remap_chains_cif(
 	io.save( remapped_file )
 
 
+def extract_chains(
+	struct_file: str,
+	chain_id: str,
+	ext: str,
+	output_file: str
+):
+	"""
+	Extract all the specified chains from the given structure file
+		(pdb/cif) and save as a new file.
+
+	Inputs:
+	----------
+	struct_file: path to the structure file for ehich the chain
+		IDs are to be remapped.
+	chain_id: chain identifier (auth asym ID) for the chain to be extracted.
+	ext: must be either of cif or pdb.
+	output_file: file path for the structure file with chain
+		IDs remapped.
+	"""
+	if ext not in ["cif", "pdb"]:
+		raise ValueError( f"Unsupported file format. Supported only pdb/cif... " )
+
+	structure = Parser( struct_file ).structure
+
+	chain_selector = ChainSelect( chain_id = chain_id )
+
+	if ext == "pdb":
+		io = PDBIO()
+	else:
+		io = MMCIFIO()
+	io.set_structure( structure )
+	io.save( output_file, chain_selector )
+
+
 ############################## SASA ##############################
 ##--------------------------------------------------------------##
 class SolventAccessibleSurfaceArea():
