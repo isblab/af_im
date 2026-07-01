@@ -197,8 +197,12 @@ class DockQ():
 					self.tmp_dir_path,
 					f"dockq_out_{m1}-{m2}.txt"
 					)
+				err_file = os.path.join(
+					self.tmp_dir_path,
+					f"dockq_error_{m1}-{m2}.txt"
+					)
 				parallel_input.append(
-					( m1, f1, m2, f2, out_file )
+					( m1, f1, m2, f2, out_file, err_file )
 				)
 				total += 1
 		return parallel_input, total
@@ -251,7 +255,7 @@ class DockQ():
 		model_ids2: integer identifiers for the model in set 2 (model2).
 		dockq score: DockQ score for the given models.
 		"""
-		model_id1, model_file1, model_id2, model_file2, out_file = input_pair
+		model_id1, model_file1, model_id2, model_file2, out_file, err_file = input_pair
 		# d = dockq(
 		# 	native_file = model_file1,
 		# 	model_file = model_file2
@@ -259,7 +263,8 @@ class DockQ():
 		d = dockq_cli(
 			native_file = model_file1,
 			model_file = model_file2,
-			out_file = out_file
+			out_file = out_file,
+			err_file = err_file
 		)
 		return model_id1, model_id2, d
 		
