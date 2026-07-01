@@ -156,20 +156,25 @@ def pdb_valid( file_name: str, ext: str ):
 		return success
 
 
-def download_pdb( pdb_id: str, ext: str, file_name: str, 
-					max_trials: int = 5, wait_time: int = 5,
-					download_assembly: bool = False,
-					return_id: bool = True ):
+def download_pdb(
+	pdb_id: str,
+	ext: str,
+	file_name: str, 
+	max_trials: int = 5,
+	wait_time: int = 5,
+	download_assembly: bool = False,
+	return_id: bool = True ):
 	"""
 	Download the PDB entry in the specified format.
 
 	Input:
 	----------
-	pdb_id --> PDB ID to be downloaded.
-	ext --> pdb or cif.
-	max_trial --> in case retrieval fails, try again uptil max_trials.
-	wait_time --> wait some time before sending another request to the server.
-	return_id --> return thr pdb_id if True.
+	pdb_id: PDB ID to be downloaded.
+	ext: pdb or cif.
+	file_name: file path where the downloaded file will be saved.
+	max_trial: in case retrieval fails, try again uptil max_trials.
+	wait_time: wait some time before sending another request to the server.
+	return_id: return thr pdb_id if True.
 
 	Returns:
 	----------
@@ -207,7 +212,6 @@ def download_pdb( pdb_id: str, ext: str, file_name: str,
 				w.write( f.read() )
 
 		else:
-			# file_name = f"./{pdb_id}.{ext}"
 			write_to_file( response, file_name, "w" )
 
 	else:
