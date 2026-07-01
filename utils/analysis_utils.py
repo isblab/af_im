@@ -2,7 +2,7 @@
 Contains methods for parsing the analysis dict and
 	return the desired metric for subsequent analysis.
 """
-from typing import List, Dict, Any
+from typing import List, Tuple, Dict
 import os
 import numpy as np
 
@@ -143,7 +143,7 @@ def prep_xl_satisfaction_input(
 		records[model] = {
 			k:[] for k in [
 				"complex", "per_model_xl_sat", "mean_xl_sat",
-				"max_xl_sat", "xl_pair_sat"
+				"max_xl_sat", "xl_pair_sat", "label"
 				]
 			}
 		data = load_analysis_dict(
@@ -155,19 +155,55 @@ def prep_xl_satisfaction_input(
 			if sys_name in IGNORE_SYSTEMS:
 				continue
 			xl_sat = data[sys_name]["xl_metrics"]["xl_satisfaction"]
-			# print( data[sys_name]["xl_metrics"].keys() )
 			xl_pair_sat = data[sys_name]["xl_metrics"]["xl_pair_satisfaction"]
 			# print( data[sys_name]["xl_metrics"].keys() )
-			# label = data[sys_name]["xl_metrics"]["label"]
+			label = data[sys_name]["xl_metrics"]["label"]
 
 			records[model]["complex"].append( sys_name )
 			records[model]["per_model_xl_sat"].extend( xl_sat )
 			records[model]["mean_xl_sat"].append( xl_sat.mean() )
 			records[model]["max_xl_sat"].append( xl_sat.max() )
 			records[model]["xl_pair_sat"].append( xl_pair_sat )
-			# records[model]["label"].append( label )
+			records[model]["label"].append( label )
 
 	return records
+
+################################################################################
+def compute_tp_fp_xl_sat(
+	xl_pair_sat: np.ndarray,
+	labels: np.ndarray
+) -> Tuple[List, List]:
+	"""
+	Given the per XL satisfaction across all models compute
+		the fraction of TP and FP XLs satisfied.
+
+	Inputs:
+	----------
+	xl_pair_sat: [T, M] contains count of the no. of models
+		satisfying each XL.
+		T -> no. of XLs; M -> no. of models.
+	labels: binary array indicating whether an XL is TP (1) or FP (0).
+	"""
+	tp_xl_sat, fp_xl_sat = [], []
+	for j in range( len( labels ) ):
+		label = labels[j]
+		xl_sat = xl_pair_sat[j]
+
+		total_tp = np.count_nonzero( label )
+		total_fp = label.shape[0] - total_tp
+
+		# TP XLs
+		tp_sat = np.count_nonzero(
+			np.where( xl_sat*label > 0, 1, 0 )
+			)/total_tp
+		# FP XLs -> (1-label) 
+		fp_sat = np.count_nonzero(
+			np.where( xl_sat*( 1-label ) > 0, 1, 0 )
+			)/total_fp
+
+		tp_xl_sat.append( tp_sat )
+		fp_xl_sat.append( fp_sat )
+	return tp_xl_sat, fp_xl_sat
 
 ################################################################################
 def prep_native_tm_input(
