@@ -780,6 +780,7 @@ class SeqResDict():
 		self.cores = cores
 		self.max_sys_length = max_sys_length
 		self.frac_coverage = frac_coverage
+		self.exclude_monomer = True
 
 		self.seqres_dict = {}
 		self.resolution_dict = {}
@@ -975,7 +976,7 @@ class SeqResDict():
 			logs["no_protein_entity"] = entry_id
 			cif_dict = None
 			coverage = []
-		elif len( prot_entity_ids ) == 1:
+		elif len( prot_entity_ids ) == 1 and self.exclude_monomer:
 			logs["monomer"] = entry_id
 			cif_dict = None
 			coverage = []
