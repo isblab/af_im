@@ -7,8 +7,6 @@ import os
 import numpy as np
 import pandas as pd
 
-from utils.analysis_utils import return_metric
-
 from config import get_config_dict
 
 from utils.analysis_utils import return_metric
@@ -32,6 +30,13 @@ STATS_DIR = os.path.join(
 for d in [STATS_DIR]:
 	os.makedirs( d, exist_ok = True )
 
+THRESHOLD = {
+	"xl_sat": 0.75,
+	"tm": 0.7,
+	"dockq": 0.23,
+	"unique_struct": 1,
+	"unique_interface": 1,
+}
 ################################################################################
 ################################################################################
 def compute_data_satisfactIon_stats( model: str, config_name: str ):
@@ -49,14 +54,10 @@ def compute_data_satisfactIon_stats( model: str, config_name: str ):
 		models = [model]
 	)
 	stats = {}
-	# for model in MODELS:
 	max_xl_sat = np.array( records[model]["max_xl_sat"] )
-	total = max_xl_sat.shape[0]
-	low = np.sum( np.where( max_xl_sat <= 0.25, 1, 0 ) )
-	high = np.sum( np.where( max_xl_sat >= 0.75, 1, 0 ) )
-	medium = total - ( low + high )
+	low = np.sum( np.where( max_xl_sat < THRESHOLD["xl_sat"], 1, 0 ) )
+	high = np.sum( np.where( max_xl_sat >= THRESHOLD["xl_sat"], 1, 0 ) )
 	stats["low"] = low
-	stats["medium"] = medium
 	stats["high"] = high
 
 	return stats
@@ -77,14 +78,10 @@ def compute_tm_score_stats( model: str, config_name: str ):
 		models = [model]
 	)
 	stats = {}
-	# for model in MODELS:
 	max_tm = np.array( records[model]["max_tm"] )
-	total = max_tm.shape[0]
-	low = np.sum( np.where( max_tm <= 0.33, 1, 0 ) )
-	high = np.sum( np.where( max_tm >= 0.7, 1, 0 ) )
-	medium = total - ( low + high )
+	low = np.sum( np.where( max_tm < THRESHOLD["tm"], 1, 0 ) )
+	high = np.sum( np.where( max_tm >= THRESHOLD["tm"], 1, 0 ) )
 	stats["low"] = low
-	stats["medium"] = medium
 	stats["high"] = high
 
 	return stats
@@ -105,14 +102,10 @@ def compute_dockq_stats( model: str, config_name: str ):
 		models = [model]
 	)
 	stats = {}
-	# for model in MODELS:
 	max_dockq = np.array( records[model]["max_dockq"] )
-	total = max_dockq.shape[0]
-	low = np.sum( np.where( max_dockq <= 0.33, 1, 0 ) )
-	high = np.sum( np.where( max_dockq >= 0.7, 1, 0 ) )
-	medium = total - ( low + high )
+	low = np.sum( np.where( max_dockq < THRESHOLD["dockq"], 1, 0 ) )
+	high = np.sum( np.where( max_dockq >= THRESHOLD["dockq"], 1, 0 ) )
 	stats["low"] = low
-	stats["medium"] = medium
 	stats["high"] = high
 
 	return stats
@@ -133,14 +126,10 @@ def compute_unique_struct_stats( model: str, config_name: str ):
 		models = [model]
 	)
 	stats = {}
-	# for model in MODELS:
 	num_unique_struct = np.array( records[model]["unique_struct"] )
-	total = num_unique_struct.shape[0]
 	low = np.sum( np.where( num_unique_struct == 1, 1, 0 ) )
-	high = np.sum( np.where( num_unique_struct >= 10, 1, 0 ) )
-	medium = total - ( low + high )
+	high = np.sum( np.where( num_unique_struct > 1, 1, 0 ) )
 	stats["low"] = low
-	stats["medium"] = medium
 	stats["high"] = high
 
 	return stats
@@ -161,14 +150,65 @@ def compute_unique_interface_stats( model: str, config_name: str ):
 		models = [model]
 	)
 	stats = {}
-	# for model in MODELS:
 	num_unique_interface = np.array( records[model]["unique_interface"] )
-	total = num_unique_interface.shape[0]
 	low = np.sum( np.where( num_unique_interface == 1, 1, 0 ) )
-	high = np.sum( np.where( num_unique_interface >= 10, 1, 0 ) )
-	medium = total - ( low + high )
+	high = np.sum( np.where( num_unique_interface > 1, 1, 0 ) )
 	stats["low"] = low
-	stats["medium"] = medium
+	stats["high"] = high
+
+	return stats
+
+################################################################################
+def compute_molprob_score_stats( model: str, config_name: str ):
+	"""
+	For the given config, obtain the no. of structures with mean
+		MolProbity score < experimental resolution.
+	We categrorize into:
+		Low (<resolution)
+		High (>resolution)
+	"""
+	records = return_metric(
+		metric = "molprob",
+		config_name = config_name,
+		models = [model]
+	)
+	stats = {}
+	molprob_score = np.array( records[model]["mean_molprob"] ).reshape( -1 )
+	resolution = np.array( records[model]["resolution"] ).reshape( -1 )
+	diff = molprob_score-resolution
+	low = np.sum( np.where( diff <= 0, 1, 0 ) )
+	high = np.sum( np.where( diff > 0, 1, 0 ) )
+	stats["low"] = low
+	stats["high"] = high
+
+	return stats
+
+################################################################################
+def compute_clashscore_stats( model: str, config_name: str ):
+	"""
+	For the given config, obtain the no. of structures with mean the
+		clashscore lower than that of the experiemntal structure.
+	We categrorize into:
+		Low (<resolution)
+		High (>resolution)
+	"""
+	records = return_metric(
+		metric = "molprob",
+		config_name = config_name,
+		models = [model]
+	)
+	records_native = return_metric(
+		metric = "molprob",
+		config_name = config_name,
+		models = [model]
+	)
+	stats = {}
+	pred_clash = np.array( records[model]["mean_clash"] )
+	native_clash = np.array( records_native[model]["mean_clash"] )
+	diff = pred_clash-native_clash
+	low = np.sum( np.where( diff <= 0, 1, 0 ) )
+	high = np.sum( np.where( diff > 0, 1, 0 ) )
+	stats["low"] = low
 	stats["high"] = high
 
 	return stats
@@ -196,12 +236,94 @@ def return_stats_for_metric(
 			model = model,
 			config_name = config_name
 		)
+	elif metric == "unique_struct":
+		stats = compute_unique_struct_stats(
+			model = model,
+			config_name = config_name
+		)
+	elif metric == "unique_interface":
+		stats = compute_unique_interface_stats(
+			model = model,
+			config_name = config_name
+		)
+	elif metric == "molprob_score":
+		stats = compute_molprob_score_stats(
+			model = model,
+			config_name = config_name
+		)
+	elif metric == "clash":
+		stats = compute_clashscore_stats(
+			model = model,
+			config_name = config_name
+		)
 	else:
 		raise ValueError( f"Unsupported metric specified: {metric}..." )
 
 	return stats
 
+################################################################################
+def supp_table():
+	"""
+	Create a supplementary table containing the following,
+		Mean XL satisfaction
+		Max XL satisfaction
+		Mean DockQ
+		Max DockQ
+		No. of unique interfaces
+		Mean MolProbity score
+		Mean clashscore
+	"""
+	config_name = "beta1"
+	models = ["alphalink2", "boltz2", "grasp"]
+	metrics = ["xl_sat", "dockq", "unique_interface", "molprob"]
+	metric_labels = [
+		"max_xl_sat", "mean_xl_sat",
+		"max_dockq", "mean_dockq",
+		"unique_interface",
+		"mean_molprob", "mean_clash"
+	]
+	stats = {k:[] for k in ["complex", "method"] + metric_labels}
+	# If True, add complex name and method. Don't add again for every metric.
+	skip = False
+	for metric in metrics:
+		records = return_metric(
+			metric = metric,
+			config_name = config_name,
+			models = models
+		)
+		for i, sys_name in enumerate( records["boltz2"]["complex"] ):
+			for model in models:
+				if metric in ["xl_sat", "dockq"]:
+					stats[f"max_{metric}"].append(
+						round( records[model][f"max_{metric}"][i], 3 )
+					)
+					stats[f"mean_{metric}"].append(
+						round( records[model][f"mean_{metric}"][i], 3 )
+					)
+				elif metric == "unique_interface":
+					stats[metric].append(
+						round( records[model][metric][i], 3 )
+					)
+				elif metric == "molprob":
+					stats["mean_molprob"].append(
+						round( records[model]["mean_molprob"][i], 3 )
+					)
+					stats["mean_clash"].append(
+						round( records[model]["mean_clash"][i], 3 )
+					)
 
+				if not skip:
+					stats["complex"].append( sys_name )
+					stats["method"].append( model )
+		skip = True
+	for k in stats:
+		print( k, " -> ", len( stats[k] ) )
+	df = pd.DataFrame( stats )
+	df.to_csv(
+		os.path.join( STATS_DIR, f"supp_table_beta1.csv" )
+	)
+
+################################################################################
 ################################################################################
 def create_summary_file_per_config(
 	configs: Dict[str, List]
@@ -212,10 +334,11 @@ def create_summary_file_per_config(
 	"""
 	idx = 0
 	for model in configs:
-		flat_dict = {k: [] for k in ["config", "metric", "low", "medium", "high"]}
+		# flat_dict = {k: [] for k in ["config", "metric", "low", "medium", "high"]}
+		flat_dict = {k: [] for k in ["config", "metric", "low", "high"]}
 		for config_name in configs[model]:
 			print( f"{idx}. {model}: {config_name}" )
-			for metric in ["xl_sat", "tm", "dockq"]:
+			for metric in ["xl_sat", "tm", "dockq", "unique_struct", "unique_interface", "molprob_score", "clash"]:
 				stats = return_stats_for_metric(
 					model = model,
 					config_name = config_name,
@@ -223,7 +346,8 @@ def create_summary_file_per_config(
 				)
 				flat_dict["config"].append( config_name )
 				flat_dict["metric"].append( metric )
-				for level in ["low", "medium", "high"]:
+				# for level in ["low", "medium", "high"]:
+				for level in ["low", "high"]:
 					flat_dict[level].append( stats[level] )
 			idx += 1
 
@@ -238,7 +362,7 @@ def create_summary_file_per_config(
 if __name__ == "__main__":
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	configs = {
-		"alphalink2": ["beta1"],
+		"alphalink2": ["beta1", "beta2", "beta3"],
 		"boltz2": [
 			"alpha", "alpha2", "beta1", "beta2", "beta3", "beta4",
 			"gamma", "delta1", "delta2", "delta3",
@@ -248,7 +372,5 @@ if __name__ == "__main__":
 		"grasp": ["alpha", "beta1", "beta2", "beta3"]
 	}
 	create_summary_file_per_config( configs = configs )
-
-
-
+	supp_table()
 
