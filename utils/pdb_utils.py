@@ -366,6 +366,22 @@ class MmcifDictParser():
 		return prot_entity_ids, all_protein
 
 
+	def get_protein_asym_ids( self ):
+		"""
+		Return sym_ids corresponding to protein entities.
+		"""
+		prot_entity_ids, _ = self.get_protein_entity_ids()
+		prot_asym_ids = {
+			asym_id
+			for asym_id, entity_id in zip(
+				self.mmcif_dict["_struct_asym.id"],
+				self.mmcif_dict["_struct_asym.entity_id"],
+			)
+			if entity_id in prot_entity_ids
+		}
+		return prot_asym_ids
+
+
 	def get_all_polymer_fields( self ):
 		"""
 		Extract the following fields from the MCIF Dict:
@@ -404,26 +420,51 @@ class MmcifDictParser():
 		else:
 			prot_seqres_dict = {}
 			prot_indices = []
-			# for entity_id in prot_entity_ids:
-			# 	prot_indices = np.append(
-			# 		prot_indices, self.seqres_dict["entity_id"] == entity_id
-			# 		)
-			# print( len( prot_indices ) )
+
 			prot_indices = np.isin( self.seqres_dict["entity_id"], prot_entity_ids )
-			# print( len( prot_indices ) )
 
 			for field in self.seqres_dict:
 				if len( prot_indices ) != len( self.seqres_dict[field] ):
 					raise ValueError( f"Incorrect entity_id mask..." )
-				# try:
 				prot_seqres_dict[field] = self.seqres_dict[field][prot_indices]
-				# except:
-				# 	print( prot_entity_ids )
-				# 	print( field )
-				# 	print( prot_indices )
-				# 	print( self.cif_file )
 			return prot_seqres_dict
 
+
+	def get_chain_mapping( self ):
+		"""
+		Create a mapping between the auth_asym_id and asym_id.
+		We assume that each asym_id uniquely maps to a auth_asym_id.
+		"""
+		asym_id = self.mmcif_dict["_atom_site.label_asym_id"]
+		auth_asym_id = self.mmcif_dict["_atom_site.auth_asym_id"]
+
+		asym_to_auth = {}
+		auth_to_asym = {}
+
+		prot_asym_ids = self.get_protein_asym_ids()
+
+		for asym, auth in zip( asym_id, auth_asym_id ):
+			if asym not in prot_asym_ids:
+				continue
+			if asym in asym_to_auth and asym_to_auth[asym] != auth:
+				raise ValueError(
+					f"label_asym_id '{asym}' maps to multiple auth_asym_id values."
+				)
+
+			if auth in auth_to_asym and auth_to_asym[auth] != asym:
+				raise ValueError(
+					f"auth_asym_id '{auth}' maps to multiple label_asym_id values."
+				)
+
+			asym_to_auth[asym] = auth
+			auth_to_asym[auth] = asym
+
+		chain_mapping = {
+			"asym": asym_to_auth,
+			"auth_asym": auth_to_asym,
+		}
+
+		return chain_mapping
 
 #################### Biopython PDB/CIF Parser ####################
 ##--------------------------------------------------------------##
@@ -440,6 +481,12 @@ class ChainSelect( Select ):
 	
 	def accept_chain( self, chain ):
 		return chain.get_id() == self.chain_id
+
+	def accept_residue( self, residue ):
+		hetfield, resseq, icode = residue.id
+
+		# Only standard polymer residues with positive numbering
+		return hetfield == " " and resseq > 0
 
 
 class Parser():
