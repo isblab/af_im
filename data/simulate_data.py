@@ -25,7 +25,7 @@ class SimulateCrosslinks():
 	struct_format: format for the structure file (.pdb/,cif).
 	short_linker: Ca-Ca distance for Xls with short linker.
 	long_linker: Ca-Ca distance for Xls with longer linker.
-	num_inter_xls: min no. of interprotein XLs needed (both short and long).
+	num_xls: min no. of XLs needed (both short and long).
 	cores: no. of CPU cores to be used for parallelization.
 	"""
 	def __init__( self,
@@ -36,7 +36,7 @@ class SimulateCrosslinks():
 		struct_format: str,
 		short_linker: float,
 		long_linker: float,
-		num_inter_xls: int,
+		num_xls: int,
 		cores: int,
 		aa1: str = "LYS",
 		aa2: str = "LYS",
@@ -48,10 +48,12 @@ class SimulateCrosslinks():
 		self.struct_format = struct_format
 		self.short_linker = short_linker
 		self.long_linker = long_linker
-		self.num_inter_xls = num_inter_xls
+		self.num_xls = num_xls
 		self.cores = cores
 		self.aa1 = aa1
 		self.aa2 = aa2
+		# If True, select only inter-protein XLs else intra-protein XLs
+		self.inter_xls = True
 		# If true, reinitialize logs even when the file exists.
 		self.reinit_logs = False
 
@@ -96,7 +98,7 @@ class SimulateCrosslinks():
 		else:
 			self.jwalk_logs = {
 			k:[[], 0] for k in ["failed_to_run_jwalk", "no_xls",
-				"entry_id_with_xls", "no_inter_xls", "too_few_short_xls",
+				"entry_id_with_xls", "no_intra_xls", "no_inter_xls", "too_few_short_xls",
 				"too_few_long_xls", "no_fp_xls", "selected_entry_ids"
 				]
 			}
@@ -226,7 +228,8 @@ class SimulateCrosslinks():
 	def select_xls_for_benchmark( self ):
 		"""
 		For each entry_id,
-			Select all interprotein XLs.
+			Select all XLs as specified:
+				Either iterprotein or intraprotein.
 			Select XLs with short linker.
 			Select XLs with long linker.
 			Also select false positive (FP) XLs.
@@ -245,32 +248,39 @@ class SimulateCrosslinks():
 
 			xl_file = self.xl_file_paths[entry_id]
 			df = pd.read_csv( xl_file )
-			inter_xls = df[
-				df["Atom1"].str.split( r'-{1,2}' ).str[2] !=
-				df["Atom2"].str.split( r'-{1,2}' ).str[2]
-				]
+			if self.inter_xls:
+				xls = df[
+					df["Atom1"].str.split( r'-{1,2}' ).str[2] !=
+					df["Atom2"].str.split( r'-{1,2}' ).str[2]
+					]
+			else:
+				xls = df[
+					df["Atom1"].str.split( r'-{1,2}' ).str[2] ==
+					df["Atom2"].str.split( r'-{1,2}' ).str[2]
+					]
 
-			# Skip an entry if no interprotein XLs exist.
-			if len( inter_xls ) == 0 and entry_id not in self.jwalk_logs["no_inter_xls"][0]:
-				self.jwalk_logs["no_inter_xls"][0].append( entry_id )
-				self.jwalk_logs["no_inter_xls"][1] += 1
+			# Skip an entry if no inter/intra-protein XLs exist.
+			key = "no_inter_xls" if self.inter_xls else "no_intra_xls"
+			if len( xls ) == 0 and entry_id not in self.jwalk_logs[key][0]:
+				self.jwalk_logs[key][0].append( entry_id )
+				self.jwalk_logs[key][1] += 1
 				continue
 
-			short_xl_df = self.select_short_linker_xls( inter_xls = inter_xls )
+			short_xl_df = self.select_short_linker_xls( xls = xls )
 			# Skip an entry if no short XLs exist.
-			if len( short_xl_df ) < self.num_inter_xls:
+			if len( short_xl_df ) < self.num_xls:
 				self.jwalk_logs["too_few_short_xls"][0].append( entry_id )
 				self.jwalk_logs["too_few_short_xls"][1] += 1
 				continue
 
-			long_xl_df = self.select_long_linker_xls( inter_xls = inter_xls )
+			long_xl_df = self.select_long_linker_xls( xls = xls )
 			# Skip an entry if no long XLs exist.
-			if len( long_xl_df ) < self.num_inter_xls and entry_id not in self.jwalk_logs["too_few_long_xls"][0]:
+			if len( long_xl_df ) < self.num_xls and entry_id not in self.jwalk_logs["too_few_long_xls"][0]:
 				self.jwalk_logs["too_few_long_xls"][0].append( entry_id )
 				self.jwalk_logs["too_few_long_xls"][1] += 1
 				continue
 
-			fp_xl_df = self.select_fp_xls( inter_xls = inter_xls )
+			fp_xl_df = self.select_fp_xls( xls = xls )
 			# Skip an entry if no FP XLs exist.
 			if len( fp_xl_df ) == 0 and entry_id not in self.jwalk_logs["no_fp_xls"][0]:
 				self.jwalk_logs["no_fp_xls"][0].append( entry_id )
@@ -285,16 +295,15 @@ class SimulateCrosslinks():
 
 
 	def select_short_linker_xls( self,
-		inter_xls: pd.DataFrame
-		) -> pd.DataFrame:
+		xls: pd.DataFrame
+	) -> pd.DataFrame:
 		"""
 		Select XLs with SASD <self.short_linker length.
 		XL file format: prot1,res1,prot2,res2
 
 		Inputs:
 		----------
-		inter_xls: dataframe containing JWalk predicted
-			interprotein XLs.
+		xls: dataframe containing JWalk predicted XLs.
 
 		Returns:
 		----------
@@ -302,7 +311,7 @@ class SimulateCrosslinks():
 			<short_linker length.
 		"""
 		short_xl_df = pd.DataFrame()
-		short_xls = inter_xls.loc[inter_xls["SASD"] <= self.short_linker]
+		short_xls = xls.loc[xls["SASD"] <= self.short_linker]
 		for i in [1, 2]:
 			short_xl_df[f"prot{i}"] = short_xls[f"Atom{i}"].str.split( r'-{1,2}' ).str[2]
 			short_xl_df[f"res{i}"] = short_xls[f"Atom{i}"].str.split( r'-{1,2}' ).str[1]
@@ -311,15 +320,17 @@ class SimulateCrosslinks():
 		return short_xl_df
 
 
-	def select_long_linker_xls( self, inter_xls: pd.DataFrame ) -> pd.DataFrame:
+	def select_long_linker_xls(
+		self,
+		xls: pd.DataFrame
+	) -> pd.DataFrame:
 		"""
 		Select XLs with SASD <self.long_linker length.
 		XL file format: prot1,res1,prot2,res2
 
 		Inputs:
 		----------
-		inter_xls: dataframe containing JWalk predicted
-			interprotein XLs.
+		xls: dataframe containing JWalk predicted XLs.
 
 		Returns:
 		----------
@@ -327,9 +338,9 @@ class SimulateCrosslinks():
 			>short_linker and <=long_linker length.
 		"""
 		long_xl_df = pd.DataFrame()
-		long_xls = inter_xls.loc[
-			( inter_xls["SASD"] > self.short_linker ) &
-			( inter_xls["SASD"] <= self.long_linker )
+		long_xls = xls.loc[
+			( xls["SASD"] > self.short_linker ) &
+			( xls["SASD"] <= self.long_linker )
 		]
 		for i in [1, 2]:
 			long_xl_df[f"prot{i}"] = long_xls[f"Atom{i}"].str.split( r'-{1,2}' ).str[2]
@@ -339,27 +350,29 @@ class SimulateCrosslinks():
 		return long_xl_df
 
 
-	def select_fp_xls( self, inter_xls: pd.DataFrame ) -> pd.DataFrame:
+	def select_fp_xls(
+		self,
+		xls: pd.DataFrame
+	) -> pd.DataFrame:
 		"""
 		Select FP XLs with SASD >self.short_linker length+20 angstorm.
 			We consider that XLs greater than the short linker lengtn+20 angstorm
 				as false positives.
 			These XLs can physically form but are implausible at the short
-				linger length.
+				linger length (adversarial XLs).
 			Sort the FP XLs in descending order.
 		XL file format: prot1,res1,prot2,res2
 
 		Inputs:
 		----------
-		inter_xls: dataframe containing JWalk predicted
-			interprotein XLs.
+		xls: dataframe containing JWalk predicted XLs.
 
 		Returns:
 		----------
 		fp_xl_df: dataframe containing FP XLs.
 		"""
 		fp_xl_df = pd.DataFrame()
-		fp_xls = inter_xls.loc[inter_xls["SASD"] > self.short_linker+20]
+		fp_xls = xls.loc[xls["SASD"] > self.short_linker+20]
 		fp_xls = fp_xls.sort_values( by = "SASD", ascending = False )
 		for i in [1, 2]:
 			fp_xl_df[f"prot{i}"] = fp_xls[f"Atom{i}"].str.split( r'-{1,2}' ).str[2]
