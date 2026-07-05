@@ -366,6 +366,7 @@ def return_molprobity_metric(
 		Max/Min metric value
 	"""
 	sorted_model_ids = sorted( list( molprob_dict.keys() ) )
+	# print( molprob_dict[1000].keys() )
 	if molprob_metric == "molprob":
 		per_model_metric = np.array(
 			[molprob_dict[k]["MolProbity score"] for k in sorted_model_ids]
@@ -380,6 +381,18 @@ def return_molprobity_metric(
 	elif molprob_metric == "favored":
 		per_model_metric = np.array(
 			[molprob_dict[k]["favored"] for k in sorted_model_ids]
+			)
+		mean_metric = per_model_metric.mean()
+	# Rotamer outliers
+	elif molprob_metric == "rotamer":
+		per_model_metric = np.array(
+			[molprob_dict[k]["Rotamer outliers"] for k in sorted_model_ids]
+			)
+		mean_metric = per_model_metric.mean()
+	# C-beta deviation
+	elif molprob_metric == "C_beta":
+		per_model_metric = np.array(
+			[molprob_dict[k]["C-beta deviations"] for k in sorted_model_ids]
 			)
 		mean_metric = per_model_metric.mean()
 	else:
@@ -421,7 +434,9 @@ def prep_molprobity_input(
 			k:[] for k in [
 				"complex",
 				"per_model_molprob", "per_model_clash", "per_model_favored",
+				"per_model_rotamer", "per_model_C_beta",
 				"mean_molprob", "mean_clash", "mean_favored",
+				"mean_rotamer", "mean_C_beta",
 				"resolution"
 				]
 			}
@@ -435,7 +450,7 @@ def prep_molprobity_input(
 				continue
 			records[model]["complex"].append( sys_name )
 			molprob_key = "molprob_native" if for_native else "molprob"
-			for m in ["molprob", "clash", "favored"]:
+			for m in ["molprob", "clash", "favored", "rotamer", "C_beta"]:
 				per_model_metric, mean_metric = return_molprobity_metric(
 					molprob_dict = data[sys_name][molprob_key],
 					molprob_metric = m
