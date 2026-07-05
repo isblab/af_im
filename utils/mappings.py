@@ -34,8 +34,7 @@ def yield_restraints(
 			start from 1.
 		So, we get the index for the the modeled residues.
 		residue no = residue index + 1
-	Sanity checks if the Xl'd residue is Lys or not.
-		JWalk only rturns Lys-Lys XLs.
+	Sanity checks if the XL'd residue is amongst the allowed XLs or not.
 
 	Input:
 	----------
@@ -85,7 +84,7 @@ def yield_restraints(
 		seq1 = entity_chain_map[entity_id1]["seq"]
 		seq2 = entity_chain_map[entity_id2]["seq"]
 
-		allowed_xl_aa = ["K", "R", "D", "E", "N", "Q", "S", "T", "Y"]
+		allowed_xl_aa = ["K", "R", "D", "E", "N", "Q", "S", "T", "Y", "M"]
 		# For ambiguous XLs, we consider all combinations.
 		for chain_id1 in entity_chain_map[entity_id1]["chains"]:
 			if not numeric_chain_ids:
@@ -106,6 +105,64 @@ def yield_restraints(
 						f"Chain: {chain_id2}; residue {res2}:{seq2[r2_idx]} is not among: {allowed_xl_aa}..." )
 
 				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2, label
+
+################################################################################
+################################################################################
+def create_pdb_num_to_seq_id_mapping(
+	seqres_dict: Dict[str, Dict]
+):
+	"""
+	Craete a mapping between the seq_id and pdb_seq_num obtained
+		from the .cif file.
+	We map the pdb_seq_num to seq_id.
+		This is because pdb_seq_num may be discontinous in some cases
+			(8g0q_B, 8g0q_D) however, seq_id is always continous.
+
+	Inputs:
+	----------
+	seqres_dict: dict containing metadata extracted form the MMCIF file.
+		See api_data_modules/SeqResDict()
+		{
+			entry_id{
+				entity_id: {
+					chaiN_id: {
+						...
+					}
+				}
+			}
+		}
+	
+	Returns:
+	----------
+	pdb_num_seq_id_map: contains mapping between the PDB residue
+		numbering and seq_id.
+		pdb_id: {
+			"chain_id": dict( zip( pdb_seq_num, seq_id ) )
+		}
+	"""
+	pdb_num_seq_id_map = {}
+	for pdb_id in seqres_dict:
+		pdb_num_seq_id_map[pdb_id] = {}
+		for entity_id in seqres_dict[pdb_id]:
+			for chain_id in seqres_dict[pdb_id][entity_id]:
+				chain = seqres_dict[pdb_id][entity_id][chain_id]
+				start_seq_id = chain["start_seq_id"]
+				end_seq_id = chain["end_seq_id"]
+
+				seq_id = chain["seq_id"]
+				pdb_seq_num = chain["res_num"]
+				seq = chain["seq"]
+
+				if ( end_seq_id-start_seq_id+1 ) != len( seq ):
+					raise ValueError(
+						f"Mismatch in length of seq_id and sequence for PDB: {pdb_id}..."
+						)
+				if len( seq_id ) != len( pdb_seq_num ):
+					raise ValueError(
+						f"Mismatch in length of seq_id and pdb_seq_num for PDB: {pdb_id}..."
+						)
+				pdb_num_seq_id_map[pdb_id][chain_id] = dict( zip( pdb_seq_num, seq_id ) )
+	return pdb_num_seq_id_map
 
 ################################################################################
 ################################################################################

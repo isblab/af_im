@@ -20,7 +20,10 @@ from utils.utils import ( open_file_handler,
 							read_json, write_json,
 							write_configdict_to_json )
 from utils.api_utils import PdbRestApi
-from utils.mappings import map_xls_to_seq_id
+from utils.mappings import (
+	create_pdb_num_to_seq_id_mapping,
+	map_xls_to_seq_id
+	)
 from api_data_modules import( DownloadPdbStructure,
 								SeqResDict )
 
@@ -349,7 +352,10 @@ class Metadata():
 
 			del obj
 
-			self.create_pdb_num_to_seq_id_mapping()
+			# self.create_pdb_num_to_seq_id_mapping()
+			self.pdb_num_seq_id_map = create_pdb_num_to_seq_id_mapping(
+				seqres_dict = self.seqres_dict
+			)
 			
 			np.save( self.seqres_dict_file,
 					self.seqres_dict,
@@ -398,34 +404,34 @@ class Metadata():
 				self.resolution_dict[entry_id] = resolution
 
 
-	def create_pdb_num_to_seq_id_mapping( self ):
-		"""
-		Craete a mapping between the seq_id and pdb_seq_num obtained
-			from the .cif file.
-		We map the pdb_seq_num to seq_id.
-			This is because pdb_seq_num may be discontinous in some cases
-				(8g0q_B, 8g0q_D) however, seq_id is always continous.
-		pdb_id: {
-			"chain_id": dict( zip( pdb_seq_num, seq_id ) )
-		}
-		"""
-		for pdb_id in self.seqres_dict:
-			self.pdb_num_seq_id_map[pdb_id] = {}
-			for entity_id in self.seqres_dict[pdb_id]:
-				for chain_id in self.seqres_dict[pdb_id][entity_id]:
-					chain = self.seqres_dict[pdb_id][entity_id][chain_id]
-					start_seq_id = chain["start_seq_id"]
-					end_seq_id = chain["end_seq_id"]
+	# def create_pdb_num_to_seq_id_mapping( self ):
+	# 	"""
+	# 	Craete a mapping between the seq_id and pdb_seq_num obtained
+	# 		from the .cif file.
+	# 	We map the pdb_seq_num to seq_id.
+	# 		This is because pdb_seq_num may be discontinous in some cases
+	# 			(8g0q_B, 8g0q_D) however, seq_id is always continous.
+	# 	pdb_id: {
+	# 		"chain_id": dict( zip( pdb_seq_num, seq_id ) )
+	# 	}
+	# 	"""
+	# 	for pdb_id in self.seqres_dict:
+	# 		self.pdb_num_seq_id_map[pdb_id] = {}
+	# 		for entity_id in self.seqres_dict[pdb_id]:
+	# 			for chain_id in self.seqres_dict[pdb_id][entity_id]:
+	# 				chain = self.seqres_dict[pdb_id][entity_id][chain_id]
+	# 				start_seq_id = chain["start_seq_id"]
+	# 				end_seq_id = chain["end_seq_id"]
 
-					seq_id = chain["seq_id"]
-					pdb_seq_num = chain["res_num"]
-					seq = chain["seq"]
+	# 				seq_id = chain["seq_id"]
+	# 				pdb_seq_num = chain["res_num"]
+	# 				seq = chain["seq"]
 
-					if ( end_seq_id-start_seq_id+1 ) != len( seq ):
-						raise ValueError( f"Mismatch in length of seq_id and sequence for PDB: {pdb_id}..." )
-					if len( seq_id ) != len( pdb_seq_num ):
-						raise ValueError( f"Mismatch in length of seq_id and pdb_seq_num for PDB: {pdb_id}..." )
-					self.pdb_num_seq_id_map[pdb_id][chain_id] = dict( zip( pdb_seq_num, seq_id ) )
+	# 				if ( end_seq_id-start_seq_id+1 ) != len( seq ):
+	# 					raise ValueError( f"Mismatch in length of seq_id and sequence for PDB: {pdb_id}..." )
+	# 				if len( seq_id ) != len( pdb_seq_num ):
+	# 					raise ValueError( f"Mismatch in length of seq_id and pdb_seq_num for PDB: {pdb_id}..." )
+	# 				self.pdb_num_seq_id_map[pdb_id][chain_id] = dict( zip( pdb_seq_num, seq_id ) )
 
 	################################################################################
 	################################################################################
@@ -457,7 +463,7 @@ class Metadata():
 				struct_format = "pdb",
 				short_linker = self.dataset_configs.jwalk.short_linker,
 				long_linker = self.dataset_configs.jwalk.long_linker,
-				num_inter_xls = self.dataset_configs.jwalk.num_inter_xls,
+				num_xls = self.dataset_configs.jwalk.num_inter_xls,
 				cores = self.dataset_configs.globals.cores,
 				)
 			obj.forward()
