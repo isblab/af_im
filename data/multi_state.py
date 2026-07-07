@@ -35,8 +35,12 @@ class MultiStateGenerator():
 
 		self.clash_cutoff = 8.0
 		self.interface_dist = 10.0
-		self.overlap_tolerace = 0.4
+		self.overlap_tolerace = 0.2
 		self.cpu_cores = 10
+
+		self.rotation_angles = np.arange( 1, 360, 0.5 )
+		self.max_translation = 2
+		self.num_samples = 1000
 
 		# Complexes for which to simulate multiple states.
 		# Selected based on data satisfaction and size.
@@ -313,9 +317,9 @@ class MultiStateGenerator():
 		----------
 		rotated_coords: [N, 3] rotated coordinates.
 		"""
-		coords_centered = coords - com
+		coords_centered = coords # - com
 		rotated_coords = coords_centered@R.T
-		rotated_coords += com
+		# rotated_coords += com
 
 		return rotated_coords
 
@@ -347,13 +351,16 @@ class MultiStateGenerator():
 		np.random.seed( self.config_dict.prng_seed )
 
 		rotated_coords = {}
-		rotation_angles = np.arange( 1, 360, 2 )
+		rotation_angles = np.arange( 1, 360, 1 )
 
 		for axis in ["x", "y", "z"]:
-			for angle in rotation_angles:
+			# for i in range( self.num_samples ):
+			for angle in self.rotation_angles:
 				# Sample a random translation
-				trans = np.random.uniform( 0, 2, 3 ).reshape( -1, 3 )
+				# angle = np.random.choice( self.rotation_angles, 1 )[0]
 				key = f"{axis}_{angle}"
+				trans = np.random.uniform( 0, self.max_translation, 3 ).reshape( -1, 3 )
+				# key = f"{i}_{axis}_{angle}"
 				R = self.get_rotation_matrix(
 					axis = axis, angle = angle
 				)
@@ -365,6 +372,53 @@ class MultiStateGenerator():
 				rotated_coords[key] = rot_coords + trans
 		print( "Total rotated pose created: ", len( rotated_coords ) )
 		return rotated_coords
+
+
+	# def create_fake_poses(
+	# 	self,
+	# 	moving_coords: np.ndarray,
+	# 	com: np.ndarray
+	# ) -> Dict[str, Dict[int, np.ndarray]]:
+	# 	"""
+	# 	Create fake poses by apply rigid transformation
+	# 		over the moving chain.
+	# 	Given the input coordinates, perform a
+	# 		grid search across rotational axis
+	# 		and angle to obtain rotated coordinates.
+	# 	Add a randomly sampled translation vector.
+
+	# 	Inputs:
+	# 	----------
+	# 	moving_coords: [N, 3] coordinates of the chain to
+	# 		be moved.
+	# 	com: [1, 3] COM coordinates.
+
+	# 	Returns:
+	# 	----------
+	# 	rotated_coords: a dict containing rigid transformed
+	# 		poses for the given chain coordinates.
+	# 	"""
+	# 	np.random.seed( self.config_dict.prng_seed )
+
+	# 	rotated_coords = {}
+	# 	rotation_angles = np.arange( 1, 360, 1 )
+
+	# 	for axis in ["x", "y", "z"]:
+	# 		for angle in rotation_angles:
+	# 			# Sample a random translation
+	# 			trans = np.random.uniform( 0, 5, 3 ).reshape( -1, 3 )
+	# 			key = f"{axis}_{angle}"
+	# 			R = self.get_rotation_matrix(
+	# 				axis = axis, angle = angle
+	# 			)
+	# 			rot_coords = self.rotate(
+	# 				coords = moving_coords,
+	# 				com = com,
+	# 				R = R
+	# 			)
+	# 			rotated_coords[key] = rot_coords + trans
+	# 	print( "Total rotated pose created: ", len( rotated_coords ) )
+	# 	return rotated_coords
 
 
 	def create_fake_multi_state(
@@ -517,7 +571,7 @@ class MultiStateGenerator():
 			_ = pose_dict["pose"]["coords"].pop( k )
 		print( f"Poses remove: {len( to_remove )}" )
 		print( f"Remaining poses: {len( pose_dict['pose']['coords'] )}" )
-		print( pose_dict["pose"]["coords"].keys() )
+		# print( pose_dict["pose"]["coords"].keys() )
 		return pose_dict
 
 	################################################################################
@@ -612,7 +666,7 @@ class MultiStateGenerator():
 			_ = pose_dict["pose"]["coords"].pop( k )
 		print( f"Poses remove: {len( to_remove )}" )
 		print( f"Remaining poses: {len( pose_dict['pose']['coords'] )}" )
-		print( pose_dict["pose"]["coords"].keys() )
+		# print( pose_dict["pose"]["coords"].keys() )
 		return pose_dict, interface_overlap
 
 	################################################################################
@@ -837,6 +891,7 @@ class MultiStateGenerator():
 		"""
 		xls_dict = {}
 		entry_ids = list( states.keys() )
+		print( entry_ids )
 
 		for aa in ["LYS", "ARG", "ASP", "GLU", "ASN", "GLN", "SER", "THR", "TYR"]:
 			print( f"Computing XLs for aa: {aa}" )
@@ -1023,12 +1078,10 @@ class MultiStateGenerator():
 		mapping_file = os.path.join( meta_dir, "pdb_num_seq_id_map.npy" )
 		pdb_num_seq_id_map = np.load( mapping_file, allow_pickle = True ).item()
 
-		print( xls_s1.head() )
 		xls_s1 = map_xls_to_seq_id(
 			xl_df = xls_s1,
 			pdb_num_seq_id_map = pdb_num_seq_id_map[sys_name]
 		)
-		print( xls_s1.head() )
 		xls_s2 = map_xls_to_seq_id(
 			xl_df = xls_s2,
 			pdb_num_seq_id_map = pdb_num_seq_id_map[sys_name]
