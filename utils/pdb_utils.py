@@ -468,6 +468,32 @@ class MmcifDictParser():
 
 #################### Biopython PDB/CIF Parser ####################
 ##--------------------------------------------------------------##
+class ModelSelect(Select):
+	"""
+    Selects a specific model from a structure when writing a PDB file.
+
+    This class subclasses Bio.PDB.Select and overrides the "accept_model"
+		method to allow only the specified model to be written to the output
+		structure
+	"""
+	def __init__( self, model_id: int, chain_id: str ):
+		self.model_id = model_id
+		self.chain_id = chain_id
+
+	def accept_model( self, model ):
+		return model.id == self.model_id
+
+	def accept_chain( self, chain ):
+		return chain.get_id() == self.chain_id
+
+	def accept_residue( self, residue ):
+		hetfield, resseq, icode = residue.id
+
+		# Remove HETATM
+		# Only standard polymer residues with positive numbering
+		return hetfield == " " and resseq > 0
+
+
 class ChainSelect( Select ):
 	"""
     Selects a specific chain from a structure when writing a PDB file.
@@ -476,7 +502,11 @@ class ChainSelect( Select ):
 		method to allow only the specified chain to be written to the output
 		structure
 	"""
-	def __init__( self, chain_id: str ):
+	def __init__(
+		self,
+		chain_id: str
+		# remove_tags: bool = False
+	):
 		self.chain_id = chain_id
 	
 	def accept_chain( self, chain ):
@@ -485,6 +515,7 @@ class ChainSelect( Select ):
 	def accept_residue( self, residue ):
 		hetfield, resseq, icode = residue.id
 
+		# Remove HETATM
 		# Only standard polymer residues with positive numbering
 		return hetfield == " " and resseq > 0
 
