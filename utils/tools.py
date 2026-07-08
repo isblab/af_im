@@ -313,15 +313,20 @@ def get_alignment_score( stdout_file: str ):
 	"""
 	Return the TM-score and RMSD.
 	Read the MMalign/USalign output stored in a txt file.
-		Line14: Aligned length= 572, RMSD=   0.76, Seq_ID=n_identical/n_aligned= 1.000
-		Line15: TM-score= 0.XXXXX (if normalized by length of Chain_1, i.e., LN=XX, d0=X.XX)
-		Line16: TM-score= 0.XXXXX (if normalized by length of Chain_2, i.e., LN=XXX, d0=X.XX)
+		Aligned length= 572, RMSD=   0.76, Seq_ID=n_identical/n_aligned= 1.000
+		TM-score= 0.XXXXX (if normalized by length of Chain_1, i.e., LN=XX, d0=X.XX)
+		TM-score= 0.XXXXX (if normalized by length of Chain_2, i.e., LN=XXX, d0=X.XX)
 	"""
 	with open( stdout_file, "r" ) as f:
 		output = f.readlines()
 
-	rmsd_line = output[14]
-	tm_line = output[15]
+	for line in output:
+		if "RMSD=" in line:
+			rmsd_line = line
+		if "TM-score=" in line:
+			tm_line = line
+			# Er break on the occurence of the first TM-score
+			break
 
 	rmsd = float( rmsd_line.split( "," )[1].split( "RMSD=" )[1] )
 	tm = float( tm_line.split( " " )[1] )
