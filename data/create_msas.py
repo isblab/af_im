@@ -3,7 +3,7 @@ This module uses the OpenFold data pipeline to create MSAs
 	and input features.
 """
 from typing import List, Tuple, Dict, Any
-import os, pathlib, shutil, time, re
+import os, pathlib, shutil, time, re, argparse
 import numpy as np
 import pandas as pd
 from multiprocessing import Pool
@@ -62,15 +62,19 @@ class MsaPipeline():
 	"""
 	Use OpenFold data pipeline for creating the MSAs and input features.
 	"""
-	def __init__( self ):
+	def __init__(
+		self,
+		benchmark_name: str,
+		is_multimer: bool
+		):
 		self.config_dict = get_config_dict()
 		self.base_dir = os.path.join(
 			os.path.abspath( self.config_dict.benchmark.globals.base_dir )
 			)
-		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
+		self.benchmark_name = benchmark_name
 		self.msa_configs = self.config_dict.msa
 
-		self.is_multimer = self.msa_configs.is_multimer
+		self.is_multimer = is_multimer
 		self.db_dir = self.msa_configs.db_dir
 		self.config_preset = self.msa_configs.config_preset
 		self.db_preset = self.msa_configs.db_preset
@@ -692,4 +696,22 @@ class MsaPipeline():
 
 
 if __name__ == "__main__":
-	MsaPipeline().forward()
+	parser = argparse.ArgumentParser(
+		description = "Create MSA using the OpenFold pipeline."
+	)
+	parser.add_argument(
+		"-b", "--benchmark",
+		type = str, required = True,
+		help = "Specify the benchmark: crosslink/multistate." )
+	parser.add_argument(
+		"-p", "--pred_type",
+		required = False, action = "store_true",
+		default = True,
+		help = "If specified, consider multimer prediction, else monomer." )
+	args = parser.parse_args()
+
+	MsaPipeline(
+		benchmark_name = args.benchmark,
+		is_multimer = args.pred_type
+	).forward()
+
