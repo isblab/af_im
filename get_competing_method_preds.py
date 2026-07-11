@@ -40,6 +40,7 @@ class CompetingMethodsRunner():
 	def __init__(
 		self,
 		model:str,
+		benchmark_name: str,
 		config_name: str,
 		device: str
 		):
@@ -47,7 +48,12 @@ class CompetingMethodsRunner():
 		self.base_dir = os.path.join(
 			os.path.abspath( self.config_dict.models.base_dir )
 			)
-		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
+		self.benchmark_name = benchmark_name
+		if self.benchmark_name == "multistate":
+			# Contains monomeric proteins.
+			self.skip_intra_xls = False
+		else:
+			self.skip_intra_xls = True
 
 		self.model = model # grasp/alphalink2
 		self.config_name = config_name
@@ -134,10 +140,10 @@ class CompetingMethodsRunner():
 		"""
 		Initialize the systems (complexes) to be modeled.
 		"""
-		if self.model_config.multi_state:
-			self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
-		else:
-			self.sys_to_model = self.benchmark["PDB ID"]
+		# if self.model_config.multi_state:
+		# 	self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
+		# else:
+		self.sys_to_model = self.benchmark["PDB ID"]
 
 
 	def set_xl_max_bound( self ):
@@ -360,7 +366,9 @@ class CompetingMethodsRunner():
 			sys_name = sys_name,
 			xl_file = xl_file,
 			entity_chain_map = entity_chain_map,
-			numeric_chain_ids = True ):
+			numeric_chain_ids = True,
+			skip_intra_xls = self.skip_intra_xls
+			):
 			( entity_id1, entity_id2, chain_id1,
 				chain_id2, res1, res2, label ) = row
 
@@ -640,7 +648,9 @@ class CompetingMethodsRunner():
 				sys_name = sys_name,
 				xl_file = xl_file,
 				entity_chain_map = entity_chain_map,
-				numeric_chain_ids = False ):
+				numeric_chain_ids = False,
+				skip_intra_xls = self.skip_intra_xls
+				):
 				( entity_id1, entity_id2, chain_id1,
 					chain_id2, res1, res2, label ) = row
 
@@ -840,7 +850,9 @@ class CompetingMethodsRunner():
 				sys_name = sys_name,
 				xl_file = xl_file,
 				entity_chain_map = entity_chain_map,
-				numeric_chain_ids = False ):
+				numeric_chain_ids = False,
+				skip_intra_xls = self.skip_intra_xls
+				):
 				( entity_id1, entity_id2, chain_id1,
 					chain_id2, res1, res2, label ) = row
 
@@ -1006,6 +1018,10 @@ if __name__ == "__main__":
 		type = str, required = True,
 		help = "Specify the model config to be used. See model_configs.py." )
 	parser.add_argument(
+		"-b", "--benchmark",
+		type = str, required = True,
+		help = "Specify the benchmark: crosslink/multistate." )
+	parser.add_argument(
 		"-d", "--device",
 		type = str, required = True,
 		help = "device to be used (cpu/cuda:0/cuda:1)..." )
@@ -1013,6 +1029,7 @@ if __name__ == "__main__":
 
 	CompetingMethodsRunner(
 		model = args.model,
+		benchmark_name = args.benchmark,
 		config_name = args.config_name,
 		device = args.device
 		).forward()
