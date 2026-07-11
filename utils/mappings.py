@@ -17,7 +17,8 @@ def yield_restraints(
 	xl_file: str,
 	entity_chain_map: Dict[int, Dict],
 	numeric_chain_ids: bool,
-	return_seq_numbering: bool = True
+	return_seq_numbering: bool = True,
+	skip_intra_xls: bool = True
 	):
 	"""
 	A generator that yields restrained residue pairs.
@@ -84,7 +85,7 @@ def yield_restraints(
 		seq1 = entity_chain_map[entity_id1]["seq"]
 		seq2 = entity_chain_map[entity_id2]["seq"]
 
-		allowed_xl_aa = ["K", "R", "D", "E", "N", "Q", "S", "T", "Y", "M"]
+		# allowed_xl_aa = ["K", "R", "D", "E", "N", "Q", "S", "T", "Y", "M"]
 		# For ambiguous XLs, we consider all combinations.
 		for chain_id1 in entity_chain_map[entity_id1]["chains"]:
 			if not numeric_chain_ids:
@@ -93,16 +94,16 @@ def yield_restraints(
 				if not numeric_chain_ids:
 					chain_id2 = get_chain_id( chain_id2 - 1  ) # 0-indexed.
 				# Skip intr-chain restraint.
-				if chain_id1 == chain_id2:
+				if chain_id1 == chain_id2 and skip_intra_xls:
 					continue
 
-				if seq1[r1_idx] not in allowed_xl_aa:
-					raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
-						f"Chain: {chain_id1}; residue {res1}:{seq1[r1_idx]} is not among: {allowed_xl_aa}..." )
+				# if seq1[r1_idx] not in allowed_xl_aa:
+				# 	raise ValueError( f"{sys_name}: Entity: {entity_id1}; " +
+				# 		f"Chain: {chain_id1}; residue {res1}:{seq1[r1_idx]} is not among: {allowed_xl_aa}..." )
 
-				if seq2[r2_idx] not in allowed_xl_aa:
-					raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
-						f"Chain: {chain_id2}; residue {res2}:{seq2[r2_idx]} is not among: {allowed_xl_aa}..." )
+				# if seq2[r2_idx] not in allowed_xl_aa:
+				# 	raise ValueError( f"{sys_name}: Entity: {entity_id2}; " +
+				# 		f"Chain: {chain_id2}; residue {res2}:{seq2[r2_idx]} is not among: {allowed_xl_aa}..." )
 
 				yield entity_id1, entity_id2, chain_id1, chain_id2, res1, res2, label
 
