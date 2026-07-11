@@ -117,7 +117,7 @@ def plot_pred_time_taken_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "time" )
+	records = return_metric( models = MODELS, config_name = config_name, metric = "time" )
 	fig, ax = plt.subplots( 1, 1, figsize = ( 7, 7 ) )
 
 	for i, model in enumerate( MODELS ):
@@ -132,7 +132,7 @@ def plot_pred_time_taken_across_models(
 	ax.tick_params( axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
 		["AlphaLink2", "Boltz2", "GRASP"],
-		rotation = 0, fontsize = 12
+		rotation = 0 #, fontsize = 12
 		)
 	ax.set_ylabel( f"Average time taken (hours)", fontsize = XY_LABEL_SIZE-5 )
 	ax.set_xlabel( "Method", fontsize = XY_LABEL_SIZE-5 )
@@ -164,7 +164,12 @@ def plot_xl_satisfaction_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "xl_sat" )
+	records = return_metric(
+		models = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
+	)
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -218,7 +223,12 @@ def plot_native_tm_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "dockq" )
+	records = return_metric(
+		models = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "dockq"
+	)
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -272,7 +282,12 @@ def plot_native_dockq_across_models(
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "dockq" )
+	records = return_metric(
+		models = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "dockq"
+	)
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	for i, agg in enumerate( ["mean", "max"] ):
@@ -328,11 +343,15 @@ def plot_unique_models_across_models(
 		See model_configs.py.
 	"""
 	records_tm = return_metric(
+		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "unique_struct" )
 	records_dockq = return_metric(
+		models = MODELS,
 		config_name = config_name,
-		similarity_metric = "unique_interface" )
+		benchmark_name = "crosslink",
+		metric = "unique_interface" )
 
 	fig, ax = plt.subplots( 2, 1, figsize = ( 20, 10 ) )
 	widths = [-0.25, 0, 0.25]
@@ -398,12 +417,15 @@ def plot_molprobity_metrics_across_models(
 	"""
 	records_pred = return_metric(
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		models = MODELS,
 		metric = "molprob",
 		molprob_native = False
 		)
 	records_native = return_metric(
 		config_name = config_name,
+		benchmark_name = "crosslink",
+		models = MODELS,
 		metric = "molprob",
 		molprob_native = True
 		)
@@ -548,7 +570,12 @@ def plot_rmsf_scatter( config_name: str ):
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "rmsf" )
+	records = return_metric(
+		models = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "rmsf"
+	)
 	MAX_ROWS = 6
 	MAX_COLS = 6
 
@@ -593,7 +620,12 @@ def plot_rmsf_contour( config_name: str ):
 		used for prediction.
 		See model_configs.py.
 	"""
-	records = return_metric( config_name = config_name, metric = "rmsf" )
+	records = return_metric(
+		odels = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "rmsf"
+	)
 
 	fig, ax = plt.subplots( 1, 3, figsize = ( 25, 10 ) )
 
@@ -663,12 +695,14 @@ def plot_xlsat_v_dockq(
 		records_xl = return_metric(
 			metric = "xl_sat",
 			models = MODELS,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = "crosslink"
 		)
 		records_dockq = return_metric(
 			metric = "dockq",
 			models = MODELS,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = "crosslink"
 		)
 
 		if len( MODELS ) == 1:
@@ -732,6 +766,7 @@ def plot_mean_v_max_metrics(
 			records = return_metric(
 				metric = metric,
 				config_name = config_name,
+				benchmark_name = "crosslink",
 				models = MODELS,
 			)
 			if len( MODELS ) == 1:
@@ -794,11 +829,13 @@ def plot_tm_v_dockq(
 			records_tm = return_metric(
 				metric = "tm",
 				config_name = config_name,
+				benchmark_name = "crosslink",
 				models = MODELS,
 			)
 			records_dockq = return_metric(
 				metric = "dockq",
 				config_name = config_name,
+				benchmark_name = "crosslink",
 				models = MODELS,
 			)
 
@@ -910,11 +947,13 @@ def plot_cross_configs(
 			records1 = return_metric(
 				metric = metric,
 				config_name = config1,
+				benchmark_name = "crosslink",
 				models = MODELS
 			)
 			records2 = return_metric(
 				metric = metric,
 				config_name = config2,
+				benchmark_name = "crosslink",
 				models = MODELS
 			)
 			if "molprob" in metric:
@@ -995,8 +1034,6 @@ def plot( config_name: str ):
 	# plot_rmsf_contour( config_name = config_name )
 
 if __name__ == "__main__":
-	# MODELS = ["boltz2"]
-	# plot_restraint_v_sampling()
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	plot_pred_time_taken_across_models( config_name = "beta1" )
 	# plot_molprobity_metrics_across_models( config_name = "beta1" )
@@ -1006,7 +1043,7 @@ if __name__ == "__main__":
 		print( f"Creating plots for config: {config_name}..." )
 		plot( config_name = config_name )
 
-	# Following configs are specific for Boltz2 and GRASP
+	# # Following configs are specific for Boltz2 and GRASP
 	MODELS = ["boltz2", "grasp"]
 	print( f"\nUsing: {MODELS} " + "-"*20 )
 	for config_name in ["alpha", "beta2", "beta3", "gamma"]:
@@ -1044,7 +1081,7 @@ if __name__ == "__main__":
 		["alpha", "delta2"],
 		["alpha", "delta3"],
 		["alpha", "epsilon1"],
-		["alpha", "zeta1"],
+		# ["alpha", "zeta1"],
 		["alpha", "theta1"],
 		["alpha2", "beta4"],
 		["alpha2", "epsilon1"],
@@ -1056,15 +1093,15 @@ if __name__ == "__main__":
 		["beta1", "epsilon1"],
 		["beta2", "epsilon2"],
 		["beta3", "epsilon3"],
-		["beta1", "zeta1"],
+		# ["beta1", "zeta1"],
 		["beta1", "theta1"],
 		# --------------------
 		["epsilon1", "epsilon2"],
 		["epsilon1", "epsilon3"],
 		["epsilon1", "epsilon4"],
 		# --------------------
-		["epsilon1", "iota1"],
-		["delta1", "iota1"],
+		# ["epsilon1", "iota1"],
+		# ["delta1", "iota1"],
 	]:
 		print( f"{config1}-{config2}..." )
 		plot_cross_configs(

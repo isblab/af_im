@@ -19,23 +19,23 @@ CONFIG_DICT = get_config_dict()
 BASE_DIR = os.path.join(
 	os.path.abspath( CONFIG_DICT.models.base_dir )
 	)
-BENCHMARK_NAME = CONFIG_DICT.benchmark.globals.benchmark_name
-ANALYSIS_DIR = get_benchmark_analysis_dir_path(
-	base_dir = BASE_DIR,
-	benchmark_name = BENCHMARK_NAME
-)
+
 # Complexes for which prediction failed
 IGNORE_SYSTEMS = ["5xct", "6iww", "7agf"]
 
 ################################################################################
 ################################################################################
-def load_logs_dict( model: str, config_name: str ):
+def load_logs_dict(
+	model: str,
+	config_name: str,
+	benchmark_name: str
+	):
 	"""
 	Load the logs dict for the specified model and config.
 	"""
 	model_out_dir = get_model_output_dir_path(
 		base_dir = BASE_DIR,
-		benchmark_name = BENCHMARK_NAME,
+		benchmark_name = benchmark_name,
 		model = model,
 		config_name = config_name
 	)
@@ -48,7 +48,8 @@ def load_logs_dict( model: str, config_name: str ):
 
 def load_analysis_dict(
 	model: str,
-	config_name: str
+	config_name: str,
+	benchmark_name: str
 ):
 	"""
 	For the given model and config, load and
@@ -60,14 +61,19 @@ def load_analysis_dict(
 	config_name: str identifier for the model configuration
 		used for prediction.
 		See model_configs.py.
+	benchmark_name: 
 
 	Returns:
 	----------
 	The analysis results for the specified model config.
 	"""
+	analysis_dir = get_benchmark_analysis_dir_path(
+		base_dir = BASE_DIR,
+		benchmark_name = benchmark_name
+	)
 	per_config_logs_file = os.path.join(
-		ANALYSIS_DIR,
-		f"Logs_{BENCHMARK_NAME}_{model}.npy"
+		analysis_dir,
+		f"Logs_{benchmark_name}_{model}.npy"
 	)
 	analysis_dict = np.load(
 		per_config_logs_file, allow_pickle = True
@@ -81,6 +87,7 @@ def load_analysis_dict(
 ################################################################################
 def prep_pred_time_input(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str]
 ) -> Dict[str, List]:
 	"""
@@ -105,7 +112,8 @@ def prep_pred_time_input(
 			}
 		data = load_logs_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data["completed"]:
@@ -120,7 +128,8 @@ def prep_pred_time_input(
 
 def prep_xl_satisfaction_input(
 	config_name: str,
-	models: List[str]
+	models: List[str],
+	benchmark_name: str
 ) -> Dict[str, List]:
 	"""
 	For all the methods (AlphaLink2, Boltz2, GRASP), across all
@@ -148,7 +157,8 @@ def prep_xl_satisfaction_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -156,7 +166,6 @@ def prep_xl_satisfaction_input(
 				continue
 			xl_sat = data[sys_name]["xl_metrics"]["xl_satisfaction"]
 			xl_pair_sat = data[sys_name]["xl_metrics"]["xl_pair_satisfaction"]
-			# print( data[sys_name]["xl_metrics"].keys() )
 			label = data[sys_name]["xl_metrics"]["label"]
 
 			records[model]["complex"].append( sys_name )
@@ -170,12 +179,14 @@ def prep_xl_satisfaction_input(
 
 ################################################################################
 def compute_tp_fp_xl_sat(
-	xl_pair_sat: np.ndarray,
-	labels: np.ndarray
+	xl_pair_sat: List[np.ndarray],
+	labels: List[np.ndarray]
 ) -> Tuple[List, List]:
 	"""
 	Given the per XL satisfaction across all models compute
 		the fraction of TP and FP XLs satisfied.
+	Given the no. of models satisfying a given XL pair, we
+		consider an XL satisfied if even 1 model satifies it.
 
 	Inputs:
 	----------
@@ -208,6 +219,7 @@ def compute_tp_fp_xl_sat(
 ################################################################################
 def prep_native_tm_input(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str],
 	native_model_id: int = 1000,
 ) -> Dict[str, List]:
@@ -237,7 +249,8 @@ def prep_native_tm_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -260,6 +273,7 @@ def prep_native_tm_input(
 ################################################################################
 def prep_native_dockq_input(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str],
 	native_model_id: int = 1000,
 ) -> Dict[str, List]:
@@ -289,7 +303,8 @@ def prep_native_dockq_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -312,6 +327,7 @@ def prep_native_dockq_input(
 ################################################################################
 def prep_unique_models_input(
 	config_name: str,
+	benchmark_name: str,
 	similarity_metric: str,
 	models: List[str]
 ) -> Dict[str, List]:
@@ -341,7 +357,8 @@ def prep_unique_models_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 		for sys_name in data:
 			if sys_name in IGNORE_SYSTEMS:
@@ -366,7 +383,6 @@ def return_molprobity_metric(
 		Max/Min metric value
 	"""
 	sorted_model_ids = sorted( list( molprob_dict.keys() ) )
-	# print( molprob_dict[1000].keys() )
 	if molprob_metric == "molprob":
 		per_model_metric = np.array(
 			[molprob_dict[k]["MolProbity score"] for k in sorted_model_ids]
@@ -402,6 +418,7 @@ def return_molprobity_metric(
 
 def prep_molprobity_input(
 	config_name: str,
+	benchmark_name: str,
 	for_native: bool,
 	models: List[str]
 ) -> Dict[str, List]:
@@ -442,7 +459,8 @@ def prep_molprobity_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -465,6 +483,7 @@ def prep_molprobity_input(
 ################################################################################
 def prep_rmsf_input(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str]
 ) -> Dict[str, List]:
 	"""
@@ -490,7 +509,8 @@ def prep_rmsf_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -507,6 +527,7 @@ def prep_rmsf_input(
 ################################################################################
 def prep_confidence_metrics_input(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str],
 ) -> Dict[str, List]:
 	"""
@@ -538,7 +559,8 @@ def prep_confidence_metrics_input(
 			}
 		data = load_analysis_dict(
 			model = model,
-			config_name = config_name
+			config_name = config_name,
+			benchmark_name = benchmark_name
 		)
 
 		for sys_name in data:
@@ -565,6 +587,7 @@ def prep_confidence_metrics_input(
 ################################################################################
 def return_metric(
 	config_name: str,
+	benchmark_name: str,
 	models: List[str],
 	metric: str,
 	molprob_native: bool = False
@@ -583,55 +606,69 @@ def return_metric(
 	----------
 	records: 
 	"""
-	global MODELS
+	global MODELS, BENCHMARK_NAME, ANALYSIS_DIR
 	MODELS = models
+	BENCHMARK_NAME = benchmark_name
+	ANALYSIS_DIR = get_benchmark_analysis_dir_path(
+		base_dir = BASE_DIR,
+		benchmark_name = benchmark_name
+	)
 
 	if metric == "time":
 		records = prep_pred_time_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	elif metric == "xl_sat":
 		records = prep_xl_satisfaction_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	elif metric == "tm":
 		records = prep_native_tm_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	elif metric == "dockq":
 		records = prep_native_dockq_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	elif metric == "unique_struct":
 		records = prep_unique_models_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			similarity_metric = "unique_struct",
 			models = models
 		)
 	elif metric == "unique_interface":
 		records = prep_unique_models_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			similarity_metric = "unique_interface",
 			models = models
 		)
 	elif metric == "molprob":
 		records = prep_molprobity_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			for_native = molprob_native,
 			models = models
 		)
 	elif metric == "rmsf":
 		records = prep_rmsf_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	elif metric == "confidence":
 		records = prep_confidence_metrics_input(
 			config_name = config_name,
+			benchmark_name = benchmark_name,
 			models = models
 		)
 	else:
