@@ -36,17 +36,21 @@ class Analysis():
 	def __init__(
 		self,
 		model: str,
-		run_multistate: bool
+		benchmark_name: str,
+		# run_multistate: bool
 		# xl_type: str
 		):
 		self.config_dict = get_config_dict()
 		self.base_dir = os.path.join(
 			os.path.abspath( self.config_dict.models.base_dir )
 			)
-		self.benchmark_name = self.config_dict.benchmark.globals.benchmark_name
+		self.benchmark_name = benchmark_name
+		if benchmark_name == "multistate":
+			self.run_multistate = True
+		else:
+			self.run_multistate = False
 
 		self.model = model
-		self.run_multistate = run_multistate
 		self.cpu_cores = 100
 		self.save_every = 1
 		self.model_config = {}
@@ -189,10 +193,10 @@ class Analysis():
 			used for prediction.
 			See model_configs.py.
 		"""
-		if self.model_config[config_name].multi_state:
-			self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
-		else:
-			self.sys_to_model = self.benchmark["PDB ID"]
+		# if self.model_config[config_name].multi_state:
+		# 	self.sys_to_model = ["1sc1", "8g0p", "8sjj"]
+		# else:
+		self.sys_to_model = self.benchmark["PDB ID"]
 
 
 	def get_xl_max_bound( self, config_name: str ) -> float:
@@ -419,7 +423,6 @@ class Analysis():
 				residue1: [],
 				residue2: []
 			}
-
 		"""
 		xl_flat_amb_dict = {k:[] for k in [
 			"entity_id1", "chain_id1", "residue1",
@@ -442,7 +445,10 @@ class Analysis():
 			xl_file = xl_file,
 			entity_chain_map = entity_chain_map,
 			numeric_chain_ids = False,
-			return_seq_numbering = False ):
+			return_seq_numbering = False,
+			# Multistate benchmark contains monomers
+			skip_intra_xls = False if self.run_multistate else True
+			):
 			( entity_id1, entity_id2, chain_id1,
 				chain_id2, res1, res2,
 					label ) = row
@@ -636,7 +642,7 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["tm"]  = similarity_dict
 
-				if "interface_similarity" not in self.per_config_logs[model_key][sys_name]:
+				if "interface_similarity" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
 					print( "Computing interface similarity..." )
 					dock_dict = None
 					dock_dict = self.run_dockq_calc_per_sys(
@@ -647,7 +653,7 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["interface_similarity"]  = dock_dict
 
-				if "dockq" not in self.per_config_logs[model_key][sys_name]:
+				if "dockq" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
 					print( "Computing interface similarity wrt native structure..." )
 					dock_dict = None
 					dock_dict = self.run_dockq_calc_per_sys(
@@ -657,6 +663,8 @@ class Analysis():
 						model_files2 = native_files
 					)
 					self.per_config_logs[model_key][sys_name]["dockq"] = dock_dict
+				else:
+					self.per_config_logs[model_key][sys_name]["dockq"] = {}
 
 				if "molprob" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing Molprobity metrics..." )
@@ -685,7 +693,7 @@ class Analysis():
 					unique_models = self.get_unique_models_per_sys(
 						metric_dict = similarity_dict,
 						metric_name = "tm",
-						threshold = 0.7,
+						threshold = 0.5 if self.run_multistate else 0.7,
 						xl_metrics = xl_metrics,
 						tm_dict = tm_dict,
 						dock_dict = dock_dict,
@@ -694,7 +702,7 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["unique_struct"] = unique_models
 
-				if "unique_interface" not in self.per_config_logs[model_key][sys_name]:
+				if "unique_interface" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
 					print( "Computing no. of models with unique interface..." )
 					interface_dict = self.per_config_logs[model_key][sys_name]["interface_similarity"]
 					xl_metrics = self.per_config_logs[model_key][sys_name]["xl_metrics"]
@@ -723,7 +731,7 @@ class Analysis():
 					self.per_config_logs[model_key][sys_name]["confidence"] = conf_dict
 
 
-				if "rmsf" not in self.per_config_logs[model_key][sys_name]:
+				if "rmsf" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
 					print( "Computing per-residue RMSF..." )
 					rmsf_dict = self.run_rmsf_calc_per_sys(
 						model_ids = model_ids,
@@ -887,7 +895,8 @@ class Analysis():
 			unique_models["model_id"].append( rep_model_id )
 			unique_models["xl_satisfaction"].append( xl_satisfied[rep_model_id] )
 			unique_models["tm"].append( tm_dict[rep_model_id] )
-			unique_models["dockq"].append( dock_dict[rep_model_id] )
+			if rep_model_id in dock_dict:
+				unique_models["dockq"].append( dock_dict[rep_model_id] )
 			unique_models["molprob"].append( molprob_dict[rep_model_id] )
 			unique_models["struct_file"].append( model_files[rep_model_id] )
 		return unique_models
@@ -1034,6 +1043,10 @@ if __name__ == "__main__":
 		type = str, required = True,
 		help = "Specify the model to use: grasp/alphalink2/boltz2." )
 	parser.add_argument(
+		"-b", "--benchmark",
+		type = str, required = True,
+		help = "Specify the benchmark: crosslink/multistate." )
+	parser.add_argument(
 		"-ms", "--multistate",
 		required = False, action = "store_true",
 		default = False,
@@ -1041,5 +1054,6 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 	Analysis(
 		model = args.model,
-		run_multistate = args.multistate
+		benchmark_name = args.benchmark
+		# run_multistate = args.multistate
 		).forward()
