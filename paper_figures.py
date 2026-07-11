@@ -1,17 +1,24 @@
 """
 Methods to create figures for the paper.
 """
-from typing import List, Dict, Any
+from typing import List
 import os, warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import seaborn as sns
-from scipy.stats import wilcoxon
+from scipy.stats import wilcoxon, mannwhitneyu
 
 from config import get_config_dict
 
-from utils.analysis_utils import return_metric, prep_native_dockq_input
+from utils.analysis_utils import (
+	return_metric,
+	prep_native_dockq_input,
+	prep_native_tm_input,
+	compute_tp_fp_xl_sat
+)
+
 from utils.paths import (
 	get_benchmark_analysis_dir_path
 )
@@ -27,7 +34,7 @@ ANALYSIS_DIR = get_benchmark_analysis_dir_path(
 	benchmark_name = BENCHMARK_NAME
 )
 FIG_DIR = os.path.join(
-	ANALYSIS_DIR, "paper_figures"
+	BASE_DIR, "paper_figures"
 )
 for d in [FIG_DIR]:
 	os.makedirs( d, exist_ok = True )
@@ -59,7 +66,10 @@ MARKER = {
 
 ################################################################################
 ################################################################################
-def fig_2a():
+# Main figures
+################################################################################
+################################################################################
+def fig_2():
 	"""
 	Plot the max XL satisfaction for all models
 		across all complexes as a scatter plot.
@@ -67,12 +77,13 @@ def fig_2a():
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_name = "beta1"
 
-	fig, ax = plt.subplots( 1, 1, figsize = ( 12, 6 ) )
+	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records = return_metric(
 		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "xl_sat"
 	)
 
@@ -99,7 +110,7 @@ def fig_2a():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.75, color = "red" )
+	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -107,7 +118,7 @@ def fig_2a():
 		)
 	ax.set_ylabel( f"Max XL satisfaction", fontsize = 14 )
 	ax.set_xlabel( "Complexes", fontsize = 14 )
-	ax.set_ylim( -0.02, 1.02 )
+	ax.set_ylim( -0.05, 1.05 )
 	ax.legend( loc = "lower right" )
 	ax.tick_params(
 		axis = "both",
@@ -117,134 +128,7 @@ def fig_2a():
 	)
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_2a.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def fig_2b():
-	"""
-	For guided vs unguided predictions, plot max
-		XL satisfaction for all models across all
-		complexes as a scatter plot.
-	"""
-	MODELS = ["boltz2", "grasp"]
-	config_name1 = "beta1" # guided
-	config_name2 = "alpha" # unguided
-
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records1 = return_metric(
-		models = MODELS,
-		config_name = config_name1,
-		metric = "xl_sat"
-	)
-	records2 = return_metric(
-		models = MODELS,
-		config_name = config_name2,
-		metric = "xl_sat"
-	)
-
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["max_xl_sat"] )
-		Y = np.array( records2[model]["max_xl_sat"] )
-		stat, p = wilcoxon( X, Y, alternative = "greater" )
-		p = round( p, 4 )
-
-		ax[i].scatter(
-			X, Y,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-		)
-		ax[i].text(
-			0.02, 0.98,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
-		)
-
-		ax[i].plot( [-0.02, 1.02], [-0.02, 1.02] )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"Max XL satisfaction (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"Max XL satisfaction (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.02, 1.02, -0.02, 1.02] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 8,
-			width = 2
-		)
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_2b.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def fig_2c():
-	"""
-	For guided vs unguided predictions, plot the
-		mean XL satisfaction for all models
-		across all complexes as a scatter plot.
-	"""
-	MODELS = ["boltz2", "grasp"]
-	config_name1 = "beta1" # guided
-	config_name2 = "alpha" # unguided
-
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records1 = return_metric(
-		models = MODELS,
-		config_name = config_name1,
-		metric = "xl_sat"
-	)
-	records2 = return_metric(
-		models = MODELS,
-		config_name = config_name2,
-		metric = "xl_sat"
-	)
-
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["mean_xl_sat"] )
-		Y = np.array( records2[model]["mean_xl_sat"] )
-		stat, p = wilcoxon( X, Y, alternative = "greater" )
-		p = round( p, 4 )
-
-		ax[i].scatter(
-			X, Y,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-			# label = METHOD_LABELS[model]
-		)
-		ax[i].text(
-			0.02, 0.98,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
-		)
-
-		ax[i].plot( [-0.02, 1.02], [-0.02, 1.02] )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"Mean XL satisfaction (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"Mean XL satisfaction (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.02, 1.02, -0.02, 1.02] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 10,
-			width = 2
-		)
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_2c.png"
+		FIG_DIR, f"figure_2.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
@@ -259,12 +143,13 @@ def fig_3a():
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_name = "beta1"
 
-	fig, ax = plt.subplots( 1, 1, figsize = ( 12, 6 ) )
+	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records = return_metric(
 		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "dockq"
 	)
 
@@ -291,7 +176,7 @@ def fig_3a():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.23, color = "red" )
+	ax.axhline( 0.23, color = "red", linewidth = 0.5 )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -299,7 +184,7 @@ def fig_3a():
 		)
 	ax.set_ylabel( f"Max DockQ", fontsize = 14 )
 	ax.set_xlabel( "Complexes", fontsize = 14 )
-	ax.set_ylim( -0.02, 1.02 )
+	ax.set_ylim( -0.05, 1.05 )
 	ax.legend( loc = "lower left" )
 	ax.tick_params(
 		axis = "both",
@@ -317,82 +202,18 @@ def fig_3a():
 ################################################################################
 def fig_3b():
 	"""
-	For guided vs unguided predictions, plot the
-		mean DockQ for all models
-		across all complexes as a scatter plot.
-	"""
-	MODELS = ["boltz2", "grasp"]
-	config_name1 = "beta1" # guided
-	config_name2 = "alpha" # unguided
-
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records1 = return_metric(
-		models = MODELS,
-		config_name = config_name1,
-		metric = "dockq"
-	)
-	records2 = return_metric(
-		models = MODELS,
-		config_name = config_name2,
-		metric = "dockq"
-	)
-
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["mean_dockq"] )
-		Y = np.array( records2[model]["mean_dockq"] )
-		stat, p = wilcoxon( X, Y, alternative = "greater" )
-		p = round( p, 4 )
-
-		np.random.seed( 3407 )
-		eps = np.random.normal( 0, 0.001, len( X ) )
-		ax[i].scatter(
-			X+eps, Y+eps,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-		)
-		ax[i].text(
-			0.02, 0.98,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
-		)
-
-		ax[i].plot( [-0.02, 1.02], [-0.02, 1.02] )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"DockQ wrt native (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"DockQ wrt native (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.02, 1.02, -0.02, 1.02] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 8,
-			width = 2
-		)
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_3b.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def fig_3c():
-	"""
 	Plot the Molprobity score for all models across all
 		complexes as a scatter plot.
 	"""
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_name = "beta1"
 
-	fig, ax = plt.subplots( 1, 3, figsize = ( 14, 6 ) )
+	fig, ax = plt.subplots( 1, 3, figsize = ( 10, 3 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records = return_metric(
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		models = MODELS,
 		metric = "molprob",
 		molprob_native = False
@@ -418,122 +239,27 @@ def fig_3c():
 			fontsize = 10
 		)
 
-		ax[i].plot( [0, 3], [0, 3] )
+		ax[i].plot( [0, 3], [0, 3], c = "#DDDDDD" )
 		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_ylabel( f"Mean molProbity score", fontsize = 14 )
-		ax[i].set_xlabel( "Experimental resolution", fontsize = 14 )
-		ax[i].axis( [0.0, 3.0, 0.0, 3.0] )
+		ax[i].set_ylabel( f"Mean MolProbity score", fontsize = 12 )
+		ax[i].set_xlabel( "Experimental resolution", fontsize = 12 )
+		ax[i].axis( [0.0, 3.05, 0.0, 3.05] )
 		ax[i].tick_params(
 			axis = "both",
-			labelsize = 12,
-			length = 8,
+			labelsize = 10,
+			length = 6,
 			width = 2
 		)
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_3c.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def fig_3d():
-	"""
-	Plot the clashscore for all models across all
-		complexes as a scatter plot.
-	"""
-	MODELS = ["alphalink2", "boltz2", "grasp"]
-	config_name = "beta1"
-
-	fig, ax = plt.subplots( 1, 3, figsize = ( 14, 6 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records_pred = return_metric(
-		config_name = config_name,
-		models = MODELS,
-		metric = "molprob",
-		molprob_native = False
-		)
-	records_native = return_metric(
-		config_name = config_name,
-		models = MODELS,
-		metric = "molprob",
-		molprob_native = True
-		)
-	# q2_xy, q3_xy = {}, {}
-	# for model in MODELS:
-	# 	if model == "grasp":
-	# 		q2_xy[model] = [2, 100]
-	# 		q3_xy[model] = [15, 100]
-	# 	else:
-	# 		q2_xy[model] = [2, 25]
-	# 		q3_xy[model] = [15, 25]
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records_native[model]["mean_clash"] )
-		Y = np.array( records_pred[model]["mean_clash"] )
-
-		# j = np.where( X <=5 )
-		# k = np.where( X >=5 )
-		# Q1 = np.count_nonzero( np.where( Y[j] <=5, 1, 0 ) )
-		# Q2 = np.count_nonzero( np.where( Y[j] >=5, 1, 0 ) )
-		# Q3 = np.count_nonzero( np.where( Y[k] >=5, 1, 0 ) )
-
-		stat, p = wilcoxon( X.reshape( -1 ), Y.reshape( -1 ), alternative = "greater" )
-		p = round( p, 4 )
-
-		ax[i].scatter(
-			X, Y,
-			s = 50,
-			c = COLOR[model],
-			marker = MARKER[model],
-			# label = METHOD_LABELS[model]
-		)
-		# # Add counts
-		# ax[i].text(
-		# 	q2_xy[model][0], q2_xy[model][1],
-		# 	f"{Q2}",
-		# 	ha = "right", va = "top",
-		# 	fontsize = 16
-		# )
-		# ax[i].text(
-		# 	q3_xy[model][0], q3_xy[model][1],
-		# 	f"{Q3}",
-		# 	ha = "right", va = "top",
-		# 	fontsize = 16
-		# )
-		ax[i].axvline( 5.0, color = "red" )
-		ax[i].axhline( 5.0, color = "red" )
-		x_offset = X.max()
-		y_offset = 30 if i <=1 else 125
-		ax[i].text(
-			x_offset,
-			y_offset-1 if i <=1 else y_offset-4,
-			f"p-value = {p}",
-			ha = "right", va = "top",
-			fontsize = 10
-		)
-
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_ylabel( f"Mean Clashscore (prediction)", fontsize = 14 )
-		ax[i].set_xlabel( "Mean Clashscore (native)", fontsize = 14 )
-		ax[i].axis( [-1, x_offset+1, 0, y_offset] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 12,
-			length = 8,
-			width = 2
-		)
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_3d.png"
+		FIG_DIR, f"figure_3b.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
 ################################################################################
-def fig_4a():
+def fig_4():
 	"""
 	Plot the no. of unique models based on interface similarity for
 		all models across all complexes as a scatter plot.
@@ -541,12 +267,13 @@ def fig_4a():
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_name = "beta1"
 
-	fig, ax = plt.subplots( 1, 1, figsize = ( 12, 6 ) )
+	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records = return_metric(
 		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "unique_interface"
 	)
 
@@ -573,7 +300,7 @@ def fig_4a():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 1, color = "red" )
+	ax.axhline( 1, color = "red", linewidth = 0.5 )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -591,162 +318,750 @@ def fig_4a():
 	)
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_4a.png"
+		FIG_DIR, f"figure_4.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
-def fig_4b():
+def fig_5a():
 	"""
-	For guided vs unguided predictions, plot the no. of
-		unique models based on interface similarity for
-		all models across all complexes.
+	Plot the TP and FP Xl satisfationfor dataset with
+		higher FP XLs wrt the control (10% FP XLs).
+	Create plots for all models across all complexes as
+		a scatter plot.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_name = "beta3"
+
+	records = return_metric(
+		models = MODELS,
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
+	)
+
+	fig, ax = plt.subplots( 3, 1, figsize = ( 12, 10 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+	# Create a scatter plot for each method.
+	for i, model in enumerate( MODELS ):
+
+		complexes = records[model]["complex"]
+		X = np.arange( 0, len( complexes ), 1 )
+		total = X.shape[0]
+		tp_xl_sat, fp_xl_sat = compute_tp_fp_xl_sat(
+			xl_pair_sat = records[model]["xl_pair_sat"],
+			labels = records[model]["label"]
+		)
+		# List elements are in order: al mdoels per complex, for all complexes (37*25).
+		Y1 = np.array( tp_xl_sat ).reshape( total, -1 )
+		Y2 = np.array( fp_xl_sat ).reshape( total, -1 )
+
+		ax[i].scatter(
+			X, Y1,
+			s = 80,
+			c = COLOR[model],
+			marker = "+",
+			label = "TP XL"
+		)
+		ax[i].scatter(
+			X, Y2,
+			s = 80,
+			c = COLOR[model],
+			marker = "x",
+			label = "FP XL"
+		)
+
+		ax[i].set_xticks( X )
+		ax[i].tick_params(axis = "both", width = 2, length = 5 )
+		ax[i].set_xticklabels(
+			records[model]["complex"], rotation = 90
+			)
+		ax[i].set_ylabel( f"XL satisfaction", fontsize = 14 )
+		ax[i].set_xlabel( "Complexes", fontsize = 14 )
+		ax[i].set_ylim( -0.1, 1.1 )
+		ax[i].legend( loc = "upper left" )
+		ax[i].tick_params(
+			axis = "both",
+			labelsize = 12,
+			length = 8,
+			width = 2
+		)
+
+		ax[i].legend(
+			loc = "upper right",
+			bbox_to_anchor = ( 0.98, 0.665),
+			fontsize = 12,
+		)
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_5a.png"
+	)
+	plt.savefig( file, dpi = 300, bbox_inches = "tight" )
+	plt.close()
+
+################################################################################
+def fig_5b():
+	"""
+	Plot the no. of structures with unique interface for
+		dataset with higher FP XLs wrt the control (10% FP XLs).
+	Create plots for all models across all complexes as
+		a scatter plot.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["beta3"]
+
+	fig, ax = plt.subplots( 1, 3, figsize = ( 10, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	records1 = return_metric(
+		models = MODELS,
+		config_name = "beta1",
+		benchmark_name = "crosslink",
+		metric = "unique_interface"
+	)
+
+	fp_label = ["50% FP XLs"]
+	for i, config_name in enumerate( config_names ):
+		records2 = return_metric(
+			models = MODELS,
+			config_name = config_name,
+			benchmark_name = "crosslink",
+			metric = "unique_interface"
+		)
+
+		for j, model in enumerate( MODELS ):
+			X = records1[model]["unique_interface"]
+			Y = records2[model]["unique_interface"]
+
+			ax[j].scatter(
+				X, Y,
+				s = 50,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
+			)
+			ax[j].plot( [0, 25], [0, 25], c = "#DDDDDD" )
+			ax[j].set_xlabel( "No. of unique structures (10% FP XLs)", fontsize = 10 )
+			ax[j].set_ylabel( f"No. of unique structures ({fp_label[i]})", fontsize = 10 )
+			ax[j].axis( [-0.05, 26, -0.05, 26] )
+			ax[j].tick_params(
+				axis = "both",
+				labelsize = 8,
+				length = 8,
+				width = 2
+			)
+			ax[j].legend( loc = "lower right" )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_5b.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
+def fig_5c():
+	"""
+	Plot the mean Clashscore vs experimental resolution for
+		dataset with higher FP XLs wrt the control (10% FP XLs).
+	Create plots for all models across all complexes as
+		a scatter plot.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["beta3"]
+
+	fig, ax = plt.subplots( 1, 3, figsize = ( 10, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	records1 = return_metric(
+		models = MODELS,
+		config_name = "beta1",
+		benchmark_name = "crosslink",
+		metric = "molprob"
+	)
+
+	fp_label = ["50% FP XLs"]
+	for i, config_name in enumerate( config_names ):
+		records2 = return_metric(
+			models = MODELS,
+			config_name = config_name,
+			benchmark_name = "crosslink",
+			metric = "molprob"
+		)
+
+		for j, model in enumerate( MODELS ):
+			X = records1[model]["mean_clash"]
+			Y = records2[model]["mean_clash"]
+
+			ax[j].scatter(
+				X, Y,
+				s = 50,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
+			)
+
+			ax[j].set_xlabel( f"Mean Clashscore (10% FP XLs)", fontsize = 10 )
+			ax[j].set_ylabel( f"Mean Clashscore ({fp_label[i]})", fontsize = 10 )
+			if model == "grasp":
+				ax[j].plot( [0, 125], [0, 85], c = "#DDDDDD" )
+				ax[j].axis( [-0.05, 125, -0.05, 85] )
+			else:
+				ax[j].plot( [0, 35], [0, 35], c = "#DDDDDD" )
+				ax[j].axis( [-0.05, 35, -0.05, 35] )
+			ax[j].tick_params(
+				axis = "both",
+				labelsize = 8,
+				length = 8,
+				width = 2
+			)
+			ax[j].legend( loc = "lower right" )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_5c.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
+def fig_6a():
+	"""
+	For multistate experiment, plot the max XL satisfaction
+		across all complexes when using state1, state2, state1+2 XLs.
+	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["kappa1", "kappa2","kappa3"]
+
+	fig, ax = plt.subplots( 1, 1, figsize = ( 8, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	model_offset = [-0.22, 0.0, 0.22]
+	# spacing between kappa1,2,3
+	config_spacing = 1.0
+	# spacing between complexes
+	complex_spacing = 4.0
+	# Flag to add legends only once.
+	legend_done = False
+
+	# get the complexes first.
+	records = return_metric(
+		models=MODELS,
+		config_name = config_names[0],
+		benchmark_name = "multistate",
+		metric = "xl_sat",
+	)
+	states = ["State1", "State2", "State1+2"]
+	complexes = records[MODELS[0]]["complex"]
+
+	xticks, config_xticks = [], []
+	xticklabels, config_xticklabels = [], []
+	config_xticklabels = 3*states
+	for c_idx, complex_name in enumerate(complexes):
+		base = c_idx * complex_spacing
+		xticks.append( base + config_spacing )
+		xticklabels.append( complex_name )
+		# Alternate grey strips
+		if c_idx % 2 == 0:
+			ax.axvspan(
+				base - 0.5,
+				base + 3*config_spacing-0.5,
+				color = "#DDDDDD",
+				zorder = 0,
+			)
+		for k_idx, config_name in enumerate( config_names ):
+			records = return_metric(
+				models = MODELS,
+				config_name = config_name,
+				benchmark_name = "multistate",
+				metric = "xl_sat",
+			)
+			x_center = base + k_idx*config_spacing
+			# Separator for different state configs
+			if k_idx != 0:
+				ax.axvline(
+					x_center - 0.55,
+					color = "blue",
+					linewidth = 0.5,
+					linestyle = "--" )
+			config_xticks.append( x_center )
+			for m_idx, model in enumerate(MODELS):
+				x = base + k_idx * config_spacing + model_offset[m_idx]
+				y = records[model]["max_xl_sat"][c_idx]
+
+				ax.scatter(
+					x,
+					y,
+					s = 50,
+					c = COLOR[model],
+					marker = MARKER[model],
+					label = METHOD_LABELS[model] if not legend_done else None,
+				)
+			legend_done = True
+
+	# Complex names
+	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
+	ax.set_ylim( -0.05, 1.05 )
+	ax.set_xticks( xticks )
+	# Complex names
+	ax_top = ax.secondary_xaxis( "top" )
+	ax_top.set_xticks( config_xticks )
+	ax_top.set_xticklabels( config_xticklabels, fontsize = 10 )
+	ax_top.tick_params(length = 0, pad = 6 )
+
+	ax.tick_params( axis = "both", width = 2, length = 5 )
+	ax.set_xticklabels( xticklabels, rotation = 90, fontsize = 10 )
+	ax.legend( loc = "lower right" )
+	ax.set_xlabel( "Complexes", fontsize = 10 )
+	ax_top.set_xlabel( "XLs derived from state", fontsize = 12 )
+	ax.set_ylabel( "Max XL satisfaction", fontsize = 10 )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_6a.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
+def fig_6b():
+	"""
+	For multistate experiment, plot the TM-score wrt state1 and state2 for
+		each predicted structure across all complexes.
+	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["kappa1", "kappa2","kappa3"]
+
+	fig, ax = plt.subplots( 1,3, figsize = ( 8, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	titles = [
+		"XLs from state1",
+		"XLs from state2",
+		"XLs from state1+2"
+	]
+
+	for i, config_name in enumerate( config_names ):
+		# State 1
+		records1 = prep_native_tm_input(
+			config_name = config_name,
+			benchmark_name = "multistate",
+			models = MODELS,
+			native_model_id = 1000
+		)
+		# State 2
+		records2 = prep_native_tm_input(
+			config_name = config_name,
+			benchmark_name = "multistate",
+			models = MODELS,
+			native_model_id = 1001
+		)
+		for j, model in enumerate( MODELS ):
+			X = records1[model]["max_tm"]
+			Y = records2[model]["max_tm"]
+
+			ax[i].scatter(
+				X, Y,
+				s = 50,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
+			)
+		ax[i].axhline( 0.5, color = "red", linewidth = 0.5 )
+		ax[i].axvline( 0.5, color = "red", linewidth = 0.5 )
+		ax[i].axis( [-0.05, 1.05, -0.05, 1.05] )
+		ax[i].set_title( titles[i], fontsize = 10 )
+		ax[i].set_xlabel( "Max TM wrt State 1", fontsize = 10 )
+		ax[i].set_ylabel( "Max TM wrt State 2", fontsize = 10 )
+		ax[i].tick_params( axis = "both", width = 2, length = 5 )
+	# ax.set_xticklabels( xticklabels, rotation = 90 )
+	# ax.legend( loc = "center right" )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_6b.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
+def fig_6c():
+	"""
+	For multistate experiment, plot the no. unique structures
+		across all complexes when using state1, state2, state1+2 XLs.
+	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["kappa1", "kappa2","kappa3"]
+
+	fig, ax = plt.subplots( 1, 1, figsize = ( 8, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	model_offset = [-0.22, 0.0, 0.22]
+	# spacing between kappa1,2,3
+	config_spacing = 1.0
+	# spacing between complexes
+	complex_spacing = 4.0
+	# Flag to add legends only once.
+	legend_done = False
+
+	# get the complexes first.
+	records = return_metric(
+		models=MODELS,
+		config_name=config_names[0],
+		benchmark_name="multistate",
+		metric="unique_struct",
+	)
+	states = ["State1", "State2", "State1+2"]
+	complexes = records[MODELS[0]]["complex"]
+
+	xticks, config_xticks = [], []
+	xticklabels, config_xticklabels = [], []
+	config_xticklabels = 3*states
+	for c_idx, complex_name in enumerate(complexes):
+		base = c_idx * complex_spacing
+		xticks.append( base + config_spacing )
+		xticklabels.append( complex_name )
+		# Alternate grey strips
+		if c_idx % 2 == 0:
+			ax.axvspan(
+				base - 0.5,
+				base + 3 * config_spacing - 0.5,
+				color = "0.93",
+				zorder = 0,
+			)
+		for k_idx, config_name in enumerate( config_names ):
+			records = return_metric(
+				models = MODELS,
+				config_name = config_name,
+				benchmark_name = "multistate",
+				metric = "unique_struct",
+			)
+			x_center = base + k_idx * config_spacing
+			# Separator for different state configs
+			if k_idx != 0:
+				ax.axvline(
+					x_center - 0.55,
+					color = "blue",
+					linewidth = 0.5,
+					linestyle = "--" )
+			config_xticks.append( x_center )
+			for m_idx, model in enumerate(MODELS):
+				x = base + k_idx * config_spacing + model_offset[m_idx]
+				y = records[model]["unique_struct"][c_idx]
+
+				ax.scatter(
+					x,
+					y,
+					s = 50,
+					c = COLOR[model],
+					marker = MARKER[model],
+					label = METHOD_LABELS[model] if not legend_done else None,
+				)
+			legend_done = True
+
+	ax.axhline( 1.0, color = "red", linewidth = 0.5 )
+	# Complex names
+	ax.set_ylim( -0.5, 26 )
+	ax.set_xticks( xticks )
+	# Complex names
+	ax_top = ax.secondary_xaxis("top")
+	ax_top.set_xticks( config_xticks )
+	ax_top.set_xticklabels( config_xticklabels, fontsize = 10 )
+	ax_top.tick_params(length = 0, pad = 6 )
+
+	ax.tick_params( axis = "both", width = 2, length = 5 )
+	ax.set_xticklabels( xticklabels, rotation = 90, fontsize = 10 )
+	ax.legend( loc = "upper right" )
+
+	ax.set_xlabel( "Complexes", fontsize = 10 )
+	ax_top.set_xlabel( "XLs derived from state", fontsize = 12 )
+	ax.set_ylabel( "Number of unique structures", fontsize = 10 )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_6c.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+
+################################################################################
+################################################################################
+# Supplementary figures
+################################################################################
+################################################################################
+def supp_fig_1():
+	"""
+	For guided vs unguided predictions, plot max
+		XL satisfaction for all models across all
+		complexes as a scatter plot.
 	"""
 	MODELS = ["boltz2", "grasp"]
 	config_name1 = "beta1" # guided
 	config_name2 = "alpha" # unguided
 
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
+	fig, ax = plt.subplots( 1, 2, figsize = ( 6, 3 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records1 = return_metric(
 		models = MODELS,
 		config_name = config_name1,
-		metric = "unique_interface"
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
 	)
 	records2 = return_metric(
 		models = MODELS,
 		config_name = config_name2,
-		metric = "unique_interface"
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
 	)
 
+	# text_offset_y = [0.98, 0.94]
+	# opacity = [1.0, 0.5]
 	# Create a scatter plot for each method.
 	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["unique_interface"] )
-		Y = np.array( records2[model]["unique_interface"] )
-		stat, p = wilcoxon( X, Y, alternative = "two-sided" )
-		p = round( p, 4 )
+		X = np.array( records1[model]["max_xl_sat"] )
+		Y = np.array( records2[model]["max_xl_sat"] )
+		# stat, p = wilcoxon( X, Y, alternative = "greater" )
+		# p = round( p, 4 )
 
-		np.random.seed( 3407 )
-		eps = np.random.normal( 0, 0.2, len( X ) )
 		ax[i].scatter(
-			X+eps, Y+eps,
-			s = 25,
+			X, Y,
+			s = 50,
 			c = COLOR[model],
 			marker = MARKER[model],
+			# alpha = opacity[i],
+			label = METHOD_LABELS[model]
 		)
-		ax[i].text(
-			0.02, 24.5,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
-		)
+		# ax.text(
+		# 	0.02, text_offset_y[i],
+		# 	f"p-value = {p:.3g}",
+		# 	ha = "left", va = "top",
+		# 	fontsize = 10,
+		# 	color = COLOR[model]
+		# )
 
-		ax[i].plot( [-0.5, 25], [-0.5, 25] )
+		ax[i].plot( [-0.05, 1.05], [-0.05, 1.05], c = "#DDDDDD" )
 		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"No. of unique structures (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"No. of unique structures (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.5, 25, -0.5, 25] )
+		ax[i].set_xlabel( f"Max XL satisfaction (guided)", fontsize = 10 )
+		ax[i].set_ylabel( f"Max XL satisfaction (unguided)", fontsize = 10 )
+		ax[i].axis( [-0.05, 1.05, -0.05, 1.05] )
 		ax[i].tick_params(
 			axis = "both",
-			labelsize = 10,
-			length = 8,
+			labelsize = 8,
+			length = 6,
 			width = 2
 		)
+		ax[i].legend( loc = "lower right" )
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_4b.png"
+		FIG_DIR, f"supp_figure_1.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
-def fig_4c():
+def supp_fig_2():
 	"""
-	Plot the no. of unique models based on interface similarity vs the
-		max model confidence for all models across all complexes.
+	For guided vs unguided predictions, plot the
+		XL satisfaction for all models across
+		all complexes as violin plots.
 	"""
-	MODELS = ["alphalink2", "boltz2", "grasp"]
-	config_name = "beta1"
-
-	fig, ax = plt.subplots( 1, 3, figsize = ( 14, 6 ) )
-	plt.rcParams["font.family"] = "sans-serif"
+	MODELS = ["boltz2", "grasp"]
+	config_name1 = "beta1" # guided
+	config_name2 = "alpha" # unguided
 
 	records1 = return_metric(
 		models = MODELS,
-		config_name = config_name,
-		metric = "unique_interface"
+		config_name = config_name1,
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
 	)
 	records2 = return_metric(
 		models = MODELS,
-		config_name = config_name,
-		metric = "confidence"
+		config_name = config_name2,
+		benchmark_name = "crosslink",
+		metric = "xl_sat"
 	)
 
 	# Create a scatter plot for each method.
 	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["unique_interface"] )
-		# X /= 25
-		Y = np.array( records2[model]["max_confidence"] )
-		stat, p = wilcoxon( X, Y, alternative = "two-sided" )
-		p = round( p, 4 )
+		fig, ax = plt.subplots( 2, 1, figsize = ( 10, 8 ) )
+		plt.rcParams["font.family"] = "sans-serif"
 
-		# np.random.seed( 3407 )
-		# eps = np.random.normal( 0, 0.2, len( X ) )
-		ax[i].scatter(
-			X, Y,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-			# label = METHOD_LABELS[model]
-		)
-		ax[i].text(
-			19, 1.08,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
+		complexes = records1[model]["complex"]
+		X = np.arange( 0, len( complexes ), 1 )
+		total = X.shape[0]
+		# List elements are in order: al mdoels per complex, for all complexes (37*25).
+		# [37*25] -> [37, 25]
+		Y1 = np.array( records1[model]["per_model_xl_sat"] ).reshape( total, -1 )
+		# [37*25] -> [37, 25]
+		Y2 = np.array( records2[model]["per_model_xl_sat"] ).reshape( total, -1 )
+
+		for subplot_idx, (  start, end ) in enumerate( [( 0, 19 ), ( 19, total )] ):
+
+			y1 = Y1[start:end]
+			y2 = Y2[start:end]
+			names = complexes[start:end]
+
+			n = len( names )
+
+			data = []
+			positions = []
+
+			for j in range(n):
+				data.extend( [y1[j], y2[j]] )
+				positions.extend( [j - 0.2, j + 0.2] )
+
+			# Grey vertical bands
+			for j in range( n ):
+				if j % 2 == 0:
+					ax[subplot_idx].axvspan(
+						j - 0.5,
+						j + 0.5,
+						color = "#DDDDDD",
+					)
+
+			vp = ax[subplot_idx].violinplot(
+				data,
+				positions = positions,
+				widths = 0.35,
+				showmeans = True,
+				showmedians = True,
+				showextrema = False,
+			)
+
+			for k, body in enumerate( vp["bodies"] ):
+				body.set_facecolor( "#4C72B0" if k % 2 == 0 else "#DD8452" )
+				body.set_edgecolor( "black" )
+				body.set_alpha( 0.6 )
+
+			ax[subplot_idx].set_xticks( np.arange( n ) )
+			ax[subplot_idx].set_xticklabels( names, rotation = 90, fontsize = 12 )
+			ax[subplot_idx].set_xlim( -0.6, n - 0.4 )
+			ax[subplot_idx].set_ylim( -0.5, 1.1 )
+			ax[subplot_idx].tick_params( axis = "both", width = 2, length = 5 )
+
+			ax[subplot_idx].set_xlabel( "Complexes", fontsize = 14 )
+			ax[subplot_idx].set_ylabel( "Per-model XL satisfaction", fontsize = 14 )
+
+		legend_handles = [
+			Patch(
+				facecolor = "#4C72B0",
+				edgecolor = "black",
+				alpha = 0.6, label = "Guided"
+				),
+			Patch(
+				facecolor = "#DD8452",
+				edgecolor = "black",
+				alpha = 0.6, label = "Unguided"
+			),
+		]
+
+		fig.legend(
+			handles = legend_handles,
+			loc = "upper right",
+			bbox_to_anchor = ( 0.98, 0.665),
+			frameon = False,
+			fontsize = 12,
 		)
 
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"No. of unique structures", fontsize = 14 )
-		ax[i].set_ylabel( f"Max model confidence", fontsize = 14 )
-		ax[i].axis( [-0.5, 25, -0.5, 1.1] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 8,
-			width = 2
+		plt.tight_layout()
+		file = os.path.join(
+			FIG_DIR, f"supp_figure_2_{model}.png"
 		)
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_4c.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
+		plt.savefig( file, dpi = 300, bbox_inches = "tight" )
+		plt.close()
+
 ################################################################################
-################################################################################
-def fig_5a():
+def supp_fig_3():
 	"""
-	Plot the max confidence score for all models across all
+	Plot the clashscore for all models across all
 		complexes as a scatter plot.
 	"""
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_name = "beta1"
 
-	fig, ax = plt.subplots( 1, 1, figsize = ( 12, 6 ) )
+	fig, ax = plt.subplots( 1, 3, figsize = ( 10, 3 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	records_pred = return_metric(
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		models = MODELS,
+		metric = "molprob",
+		molprob_native = False
+		)
+	records_native = return_metric(
+		config_name = config_name,
+		benchmark_name = "crosslink",
+		models = MODELS,
+		metric = "molprob",
+		molprob_native = True
+		)
+
+	# Create a scatter plot for each method.
+	for i, model in enumerate( MODELS ):
+		X = np.array( records_native[model]["mean_clash"] )
+		Y = np.array( records_pred[model]["mean_clash"] )
+
+		ax[i].scatter(
+			X, Y,
+			s = 50,
+			c = COLOR[model],
+			marker = MARKER[model],
+		)
+
+		ax[i].axvline( 5.0, color = "red", linewidth = 0.5 )
+		ax[i].axhline( 5.0, color = "red", linewidth = 0.5 )
+		x_offset = X.max()
+		y_offset = 31 if i <=1 else 125
+
+		ax[i].tick_params(axis = "both", width = 2, length = 5 )
+		ax[i].set_ylabel( f"Mean Clashscore (prediction)", fontsize = 10 )
+		ax[i].set_xlabel( "Mean Clashscore (native)", fontsize = 10 )
+		ax[i].axis( [-1, x_offset+1, 0, y_offset] )
+		ax[i].tick_params(
+			axis = "both",
+			labelsize = 8,
+			length = 8,
+			width = 2
+		)
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"supp_figure_3.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+################################################################################
+def supp_fig_4():
+	"""
+	Plot the mean confidence score for all models across all
+		complexes as a scatter plot.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_name = "beta1"
+
+	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records = return_metric(
 		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "confidence"
 	)
 
 	# Create a scatter plot for each method.
 	for idx, model in enumerate( MODELS ):
 		X = np.arange( 0, len( records[model]["complex"] ), 1 )
-		Y = np.array( records[model]["max_confidence"] )
+		Y = np.array( records[model]["mean_confidence"] )
 
 		# Grey bands
 		for i in X[::2]:
@@ -766,16 +1081,16 @@ def fig_5a():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.75, color = "red" )
+	ax.axhline( 0.8, color = "red", linewidth = 0.5 )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
 		records[model]["complex"], rotation = 90
 		)
-	ax.set_ylabel( f"Max model confidence", fontsize = 14 )
+	ax.set_ylabel( f"Mean model confidence", fontsize = 14 )
 	ax.set_xlabel( "Complexes", fontsize = 14 )
 	ax.set_ylim( -0.02, 1.02 )
-	ax.legend( loc = "lower left" )
+	ax.legend( loc = "center left" )
 	ax.tick_params(
 		axis = "both",
 		labelsize = 12,
@@ -784,260 +1099,355 @@ def fig_5a():
 	)
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_5a.png"
+		FIG_DIR, f"supp_figure_4.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
-def fig_5b():
+def supp_fig_5():
 	"""
-	For guided vs unguided predictions, plot the
-		max confidence for all models
-		across all complexes as a scatter plot.
+	Plot the mean MolProbity score vs experimental resolution for
+		dataset with higher FP XLs wrt the control (10% FP XLs).
+	Create plots for all models across all complexes as
+		a scatter plot.
 	"""
-	MODELS = ["boltz2", "grasp"]
-	config_name1 = "beta1" # guided
-	config_name2 = "alpha" # unguided
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["beta3"]
 
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
+	fig, ax = plt.subplots( 1, 3, figsize = ( 10, 3 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
 	records1 = return_metric(
 		models = MODELS,
-		config_name = config_name1,
-		metric = "confidence"
-	)
-	records2 = return_metric(
-		models = MODELS,
-		config_name = config_name2,
-		metric = "confidence"
+		config_name = "beta1",
+		benchmark_name = "crosslink",
+		metric = "molprob"
 	)
 
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["max_confidence"] )
-		Y = np.array( records2[model]["max_confidence"] )
-		stat, p = wilcoxon( X, Y, alternative = "greater" )
-		p = round( p, 4 )
-
-		np.random.seed( 3407 )
-		eps = np.random.normal( 0, 0.001, len( X ) )
-		ax[i].scatter(
-			X+eps, Y+eps,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-		)
-		ax[i].text(
-			0.02, 0.98,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
+	fp_label = ["50% FP XLs"]
+	for i, config_name in enumerate( config_names ):
+		records2 = return_metric(
+			models = MODELS,
+			config_name = config_name,
+			benchmark_name = "crosslink",
+			metric = "molprob"
 		)
 
-		ax[i].plot( [-0.02, 1.02], [-0.02, 1.02] )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"Max model confidence (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"Max model confidence (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.02, 1.02, -0.02, 1.02] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 8,
-			width = 2
-		)
+		for j, model in enumerate( MODELS ):
+			X = records1[model]["mean_molprob"]
+			Y = records2[model]["mean_molprob"]
+
+			ax[j].scatter(
+				X, Y,
+				s = 50,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
+			)
+
+			ax[j].plot( [0, 25], [0, 25], c = "#DDDDDD" )
+			ax[j].set_xlabel( "Experimental resolution", fontsize = 10 )
+			ax[j].set_ylabel( f"Mean Molprobity Score ({fp_label[i]})", fontsize = 10 )
+			ax[j].axis( [-0.05, 3, -0.05, 3] )
+			ax[j].tick_params(
+				axis = "both",
+				labelsize = 8,
+				length = 8,
+				width = 2
+			)
+			ax[j].legend( loc = "lower right" )
+
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_5b.png"
+		FIG_DIR, f"supp_figure_5.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
-def fig_5c():
+def supp_fig_6a():
 	"""
-	For guided vs unguided predictions, plot the
-		mean confidence for all models
-		across all complexes as a scatter plot.
+	Plot the distribution of per-model XL satisfaction for each method,
+		each complex wrt state1 and state2.
+	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
 	"""
-	MODELS = ["boltz2", "grasp"]
-	config_name1 = "beta1" # guided
-	config_name2 = "alpha" # unguided
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["kappa1", "kappa2","kappa3"]
 
-	fig, ax = plt.subplots( 1, 2, figsize = ( 10, 5 ) )
+	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
-	records1 = return_metric(
+	records = return_metric(
+		config_name = config_names[0],
+		benchmark_name = "multistate",
 		models = MODELS,
-		config_name = config_name1,
-		metric = "confidence"
-	)
-	records2 = return_metric(
-		models = MODELS,
-		config_name = config_name2,
-		metric = "confidence"
+		metric = "xl_sat"
 	)
 
-	# Create a scatter plot for each method.
-	for i, model in enumerate( MODELS ):
-		X = np.array( records1[model]["mean_confidence"] )
-		Y = np.array( records2[model]["mean_confidence"] )
-		stat, p = wilcoxon( X, Y, alternative = "greater" )
-		p = round( p, 4 )
+	complexes = records[MODELS[0]]["complex"]
+	# Spacing between violins for different model per complex
+	complex_offset = [-0.25, 0, 0.25]
+	# Width of violins
+	model_width = 0.2
+	colours = []
 
-		np.random.seed( 3407 )
-		eps = np.random.normal( 0, 0.001, len( X ) )
-		ax[i].scatter(
-			X+eps, Y+eps,
-			s = 25,
-			c = COLOR[model],
-			marker = MARKER[model],
-		)
-		ax[i].text(
-			0.02, 0.98,
-			f"p-value = {p:.3g}",
-			ha = "left", va = "top",
-			fontsize = 10
+	X, Y = [], []
+	# X-tick labels for complexes
+	xtick_label = []
+	# X-tick for the state name
+	state_xtick = []
+	# X-tick labels for state name
+	state_xticklabel = ["XLs from State1", "XLs from State2", "XLs from Staye1+2"]
+	base = 1
+	for i, config_name in enumerate( config_names ):
+		records = return_metric(
+			config_name = config_name,
+			benchmark_name = "multistate",
+			models = MODELS,
+			metric = "xl_sat"
 		)
 
-		ax[i].plot( [-0.02, 1.02], [-0.02, 1.02] )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xlabel( f"Mean model confidence (guided)", fontsize = 12 )
-		ax[i].set_ylabel( f"Mean model confidence (unguided)", fontsize = 12 )
-		ax[i].axis( [-0.02, 1.02, -0.02, 1.02] )
-		ax[i].tick_params(
-			axis = "both",
-			labelsize = 10,
-			length = 8,
-			width = 2
-		)
+		state_xtick.append( base+1 )
+		for m_idx, model in enumerate( records ):
+			data = np.array(
+				records[model]["per_model_xl_sat"]
+			).reshape( len( complexes ), -1 )
+			# print( data )
+			# exit()
+			for k in range( data.shape[0] ):
+				x_center = base + complex_offset[k]
+				X.append( x_center )
+				Y.append( data[k] )
+				colours.append( COLOR[model] )
+				xtick_label.append( complexes[k] )
+
+			base += 1
+	vp = ax.violinplot(
+		Y,
+		positions = X,
+		widths = model_width,
+		showmeans = True,
+		# showmedians = True,
+		showextrema = False,
+	)
+	ax.axvspan(
+		state_xtick[1] - 1.5,
+		state_xtick[1] + 1.5,
+		color = "#DDDDDD",
+		alpha = 0.3,
+		zorder = 0
+	)
+	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
+
+	for k, body in enumerate( vp["bodies"] ):
+		body.set_facecolor( colours[k] )
+		body.set_edgecolor( "black" )
+		body.set_alpha( 0.6 )
+
+	# Add figure legens only on one of the subplots.
+	legend_handles = [
+		Patch(
+			facecolor = COLOR[MODELS[0]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
+			),
+		Patch(
+			facecolor = COLOR[MODELS[1]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
+		),
+		Patch(
+			facecolor = COLOR[MODELS[2]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
+		),
+	]
+
+	fig.legend(
+		handles = legend_handles,
+		loc = "lower right",
+		bbox_to_anchor = ( 0.99, 0.16),
+		frameon = False,
+		fontsize = 10,
+	)
+	ax.set_ylim( -0.05, 1.1 )
+	ax.set_xticks( X )
+	ax.tick_params(axis = "both", width = 2, length = 5 )
+	ax.set_xticklabels(
+		xtick_label, rotation = 90, fontsize = 14
+	)
+	# State name
+	ax_top = ax.secondary_xaxis( "top" )
+	ax_top.set_xticks( state_xtick )
+	ax_top.set_xticklabels( state_xticklabel, fontsize = 14 )
+	ax_top.tick_params(length = 0, pad = 6 )
+
+	ax.set_xlabel( "Complexes", fontsize = 14 )
+	ax.set_ylabel( "XL satisfaction", fontsize = 14 )
+
 	plt.tight_layout()
 	file = os.path.join(
-		FIG_DIR, f"figure_5c.png"
+		FIG_DIR, f"supp_figure_6a.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
 
 ################################################################################
+def supp_fig_6b():
+	"""
+	Plot the distribution of per-model TM-score for each method,
+		each complex wrt state1 and state2.
+	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	config_names = ["kappa1", "kappa2","kappa3"]
+
+	fig, ax = plt.subplots( 3, 1, figsize = ( 10, 10 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	records = prep_native_tm_input(
+		config_name = config_names[0],
+		benchmark_name = "multistate",
+		models = MODELS,
+		native_model_id = 1000
+	)
+	complexes = records[MODELS[0]]["complex"]
+	# Spacing between violins for different complexes
+	complex_offset = [-0.25, 0, 0.25]
+	# Width of violins
+	model_width = 0.2
+
+	# offsets within each complex
+	model_spacing = 0.9
+	state_spacing = 0.22
+
+	titles = [
+		"XLs from State1",
+		"XLs from State2",
+		"XLs from State1+2"
+	]
+
+	for i, config_name in enumerate( config_names ):
+		X, Y = [], []
+		colours = []
+		complex_centers = []
+		state_centers = []
+		state_labels = []
+		# X-tick labels for complexes
+		xtick_labels = []
+		# For alternating grey spans
+		shade_regions = []
+		base = 1
+
+		for c_idx, complex_name in enumerate( complexes ):
+			complex_centers.append( base + model_spacing )
+			xtick_labels.append( complex_name )
+
+			group_start = base
+			for m_idx, model in enumerate( MODELS ):
+				x_model = base + m_idx * model_spacing
+
+				for s_idx, ( native_state_id, s_label ) in enumerate(
+						zip( [1000, 1001], ["State1", "State2"] )
+					):
+					records = prep_native_tm_input(
+						config_name = config_name,
+						benchmark_name = "multistate",
+						models = MODELS,
+						native_model_id = native_state_id,
+					)
+
+					data = np.array(
+						records[model]["per_model_tm"]
+					).reshape( len( complexes ), -1 )
+
+					x = x_model + ( -state_spacing/2 if s_idx == 0 else state_spacing/2 )
+
+					state_centers.append( x )
+					state_labels.append( s_label )
+					print( state_centers[-1], "  ", state_labels[-1] )
+					X.append( x )
+					Y.append( data[c_idx] )
+					colours.append( COLOR[model] )
+
+			group_end = x_model + state_spacing/2
+			shade_regions.append( ( group_start - 0.3, group_end + 0.3 ) )
+			base = group_end + 1.0
+
+		vp = ax[i].violinplot(
+			Y,
+			positions = X,
+			widths = model_width,
+			showmeans = True,
+			# showmedians = True,
+			showextrema = False,
+		)
+		for j, ( xmin, xmax ) in enumerate( shade_regions ):
+			if j % 2 == 1:
+				ax[i].axvspan(
+					xmin,
+					xmax,
+					color = "#DDDDDD",
+					alpha = 0.3,
+					zorder = 0
+				)
+		ax[i].axhline( 0.5, color = "red", linewidth = 0.5 )
+
+		for k, body in enumerate( vp["bodies"] ):
+			body.set_facecolor( colours[k] )
+			body.set_edgecolor( "black" )
+			body.set_alpha( 0.6 )
+
+		# Add figure legends only on one of the subplots.
+		legend_handles = [
+			Patch(
+				facecolor = COLOR[MODELS[0]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
+				),
+			Patch(
+				facecolor = COLOR[MODELS[1]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
+			),
+			Patch(
+				facecolor = COLOR[MODELS[2]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
+			),
+		]
+
+		fig.legend(
+			handles = legend_handles,
+			loc = "lower right",
+			bbox_to_anchor = ( 0.99, 0.085),
+			frameon = False,
+			fontsize = 10,
+		)
+		ax[i].set_title( titles[i], fontsize = 14 )
+		# State name
+		ax[i].set_ylim( -0.05, 1.1 )
+		ax[i].set_xticks( state_centers )
+		ax[i].tick_params(axis = "both", width = 2, length = 5 )
+		ax[i].set_xticklabels( state_labels, fontsize = 12, rotation = 90 )
+		# Complex name
+		ax_top = ax[i].secondary_xaxis( "top" )
+		ax_top.set_xticks( complex_centers )
+		ax_top.set_xticklabels( xtick_labels, fontsize = 14 )
+		ax_top.tick_params(length = 0, pad = 6 )
+
+		ax[i].set_ylabel( "TM-score", fontsize = 14 )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"supp_figure_6b.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
 ################################################################################
-# def fig_10():
-# 	"""
-# 	Plot data satisfaction for multistate benchmark.
-# 	"""
-# 	MODEL = "boltz2"
-
-# 	fig, ax = plt.subplots( 1, 3, figsize = ( 7, 4 ) )
-# 	plt.rcParams["font.family"] = "sans-serif"
-
-# 	states = ["State1", "State2", "State1+2"]
-# 	for i, config_name in enumerate( ["kappa1", "kappa2", "kappa3"] ):
-# 		records = return_metric(
-# 			models = [MODEL],
-# 			config_name = config_name,
-# 			metric = "xl_sat"
-# 		)
-# 		X = np.arange( 0, len( records[MODEL]["complex"] ), 1 )
-# 		Y = np.array( records[MODEL]["max_xl_sat"] )
-
-# 		# Grey bands
-# 		for j in X[::2]:
-# 			ax[i].axvspan(
-# 				j - 0.5,
-# 				j + 0.5,
-# 				color = "#DDDDDD",
-# 				alpha = 0.3,
-# 				zorder = 0
-# 			)
-
-# 		ax[i].scatter(
-# 			X, Y,
-# 			s = 50,
-# 			c = COLOR[MODEL],
-# 			marker = MARKER[MODEL],
-# 			label = METHOD_LABELS[MODEL]
-# 		)
-
-# 		ax[i].axhline( 0.75, color = "red" )
-# 		ax[i].set_xticks( X )
-# 		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-# 		ax[i].set_xticklabels(
-# 			records[MODEL]["complex"], rotation = 90
-# 		)
-# 		ax[i].set_ylabel( f"Max XL satisfaction", fontsize = 14 )
-# 		ax[i].set_xlabel( "Complexes", fontsize = 14 )
-# 		ax[i].set_ylim( -0.1, 1.1 )
-
-# 		ax[i].tick_params(
-# 			axis = "both",
-# 			labelsize = 12,
-# 			length = 8,
-# 			width = 2
-# 		)
-# 	plt.legend( loc = "lower right" )
-# 	plt.tight_layout()
-# 	file = os.path.join(
-# 		FIG_DIR, f"figure_3a_kappa.png"
-# 	)
-# 	plt.savefig( file, dpi = 300 )
-# 	plt.close()
-
-
-# def fig_11():
-# 	"""
-# 	Plot dockq wrt state1 and state2 for multistate benchmark.
-# 	Create a scatter plot for Dockq wrt state1 vs Dockq wrt state2.
-# 	"""
-# 	MODEL = "boltz2"
-
-# 	fig, ax = plt.subplots( 1, 3, figsize = ( 7, 4 ) )
-# 	plt.rcParams["font.family"] = "sans-serif"
-
-# 	states = ["State1", "State2", "State1+2"]
-# 	for i, config_name in enumerate( ["kappa1", "kappa2", "kappa3"] ):
-# 		records_s1 = prep_native_dockq_input(
-# 			config_name = config_name,
-# 			native_model_id = 1000,
-# 			models = [MODEL]
-# 		)
-# 		records_s2 = prep_native_dockq_input(
-# 			config_name = config_name,
-# 			native_model_id = 1000,
-# 			models = [MODEL]
-# 		)
-
-# 		dockq_s1 = records_s1[MODEL]["per_model_dockq"]
-# 		dockq_s2 = records_s2[MODEL]["per_model_dockq"]
-
-# 		ax[i].scatter(
-# 			dockq_s1, dockq_s2
-# 		)
-# 		# ax[i].set_xticks( X )
-# 		ax[i].set_xlim( 0, 1 )
-# 		ax[i].set_ylim( 0, 1.1 )
-# 		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-# 		ax[i].set_xticklabels(
-# 			records_s1[MODEL]["complex"], rotation = 90
-# 		)
-# 		ax[i].set_xlabel( f"DockQ wrt State1", fontsize = 14 )
-# 		ax[i].set_ylabel( f"DockQ wrt State2", fontsize = 14 )
-
-# 		ax[i].tick_params(
-# 			axis = "both",
-# 			labelsize = 12,
-# 			length = 8,
-# 			width = 2
-# 		)
-# 	plt.legend( loc = "lower right" )
-# 	plt.tight_layout()
-# 	file = os.path.join(
-# 		FIG_DIR, f"figure_3b_kappa.png"
-# 	)
-# 	plt.savefig( file, dpi = 300 )
-# 	plt.close
-
-
-def fig_X():
+def supp_fig_X():
 	"""
 	Plot the time taken for prediction for all models
 		across all complexes as a bar plot.
@@ -1051,6 +1461,7 @@ def fig_X():
 	records = return_metric(
 		models = MODELS,
 		config_name = config_name,
+		benchmark_name = "crosslink",
 		metric = "time" )
 
 	for i, model in enumerate( MODELS ):
@@ -1070,7 +1481,7 @@ def fig_X():
 			f"{mean_time:.2f} ± {sem:.2f}",
 			ha = "center",
 			va = "bottom",
-			fontsize = 8,
+			fontsize = 10,
 			rotation = 0,
 		)
 
@@ -1099,17 +1510,21 @@ def fig_X():
 
 
 if __name__ == "__main__":
-	fig_2a()
-	fig_2b()
-	fig_2c()
+	fig_2()
 	fig_3a()
 	fig_3b()
-	fig_3c()
-	fig_3d()
-	fig_4a()
-	fig_4b()
-	fig_4c()
+	fig_4()
 	fig_5a()
 	fig_5b()
 	fig_5c()
-	fig_X()
+	fig_6a()
+	fig_6b()
+	fig_6c()
+	supp_fig_1()
+	supp_fig_2()
+	supp_fig_3()
+	supp_fig_4()
+	supp_fig_5()
+	supp_fig_6a()
+	supp_fig_6b()
+	supp_fig_X()
