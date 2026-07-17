@@ -110,7 +110,7 @@ def fig_2():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
+	ax.axhline( 0.75, color = "red", linewidth = 0.5, linestyle = "--" )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -176,7 +176,7 @@ def fig_3a():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.23, color = "red", linewidth = 0.5 )
+	ax.axhline( 0.23, color = "red", linewidth = 0.5, linestyle = "--" )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -300,7 +300,7 @@ def fig_4():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 1, color = "red", linewidth = 0.5 )
+	ax.axhline( 1, color = "red", linewidth = 0.5, linestyle = "--" )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -464,8 +464,8 @@ def fig_5b():
 ################################################################################
 def fig_5c():
 	"""
-	Plot the mean Clashscore vs experimental resolution for
-		dataset with higher FP XLs wrt the control (10% FP XLs).
+	Plot the mean Clashscore for dataset with higher
+		FP XLs wrt the control (10% FP XLs).
 	Create plots for all models across all complexes as
 		a scatter plot.
 	"""
@@ -506,8 +506,8 @@ def fig_5c():
 			ax[j].set_xlabel( f"Mean Clashscore (10% FP XLs)", fontsize = 10 )
 			ax[j].set_ylabel( f"Mean Clashscore ({fp_label[i]})", fontsize = 10 )
 			if model == "grasp":
-				ax[j].plot( [0, 125], [0, 85], c = "#DDDDDD" )
-				ax[j].axis( [-0.05, 125, -0.05, 85] )
+				ax[j].plot( [0, 125], [0, 125], c = "#DDDDDD" )
+				ax[j].axis( [-0.05, 125, -0.05, 125] )
 			else:
 				ax[j].plot( [0, 35], [0, 35], c = "#DDDDDD" )
 				ax[j].axis( [-0.05, 35, -0.05, 35] )
@@ -527,97 +527,219 @@ def fig_5c():
 	plt.close()
 
 ################################################################################
+def fig_5d():
+	"""
+	For GRASP plot the mean clashscore and no. of unique interfaces for complexes
+		with FP XLs satisfied.
+	"""
+	MODELS = ["alphalink2", "boltz2", "grasp"]
+	# model = MODELS[0]
+	config_name = "beta3"
+
+	records1, records2 = {}, {}
+	for metric in ["xl_sat", "molprob", "unique_interface"]:
+		records1[metric] = return_metric(
+			models = MODELS,
+			config_name = "beta1",
+			benchmark_name = "crosslink",
+			metric = metric
+		)
+
+		records2[metric] = return_metric(
+			models = MODELS,
+			config_name = config_name,
+			benchmark_name = "crosslink",
+			metric = metric
+		)
+
+	fig, ax = plt.subplots( 1, 2, figsize = ( 8, 4 ) )
+	plt.rcParams["font.family"] = "sans-serif"
+
+	labels = {
+		"molprob": "Mean Clashscore",
+		"unique_interface": "Number of unique interfaces"
+	}
+
+	for i, model in enumerate( MODELS ):
+		tp_xl_sat, fp_xl_sat = compute_tp_fp_xl_sat(
+			xl_pair_sat = records2["xl_sat"][model]["xl_pair_sat"],
+			labels = records2["xl_sat"][model]["label"]
+		)
+		for j, metric in enumerate( ["molprob", "unique_interface"] ):
+			X, Y = [], []
+			for k, fp_sat in enumerate( fp_xl_sat ):
+				if metric == "molprob":
+					m = "mean_clash"
+				else:
+					m = "unique_interface"
+				if fp_sat > 0:
+					X.append(
+						records1[metric][model][m][k]
+					)
+					Y.append(
+						records2[metric][model][m][k]
+					)
+			ax[j].scatter(
+				X, Y,
+				s = 50,
+				c = COLOR[model],
+				marker = MARKER[model],
+				label = METHOD_LABELS[model]
+			)
+
+			ax[j].set_xlabel( f"{labels[metric]} (10% FP XLs)", fontsize = 10 )
+			ax[j].set_ylabel( f"{labels[metric]} (50% FP XLs)", fontsize = 10 )
+			if metric == "molprob":
+				ax[j].plot( [0, 125], [0, 125], c = "#DDDDDD" )
+				ax[j].axis( [-0.05, 125, -0.05, 125] )
+			else:
+				ax[j].plot( [0, 26], [0, 26], c = "#DDDDDD" )
+				ax[j].axis( [-0.5, 26, -0.5, 26] )
+			ax[j].tick_params(
+				axis = "both",
+				labelsize = 8,
+				length = 8,
+				width = 2
+			)
+			ax[j].legend( loc = "lower right" )
+
+	plt.tight_layout()
+	file = os.path.join(
+		FIG_DIR, f"figure_5d.png"
+	)
+	plt.savefig( file, dpi = 300 )
+	plt.close()
+
+
+################################################################################
 def fig_6a():
 	"""
-	For multistate experiment, plot the max XL satisfaction
-		across all complexes when using state1, state2, state1+2 XLs.
+	Plot the distribution of per-model XL satisfaction for each method,
+		each complex wrt state1 and state2.
 	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
 	"""
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_names = ["kappa1", "kappa2","kappa3"]
 
-	fig, ax = plt.subplots( 1, 1, figsize = ( 8, 3 ) )
+	fig, ax = plt.subplots( 1, 1, figsize = ( 8, 4 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
-	model_offset = [-0.22, 0.0, 0.22]
-	# spacing between kappa1,2,3
-	config_spacing = 1.0
-	# spacing between complexes
-	complex_spacing = 4.0
-	# Flag to add legends only once.
-	legend_done = False
-
-	# get the complexes first.
 	records = return_metric(
-		models=MODELS,
 		config_name = config_names[0],
 		benchmark_name = "multistate",
-		metric = "xl_sat",
+		models = MODELS,
+		metric = "xl_sat"
 	)
-	states = ["State1", "State2", "State1+2"]
+
 	complexes = records[MODELS[0]]["complex"]
 
-	xticks, config_xticks = [], []
-	xticklabels, config_xticklabels = [], []
-	config_xticklabels = 3*states
-	for c_idx, complex_name in enumerate(complexes):
-		base = c_idx * complex_spacing
-		xticks.append( base + config_spacing )
-		xticklabels.append( complex_name )
-		# Alternate grey strips
-		if c_idx % 2 == 0:
-			ax.axvspan(
-				base - 0.5,
-				base + 3*config_spacing-0.5,
-				color = "#DDDDDD",
-				zorder = 0,
-			)
-		for k_idx, config_name in enumerate( config_names ):
-			records = return_metric(
-				models = MODELS,
-				config_name = config_name,
-				benchmark_name = "multistate",
-				metric = "xl_sat",
-			)
-			x_center = base + k_idx*config_spacing
-			# Separator for different state configs
-			if k_idx != 0:
-				ax.axvline(
-					x_center - 0.55,
-					color = "blue",
-					linewidth = 0.5,
-					linestyle = "--" )
-			config_xticks.append( x_center )
-			for m_idx, model in enumerate(MODELS):
-				x = base + k_idx * config_spacing + model_offset[m_idx]
-				y = records[model]["max_xl_sat"][c_idx]
+	# Spacing between violins for different model per complex
+	complex_spacing = 1.0
+	# Spacing between the states
+	state_spacing = 1.5
+	model_offset = [-0.25, 0.0, 0.25]
+	# Width of violins
+	model_width = 0.2
 
-				ax.scatter(
-					x,
-					y,
-					s = 50,
-					c = COLOR[model],
-					marker = MARKER[model],
-					label = METHOD_LABELS[model] if not legend_done else None,
-				)
-			legend_done = True
+	X = []
+	Y = []
+	colours = []
+	xtick_pos = []
+	xtick_label = []
+	state_xtick = []
+	# X-tick labels for state name
+	state_xticklabel = ["XLs from State1", "XLs from State2", "XLs from State1+State2"]
+	base = 1
+	for s_idx, config_name in enumerate( config_names ):
 
-	# Complex names
-	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
-	ax.set_ylim( -0.05, 1.05 )
-	ax.set_xticks( xticks )
-	# Complex names
+		records = return_metric(
+			config_name = config_name,
+			benchmark_name = "multistate",
+			models = MODELS,
+			metric = "xl_sat"
+		)
+
+		state_base = s_idx * ( len( complexes )*complex_spacing + state_spacing )
+		if s_idx == 0:
+			state_base += 0.7
+		if s_idx == 2:
+			state_base -= 0.7
+		state_xtick.append(
+			state_base + ( len( complexes )-1 )*complex_spacing/2
+		)
+		for c_idx, complex_name in enumerate( complexes ):
+			complex_center = state_base + c_idx * complex_spacing
+			xtick_pos.append( complex_center )
+			xtick_label.append( complex_name )
+			for m_idx, model in enumerate( MODELS ):
+				data = np.array(
+					records[model]["per_model_xl_sat"]
+				).reshape( len( complexes ), -1 )
+
+				X.append( complex_center + model_offset[m_idx] )
+				Y.append( data[c_idx] )
+				colours.append( COLOR[model] )
+
+	vp = ax.violinplot(
+		Y,
+		positions = X,
+		widths = model_width,
+		showmeans = True,
+		# showmedians = True,
+		showextrema = False,
+	)
+	ax.axvspan(
+		state_xtick[1] - 1.5,
+		state_xtick[1] + 1.5,
+		color = "#DDDDDD",
+		alpha = 0.3,
+		zorder = 0
+	)
+	ax.axhline( 0.75, color = "red", linewidth = 0.5, linestyle = "--" )
+
+	for k, body in enumerate( vp["bodies"] ):
+		body.set_facecolor( colours[k] )
+		body.set_edgecolor( "black" )
+		body.set_alpha( 0.6 )
+
+	# Add figure legens only on one of the subplots.
+	legend_handles = [
+		Patch(
+			facecolor = COLOR[MODELS[0]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
+			),
+		Patch(
+			facecolor = COLOR[MODELS[1]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
+		),
+		Patch(
+			facecolor = COLOR[MODELS[2]],
+			edgecolor = "black",
+			alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
+		),
+	]
+
+	fig.legend(
+		handles = legend_handles,
+		loc = "lower right",
+		bbox_to_anchor = ( 0.97, 0.2),
+		frameon = False,
+		fontsize = 8,
+	)
+	ax.set_ylim( -0.05, 1.1 )
+	ax.set_xticks( xtick_pos )
+	ax.tick_params( axis = "both", width = 2, length = 5 )
+	ax.set_xticklabels( xtick_label, rotation = 90, fontsize = 12 )
+	# State name
 	ax_top = ax.secondary_xaxis( "top" )
-	ax_top.set_xticks( config_xticks )
-	ax_top.set_xticklabels( config_xticklabels, fontsize = 10 )
+	ax_top.set_xticks( state_xtick )
+	ax_top.set_xticklabels( state_xticklabel, fontsize = 12 )
 	ax_top.tick_params(length = 0, pad = 6 )
 
-	ax.tick_params( axis = "both", width = 2, length = 5 )
-	ax.set_xticklabels( xticklabels, rotation = 90, fontsize = 10 )
-	ax.legend( loc = "lower right" )
-	ax.set_xlabel( "Complexes", fontsize = 10 )
-	ax_top.set_xlabel( "XLs derived from state", fontsize = 12 )
-	ax.set_ylabel( "Max XL satisfaction", fontsize = 10 )
+	ax.set_xlabel( "Complexes", fontsize = 12 )
+	ax.set_ylabel( "XL satisfaction", fontsize = 12 )
 
 	plt.tight_layout()
 	file = os.path.join(
@@ -629,162 +751,151 @@ def fig_6a():
 ################################################################################
 def fig_6b():
 	"""
-	For multistate experiment, plot the TM-score wrt state1 and state2 for
-		each predicted structure across all complexes.
+	Plot the distribution of per-model TM-score for each method,
+		each complex wrt state1 and state2.
 	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
 	"""
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	config_names = ["kappa1", "kappa2","kappa3"]
 
-	fig, ax = plt.subplots( 1,3, figsize = ( 8, 3 ) )
+	fig, ax = plt.subplots( 3, 1, figsize = ( 6, 7 ) )
 	plt.rcParams["font.family"] = "sans-serif"
 
+	records = prep_native_tm_input(
+		config_name = config_names[0],
+		benchmark_name = "multistate",
+		models = MODELS,
+		native_model_id = 1000
+	)
+	complexes = records[MODELS[0]]["complex"]
+	# Spacing between violins for different complexes
+	complex_offset = [-0.25, 0, 0.25]
+	# Width of violins
+	model_width = 0.2
+
+	# offsets within each complex
+	model_spacing = 0.9
+	state_spacing = 0.22
+
 	titles = [
-		"XLs from state1",
-		"XLs from state2",
-		"XLs from state1+2"
+		"XLs from State1",
+		"XLs from State2",
+		"XLs from State1+2"
 	]
 
 	for i, config_name in enumerate( config_names ):
-		# State 1
-		records1 = prep_native_tm_input(
-			config_name = config_name,
-			benchmark_name = "multistate",
-			models = MODELS,
-			native_model_id = 1000
-		)
-		# State 2
-		records2 = prep_native_tm_input(
-			config_name = config_name,
-			benchmark_name = "multistate",
-			models = MODELS,
-			native_model_id = 1001
-		)
-		for j, model in enumerate( MODELS ):
-			X = records1[model]["max_tm"]
-			Y = records2[model]["max_tm"]
+		X, Y = [], []
+		colours = []
+		complex_centers = []
+		state_centers = []
+		state_labels = []
+		# X-tick labels for complexes
+		xtick_labels = []
+		# For alternating grey spans
+		shade_regions = []
+		base = 1
 
-			ax[i].scatter(
-				X, Y,
-				s = 50,
-				c = COLOR[model],
-				marker = MARKER[model],
-				label = METHOD_LABELS[model]
-			)
-		ax[i].axhline( 0.5, color = "red", linewidth = 0.5 )
-		ax[i].axvline( 0.5, color = "red", linewidth = 0.5 )
-		ax[i].axis( [-0.05, 1.05, -0.05, 1.05] )
+		for c_idx, complex_name in enumerate( complexes ):
+			complex_centers.append( base + model_spacing )
+			xtick_labels.append( complex_name )
+
+			group_start = base
+			for m_idx, model in enumerate( MODELS ):
+				x_model = base + m_idx * model_spacing
+
+				for s_idx, ( native_state_id, s_label ) in enumerate(
+						zip( [1000, 1001], ["State1", "State2"] )
+					):
+					records = prep_native_tm_input(
+						config_name = config_name,
+						benchmark_name = "multistate",
+						models = MODELS,
+						native_model_id = native_state_id,
+					)
+
+					data = np.array(
+						records[model]["per_model_tm"]
+					).reshape( len( complexes ), -1 )
+
+					x = x_model + ( -state_spacing/2 if s_idx == 0 else state_spacing/2 )
+
+					state_centers.append( x )
+					state_labels.append( s_label )
+					X.append( x )
+					Y.append( data[c_idx] )
+					colours.append( COLOR[model] )
+
+			group_end = x_model + state_spacing/2
+			shade_regions.append( ( group_start - 0.3, group_end + 0.3 ) )
+			base = group_end + 1.0
+
+		vp = ax[i].violinplot(
+			Y,
+			positions = X,
+			widths = model_width,
+			showmeans = True,
+			# showmedians = True,
+			showextrema = False,
+		)
+		for j, ( xmin, xmax ) in enumerate( shade_regions ):
+			if j % 2 == 1:
+				ax[i].axvspan(
+					xmin,
+					xmax,
+					color = "#DDDDDD",
+					alpha = 0.3,
+					zorder = 0
+				)
+		ax[i].axhline( 0.5, color = "red", linewidth = 0.5, linestyle = "--" )
+
+		for k, body in enumerate( vp["bodies"] ):
+			body.set_facecolor( colours[k] )
+			body.set_edgecolor( "black" )
+			body.set_alpha( 0.6 )
+
+		# Add figure legends only on one of the subplots.
+		legend_handles = [
+			Patch(
+				facecolor = COLOR[MODELS[0]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
+				),
+			Patch(
+				facecolor = COLOR[MODELS[1]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
+			),
+			Patch(
+				facecolor = COLOR[MODELS[2]],
+				edgecolor = "black",
+				alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
+			),
+		]
+
+		fig.legend(
+			handles = legend_handles,
+			loc = "lower right",
+			bbox_to_anchor = ( 0.99, 0.095),
+			frameon = False,
+			fontsize = 7,
+		)
 		ax[i].set_title( titles[i], fontsize = 10 )
-		ax[i].set_xlabel( "Max TM wrt State 1", fontsize = 10 )
-		ax[i].set_ylabel( "Max TM wrt State 2", fontsize = 10 )
-		ax[i].tick_params( axis = "both", width = 2, length = 5 )
-	# ax.set_xticklabels( xticklabels, rotation = 90 )
-	# ax.legend( loc = "center right" )
+		# State name
+		ax[i].set_ylim( -0.05, 1.1 )
+		ax[i].set_xticks( state_centers )
+		ax[i].tick_params(axis = "both", width = 2, length = 5 )
+		ax[i].set_xticklabels( state_labels, fontsize = 10, rotation = 90 )
+		# Complex name
+		ax_top = ax[i].secondary_xaxis( "top" )
+		ax_top.set_xticks( complex_centers )
+		ax_top.set_xticklabels( xtick_labels, fontsize = 10 )
+		ax_top.tick_params(length = 0, pad = 6 )
+
+		ax[i].set_ylabel( "TM-score", fontsize = 10 )
 
 	plt.tight_layout()
 	file = os.path.join(
 		FIG_DIR, f"figure_6b.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def fig_6c():
-	"""
-	For multistate experiment, plot the no. unique structures
-		across all complexes when using state1, state2, state1+2 XLs.
-	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
-	"""
-	MODELS = ["alphalink2", "boltz2", "grasp"]
-	config_names = ["kappa1", "kappa2","kappa3"]
-
-	fig, ax = plt.subplots( 1, 1, figsize = ( 8, 3 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	model_offset = [-0.22, 0.0, 0.22]
-	# spacing between kappa1,2,3
-	config_spacing = 1.0
-	# spacing between complexes
-	complex_spacing = 4.0
-	# Flag to add legends only once.
-	legend_done = False
-
-	# get the complexes first.
-	records = return_metric(
-		models=MODELS,
-		config_name=config_names[0],
-		benchmark_name="multistate",
-		metric="unique_struct",
-	)
-	states = ["State1", "State2", "State1+2"]
-	complexes = records[MODELS[0]]["complex"]
-
-	xticks, config_xticks = [], []
-	xticklabels, config_xticklabels = [], []
-	config_xticklabels = 3*states
-	for c_idx, complex_name in enumerate(complexes):
-		base = c_idx * complex_spacing
-		xticks.append( base + config_spacing )
-		xticklabels.append( complex_name )
-		# Alternate grey strips
-		if c_idx % 2 == 0:
-			ax.axvspan(
-				base - 0.5,
-				base + 3 * config_spacing - 0.5,
-				color = "0.93",
-				zorder = 0,
-			)
-		for k_idx, config_name in enumerate( config_names ):
-			records = return_metric(
-				models = MODELS,
-				config_name = config_name,
-				benchmark_name = "multistate",
-				metric = "unique_struct",
-			)
-			x_center = base + k_idx * config_spacing
-			# Separator for different state configs
-			if k_idx != 0:
-				ax.axvline(
-					x_center - 0.55,
-					color = "blue",
-					linewidth = 0.5,
-					linestyle = "--" )
-			config_xticks.append( x_center )
-			for m_idx, model in enumerate(MODELS):
-				x = base + k_idx * config_spacing + model_offset[m_idx]
-				y = records[model]["unique_struct"][c_idx]
-
-				ax.scatter(
-					x,
-					y,
-					s = 50,
-					c = COLOR[model],
-					marker = MARKER[model],
-					label = METHOD_LABELS[model] if not legend_done else None,
-				)
-			legend_done = True
-
-	ax.axhline( 1.0, color = "red", linewidth = 0.5 )
-	# Complex names
-	ax.set_ylim( -0.5, 26 )
-	ax.set_xticks( xticks )
-	# Complex names
-	ax_top = ax.secondary_xaxis("top")
-	ax_top.set_xticks( config_xticks )
-	ax_top.set_xticklabels( config_xticklabels, fontsize = 10 )
-	ax_top.tick_params(length = 0, pad = 6 )
-
-	ax.tick_params( axis = "both", width = 2, length = 5 )
-	ax.set_xticklabels( xticklabels, rotation = 90, fontsize = 10 )
-	ax.legend( loc = "upper right" )
-
-	ax.set_xlabel( "Complexes", fontsize = 10 )
-	ax_top.set_xlabel( "XLs derived from state", fontsize = 12 )
-	ax.set_ylabel( "Number of unique structures", fontsize = 10 )
-
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"figure_6c.png"
 	)
 	plt.savefig( file, dpi = 300 )
 	plt.close()
@@ -1017,8 +1128,8 @@ def supp_fig_3():
 			marker = MARKER[model],
 		)
 
-		ax[i].axvline( 5.0, color = "red", linewidth = 0.5 )
-		ax[i].axhline( 5.0, color = "red", linewidth = 0.5 )
+		ax[i].axvline( 5.0, color = "red", linewidth = 0.5, linestyle = "--" )
+		ax[i].axhline( 5.0, color = "red", linewidth = 0.5, linestyle = "--" )
 		x_offset = X.max()
 		y_offset = 31 if i <=1 else 125
 
@@ -1081,7 +1192,7 @@ def supp_fig_4():
 			label = METHOD_LABELS[model]
 		)
 
-	ax.axhline( 0.8, color = "red", linewidth = 0.5 )
+	ax.axhline( 0.8, color = "red", linewidth = 0.5, linestyle = "--" )
 	ax.set_xticks( X )
 	ax.tick_params(axis = "both", width = 2, length = 5 )
 	ax.set_xticklabels(
@@ -1166,288 +1277,7 @@ def supp_fig_5():
 	plt.close()
 
 ################################################################################
-def supp_fig_6a():
-	"""
-	Plot the distribution of per-model XL satisfaction for each method,
-		each complex wrt state1 and state2.
-	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
-	"""
-	MODELS = ["alphalink2", "boltz2", "grasp"]
-	config_names = ["kappa1", "kappa2","kappa3"]
-
-	fig, ax = plt.subplots( 1, 1, figsize = ( 10, 5 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records = return_metric(
-		config_name = config_names[0],
-		benchmark_name = "multistate",
-		models = MODELS,
-		metric = "xl_sat"
-	)
-
-	complexes = records[MODELS[0]]["complex"]
-	# Spacing between violins for different model per complex
-	complex_offset = [-0.25, 0, 0.25]
-	# Width of violins
-	model_width = 0.2
-	colours = []
-
-	X, Y = [], []
-	# X-tick labels for complexes
-	xtick_label = []
-	# X-tick for the state name
-	state_xtick = []
-	# X-tick labels for state name
-	state_xticklabel = ["XLs from State1", "XLs from State2", "XLs from Staye1+2"]
-	base = 1
-	for i, config_name in enumerate( config_names ):
-		records = return_metric(
-			config_name = config_name,
-			benchmark_name = "multistate",
-			models = MODELS,
-			metric = "xl_sat"
-		)
-
-		state_xtick.append( base+1 )
-		for m_idx, model in enumerate( records ):
-			data = np.array(
-				records[model]["per_model_xl_sat"]
-			).reshape( len( complexes ), -1 )
-			# print( data )
-			# exit()
-			for k in range( data.shape[0] ):
-				x_center = base + complex_offset[k]
-				X.append( x_center )
-				Y.append( data[k] )
-				colours.append( COLOR[model] )
-				xtick_label.append( complexes[k] )
-
-			base += 1
-	vp = ax.violinplot(
-		Y,
-		positions = X,
-		widths = model_width,
-		showmeans = True,
-		# showmedians = True,
-		showextrema = False,
-	)
-	ax.axvspan(
-		state_xtick[1] - 1.5,
-		state_xtick[1] + 1.5,
-		color = "#DDDDDD",
-		alpha = 0.3,
-		zorder = 0
-	)
-	ax.axhline( 0.75, color = "red", linewidth = 0.5 )
-
-	for k, body in enumerate( vp["bodies"] ):
-		body.set_facecolor( colours[k] )
-		body.set_edgecolor( "black" )
-		body.set_alpha( 0.6 )
-
-	# Add figure legens only on one of the subplots.
-	legend_handles = [
-		Patch(
-			facecolor = COLOR[MODELS[0]],
-			edgecolor = "black",
-			alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
-			),
-		Patch(
-			facecolor = COLOR[MODELS[1]],
-			edgecolor = "black",
-			alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
-		),
-		Patch(
-			facecolor = COLOR[MODELS[2]],
-			edgecolor = "black",
-			alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
-		),
-	]
-
-	fig.legend(
-		handles = legend_handles,
-		loc = "lower right",
-		bbox_to_anchor = ( 0.99, 0.16),
-		frameon = False,
-		fontsize = 10,
-	)
-	ax.set_ylim( -0.05, 1.1 )
-	ax.set_xticks( X )
-	ax.tick_params(axis = "both", width = 2, length = 5 )
-	ax.set_xticklabels(
-		xtick_label, rotation = 90, fontsize = 14
-	)
-	# State name
-	ax_top = ax.secondary_xaxis( "top" )
-	ax_top.set_xticks( state_xtick )
-	ax_top.set_xticklabels( state_xticklabel, fontsize = 14 )
-	ax_top.tick_params(length = 0, pad = 6 )
-
-	ax.set_xlabel( "Complexes", fontsize = 14 )
-	ax.set_ylabel( "XL satisfaction", fontsize = 14 )
-
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"supp_figure_6a.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def supp_fig_6b():
-	"""
-	Plot the distribution of per-model TM-score for each method,
-		each complex wrt state1 and state2.
-	Create a plot for all multistate configs - kappa1, kappa2, kappa3.
-	"""
-	MODELS = ["alphalink2", "boltz2", "grasp"]
-	config_names = ["kappa1", "kappa2","kappa3"]
-
-	fig, ax = plt.subplots( 3, 1, figsize = ( 10, 10 ) )
-	plt.rcParams["font.family"] = "sans-serif"
-
-	records = prep_native_tm_input(
-		config_name = config_names[0],
-		benchmark_name = "multistate",
-		models = MODELS,
-		native_model_id = 1000
-	)
-	complexes = records[MODELS[0]]["complex"]
-	# Spacing between violins for different complexes
-	complex_offset = [-0.25, 0, 0.25]
-	# Width of violins
-	model_width = 0.2
-
-	# offsets within each complex
-	model_spacing = 0.9
-	state_spacing = 0.22
-
-	titles = [
-		"XLs from State1",
-		"XLs from State2",
-		"XLs from State1+2"
-	]
-
-	for i, config_name in enumerate( config_names ):
-		X, Y = [], []
-		colours = []
-		complex_centers = []
-		state_centers = []
-		state_labels = []
-		# X-tick labels for complexes
-		xtick_labels = []
-		# For alternating grey spans
-		shade_regions = []
-		base = 1
-
-		for c_idx, complex_name in enumerate( complexes ):
-			complex_centers.append( base + model_spacing )
-			xtick_labels.append( complex_name )
-
-			group_start = base
-			for m_idx, model in enumerate( MODELS ):
-				x_model = base + m_idx * model_spacing
-
-				for s_idx, ( native_state_id, s_label ) in enumerate(
-						zip( [1000, 1001], ["State1", "State2"] )
-					):
-					records = prep_native_tm_input(
-						config_name = config_name,
-						benchmark_name = "multistate",
-						models = MODELS,
-						native_model_id = native_state_id,
-					)
-
-					data = np.array(
-						records[model]["per_model_tm"]
-					).reshape( len( complexes ), -1 )
-
-					x = x_model + ( -state_spacing/2 if s_idx == 0 else state_spacing/2 )
-
-					state_centers.append( x )
-					state_labels.append( s_label )
-					print( state_centers[-1], "  ", state_labels[-1] )
-					X.append( x )
-					Y.append( data[c_idx] )
-					colours.append( COLOR[model] )
-
-			group_end = x_model + state_spacing/2
-			shade_regions.append( ( group_start - 0.3, group_end + 0.3 ) )
-			base = group_end + 1.0
-
-		vp = ax[i].violinplot(
-			Y,
-			positions = X,
-			widths = model_width,
-			showmeans = True,
-			# showmedians = True,
-			showextrema = False,
-		)
-		for j, ( xmin, xmax ) in enumerate( shade_regions ):
-			if j % 2 == 1:
-				ax[i].axvspan(
-					xmin,
-					xmax,
-					color = "#DDDDDD",
-					alpha = 0.3,
-					zorder = 0
-				)
-		ax[i].axhline( 0.5, color = "red", linewidth = 0.5 )
-
-		for k, body in enumerate( vp["bodies"] ):
-			body.set_facecolor( colours[k] )
-			body.set_edgecolor( "black" )
-			body.set_alpha( 0.6 )
-
-		# Add figure legends only on one of the subplots.
-		legend_handles = [
-			Patch(
-				facecolor = COLOR[MODELS[0]],
-				edgecolor = "black",
-				alpha = 0.6, label = METHOD_LABELS[MODELS[0]]
-				),
-			Patch(
-				facecolor = COLOR[MODELS[1]],
-				edgecolor = "black",
-				alpha = 0.6, label = METHOD_LABELS[MODELS[1]]
-			),
-			Patch(
-				facecolor = COLOR[MODELS[2]],
-				edgecolor = "black",
-				alpha = 0.6, label = METHOD_LABELS[MODELS[2]]
-			),
-		]
-
-		fig.legend(
-			handles = legend_handles,
-			loc = "lower right",
-			bbox_to_anchor = ( 0.99, 0.085),
-			frameon = False,
-			fontsize = 10,
-		)
-		ax[i].set_title( titles[i], fontsize = 14 )
-		# State name
-		ax[i].set_ylim( -0.05, 1.1 )
-		ax[i].set_xticks( state_centers )
-		ax[i].tick_params(axis = "both", width = 2, length = 5 )
-		ax[i].set_xticklabels( state_labels, fontsize = 12, rotation = 90 )
-		# Complex name
-		ax_top = ax[i].secondary_xaxis( "top" )
-		ax_top.set_xticks( complex_centers )
-		ax_top.set_xticklabels( xtick_labels, fontsize = 14 )
-		ax_top.tick_params(length = 0, pad = 6 )
-
-		ax[i].set_ylabel( "TM-score", fontsize = 14 )
-
-	plt.tight_layout()
-	file = os.path.join(
-		FIG_DIR, f"supp_figure_6b.png"
-	)
-	plt.savefig( file, dpi = 300 )
-	plt.close()
-
-################################################################################
-def supp_fig_X():
+def supp_fig_6():
 	"""
 	Plot the time taken for prediction for all models
 		across all complexes as a bar plot.
@@ -1517,14 +1347,12 @@ if __name__ == "__main__":
 	fig_5a()
 	fig_5b()
 	fig_5c()
+	fig_5d()
 	fig_6a()
 	fig_6b()
-	fig_6c()
 	supp_fig_1()
 	supp_fig_2()
 	supp_fig_3()
 	supp_fig_4()
 	supp_fig_5()
-	supp_fig_6a()
-	supp_fig_6b()
-	supp_fig_X()
+	supp_fig_6()
