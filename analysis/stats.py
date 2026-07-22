@@ -9,7 +9,10 @@ import pandas as pd
 
 from config import get_config_dict
 
-from utils.analysis_utils import return_metric
+from utils.analysis_utils import (
+	compute_tp_fp_xl_sat,
+	return_metric
+	)
 from utils.paths import (
 	get_benchmark_analysis_dir_path
 )
@@ -51,6 +54,7 @@ def compute_data_satisfactIon_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "xl_sat",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -75,6 +79,7 @@ def compute_tm_score_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "tm",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -99,6 +104,7 @@ def compute_dockq_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "dockq",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -123,6 +129,7 @@ def compute_unique_struct_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "unique_struct",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -147,6 +154,7 @@ def compute_unique_interface_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "unique_interface",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -170,6 +178,7 @@ def compute_molprob_score_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "molprob",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -195,11 +204,13 @@ def compute_clashscore_stats( model: str, config_name: str ):
 	records = return_metric(
 		metric = "molprob",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	records_native = return_metric(
 		metric = "molprob",
 		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
 		models = [model]
 	)
 	stats = {}
@@ -208,6 +219,39 @@ def compute_clashscore_stats( model: str, config_name: str ):
 	diff = pred_clash-native_clash
 	low = np.sum( np.where( diff <= 0, 1, 0 ) )
 	high = np.sum( np.where( diff > 0, 1, 0 ) )
+	stats["low"] = low
+	stats["high"] = high
+
+	return stats
+
+################################################################################
+def compute_fp_xl_sat_stats( model: str, config_name: str ):
+	"""
+	For the given config, obtain the no. of complexes for which a method
+		satisfies FP XLs.
+	We categrorize into:
+		Low (no FP XL satisfied)
+		High (>0 FP XLs satisfied)
+	"""
+	records = return_metric(
+		metric = "xl_sat",
+		config_name = config_name,
+		benchmark_name = BENCHMARK_NAME,
+		models = [model],
+	)
+	stats = {}
+	tp_xl_sat, fp_xl_sat, max_tp_sat, max_fp_sat = compute_tp_fp_xl_sat(
+		xl_pair_sat = records[model]["xl_pair_sat"],
+		labels = records[model]["label"]
+	)
+	# N -> no. of complexes
+	num_complexes = len( records[model]["complex"] )
+	# [N, T_f]; T_f -> no. of FP XLs
+	fp_xl_sat = np.array( fp_xl_sat ).reshape( num_complexes, -1 )
+	# [N]
+	per_sys_count = np.count_nonzero( fp_xl_sat, axis = -1 )
+	low = np.sum( np.where( per_sys_count == 0, 1, 0 ) )
+	high = np.sum( np.where( per_sys_count > 0, 1, 0 ) )
 	stats["low"] = low
 	stats["high"] = high
 
@@ -223,6 +267,11 @@ def return_stats_for_metric(
 	"""
 	if metric == "xl_sat":
 		stats = compute_data_satisfactIon_stats(
+			model = model,
+			config_name = config_name
+		)
+	elif metric == "fp_xl_sat":
+		stats = compute_fp_xl_sat_stats(
 			model = model,
 			config_name = config_name
 		)
@@ -334,11 +383,14 @@ def create_summary_file_per_config(
 	"""
 	idx = 0
 	for model in configs:
-		# flat_dict = {k: [] for k in ["config", "metric", "low", "medium", "high"]}
 		flat_dict = {k: [] for k in ["config", "metric", "low", "high"]}
 		for config_name in configs[model]:
 			print( f"{idx}. {model}: {config_name}" )
-			for metric in ["xl_sat", "tm", "dockq", "unique_struct", "unique_interface", "molprob_score", "clash"]:
+			for metric in [
+				"xl_sat", "fp_xl_sat", "tm", "dockq",
+				"unique_struct", "unique_interface",
+				"molprob_score", "clash"
+				]:
 				stats = return_stats_for_metric(
 					model = model,
 					config_name = config_name,
@@ -346,7 +398,6 @@ def create_summary_file_per_config(
 				)
 				flat_dict["config"].append( config_name )
 				flat_dict["metric"].append( metric )
-				# for level in ["low", "medium", "high"]:
 				for level in ["low", "high"]:
 					flat_dict[level].append( stats[level] )
 			idx += 1
