@@ -460,6 +460,7 @@ class CompetingMethodsRunner():
 			"--output_dir", f"{self.inputs['sys_dir_path'][sys_name]}",
 			"--restraints_file", f"{restraints_file}",
 			"--iter_num", "5",
+			"--num_multimer_predictions_per_model", f"{self.model_config.num_models_multi}"
 		]
 		# subprocess.cal doe snot allow conrol over the process, so using Popen.
 		proc = subprocess.Popen( cmd, env = env )
