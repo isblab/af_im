@@ -190,31 +190,38 @@ def compute_tp_fp_xl_sat(
 
 	Inputs:
 	----------
-	xl_pair_sat: [T, M] contains count of the no. of models
-		satisfying each XL.
+	xl_pair_sat: [M, T] list of array for XL satisfaction by
+		all predicted models for various complexes.
 		T -> no. of XLs; M -> no. of models.
-	labels: binary array indicating whether an XL is TP (1) or FP (0).
+	labels: list of binary array indicating whether an XL is TP (1) or FP (0).
 	"""
 	tp_xl_sat, fp_xl_sat = [], []
+	max_tp_sat, max_fp_sat = [], []
 	for j in range( len( labels ) ):
-		label = labels[j]
+		# [T] -> [1, T]
+		label = labels[j].reshape( 1, -1 )
+		# [M, T]
 		xl_sat = xl_pair_sat[j]
 
 		total_tp = np.count_nonzero( label )
-		total_fp = label.shape[0] - total_tp
+		total_fp = label.shape[1] - total_tp
 
-		# TP XLs
+		# TP XLs; [M]
 		tp_sat = np.count_nonzero(
-			np.where( xl_sat*label > 0, 1, 0 )
+			np.where( xl_sat*label > 0, 1, 0 ),
+			axis = 1
 			)/total_tp
-		# FP XLs -> (1-label) 
+		# FP XLs -> (1-label); [M]
 		fp_sat = np.count_nonzero(
-			np.where( xl_sat*( 1-label ) > 0, 1, 0 )
+			np.where( xl_sat*( 1-label ) > 0, 1, 0 ),
+			axis = 1
 			)/total_fp
 
 		tp_xl_sat.append( tp_sat )
 		fp_xl_sat.append( fp_sat )
-	return tp_xl_sat, fp_xl_sat
+		max_tp_sat.append( tp_sat.max() )
+		max_fp_sat.append( fp_sat.max() )
+	return tp_xl_sat, fp_xl_sat, max_tp_sat, max_fp_sat
 
 ################################################################################
 def prep_native_tm_input(
