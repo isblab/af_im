@@ -222,9 +222,6 @@ class XlSatisfaction():
 				For ambiguous XLs atleast 1 XL pair must be satisfied.
 			- xl_sat_global: XL satisfaction across all models.
 			- xl_pair_sat: No. of times an XL pair is satisfied across all models.
-			- Distribution of XL distance across all models.
-				Min. over all ambiguous XLs.
-				Avg. over all ambiguous XLs.
 
 		Creates a dict containing the XL metrics computed from the given metadata.
 
@@ -234,7 +231,7 @@ class XlSatisfaction():
 		{
 			xl_satisfaction: np.ndarray, --> [M]
 			xl_satisfaction_global: float,
-			xl_pair_satisfaction: np.ndarray --> [T]
+			xl_pair_satisfaction: np.ndarray --> [M,T]
 		}
 			where M -> no. of models and T -> no. of XLs.
 		"""
@@ -253,7 +250,7 @@ class XlSatisfaction():
 		xl_metrics = {
 			"xl_satisfaction": xl_sat,
 			"xl_satisfaction_global": xl_sat_global,
-			"xl_pair_satisfaction": xl_pair_sat,
+			"xl_pair_satisfaction": satisfied,
 			"label": label
 		}
 		return xl_metrics
