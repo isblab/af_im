@@ -8,13 +8,13 @@ import os, warnings
 import numpy as np
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
-from Bio.PDB import PDBIO, MMCIFIO, Atom, NeighborSearch
+from Bio.PDB import PDBIO
 from Bio import pairwise2
-from Bio.PDB.Residue import DisorderedResidue
+from multiprocessing import Pool
+import tqdm
 
 from data.simulate_data import SimulateCrosslinks
 from config import get_config_dict
-from data.api_data_modules import SeqResDict
 from utils.utils import write_json
 from utils.api_utils import download_pdb, PdbRestApi
 from utils.pdb_utils import (
@@ -24,7 +24,6 @@ from utils.pdb_utils import (
 	ModelSelect,
 	ChainSelect
 )
-from utils.mappings import create_pdb_num_to_seq_id_mapping
 from utils.paths import (
 	get_meta_dir_path,
 	get_benchmark_dir_path,
@@ -32,7 +31,7 @@ from utils.paths import (
 	get_benchmark_csv_file,
 	get_sys_config_path
 	)
-from utils.mappings import map_xls_to_seq_id
+from utils.tools import usalign, get_alignment_score
 
 warnings.filterwarnings( "ignore" )
 
@@ -68,6 +67,7 @@ class ApoHoloStates():
 			"apo_out_file": apo_out_file,
 			"holo_out_file": holo_out_file
 		}
+		self.usalign_script = "USalign"
 
 
 	def forward( self ):
@@ -91,7 +91,13 @@ class ApoHoloStates():
 		rep_dict = self.get_representative_seq(
 			state_dict = state_dict
 		)
-		self.save_rep_seq( rep_dict = rep_dict )
+		if rep_dict == None:
+			pass
+		else:
+			self.save_rep_seq( rep_dict = rep_dict )
+			rmsd, tm = self.compute_tm_score()
+			rep_dict["tm"] = tm
+			rep_dict["rmsd"] = rmsd
 		return rep_dict
 
 	################################################################################
@@ -274,7 +280,7 @@ class ApoHoloStates():
 		apo_missing = state_dict["apo"]["missing_mask"]
 		holo_missing = state_dict["holo"]["missing_mask"]
 
-		aln = pairwise2.align.globalms(
+		alignments = pairwise2.align.globalms(
 			apo_seqres,
 			holo_seqres,
 			2,    # match
@@ -283,7 +289,13 @@ class ApoHoloStates():
 			-0.5, # gap extend
 			penalize_end_gaps = False,
 			one_alignment_only = True,
-		)[0]
+		)
+
+		if len( alignments ) == 0:
+			print( "Could not align the apo-holo sequences..." )
+			return None
+		else:
+			aln = alignments[0]
 
 		apo_aln = aln.seqA
 		holo_aln = aln.seqB
@@ -491,6 +503,33 @@ class ApoHoloStates():
 				)
 			)
 
+	def compute_tm_score(
+		self
+	):
+		"""
+		Compute the TM-score vetween the apo and holo states.
+
+		Inputs:
+		----------
+		rep_dict: dict containing the representative seq
+			and the residue umbering for the apo, holo,
+			and the representative seq.
+		"""
+		tmp_dir = os.path.join( "./ms_rep_tmp_dir/" )
+		os.makedirs( tmp_dir, exist_ok = True )
+
+		stdout_file = usalign(
+			usalign_script = self.usalign_script,
+			model_id1 = 0,
+			model1_file = self.input_dict["apo_out_file"],
+			model_id2 = 1,
+			model2_file = self.input_dict["holo_out_file"],
+			tmp_dir = tmp_dir,
+			mm = 0
+		)
+		rmsd, tm = get_alignment_score( stdout_file = stdout_file )
+		return rmsd, tm
+
 ################################################################################
 # Multistate benchmark creation pipeline
 ################################################################################
@@ -502,8 +541,13 @@ class MultiStateBenchmark():
 	"""
 	def __init__( self ):
 		self.config_dict = get_config_dict()
-		self.cpu_cores = 5
+		self.cpu_cores = 10
 
+		# Select entries with RMSD > the cutoff.
+		self.apo_holo_rmsd_cutoff = 10
+		# Select entries with domain motion only
+		self.only_domain = True
+		self.tm_cutoff = 0.7
 		self.aa_for_xl = [
 			"LYS", "ARG", "HIS", "ASP", "GLU",
 			"ASN", "GLN", "SER", "THR", "TYR",
@@ -607,16 +651,23 @@ class MultiStateBenchmark():
 		"""
 		The overall pipeline comprises of two stages:
 			Metadata extraction
+			Representative sequence creation
 			Simulating XLs
-
+			Check inter-state XL satisfaction
 		"""
-		multistate_dict = self.metadata_extraction()
-		self.get_pdb_resolution( multistate_dict = multistate_dict )
+		if os.path.exists( self.file_paths["multistate_dict"] ):
+			multistate_dict = np.load(
+				self.file_paths["multistate_dict"], allow_pickle = True
+			).item()
+			print( "Multistate dict already exists..." )
+		else:
+			multistate_dict = self.metadata_extraction()
+			self.get_pdb_resolution( multistate_dict = multistate_dict )
+			print( "\nCreating the representative seq for the multistate system..." )
+			multistate_dict = self.create_representative_seq_for_multistate(
+				multistate_dict = multistate_dict
+			)
 		xl_file_paths = self.create_xl_file_paths(
-			multistate_dict = multistate_dict
-		)
-		print( "\nCreating the representative seq for the multistate system..." )
-		multistate_dict = self.create_representative_seq_for_multistate(
 			multistate_dict = multistate_dict
 		)
 		self.simulated_xl_generatiion(
@@ -650,27 +701,15 @@ class MultiStateBenchmark():
 			states of each system.
 		Extract the required chain from the PDB file and save on disk.
 		"""
-		if os.path.exists( self.file_paths["multistate_dict"] ):
-			print( "Loading pre-computed ultistate_dict..." )
-			multistate_dict = np.load(
-				self.file_paths["multistate_dict"],
-				allow_pickle = True
-			).item()
-		else:
-			multistate_dict = self.create_multistate_dict()
+		multistate_dict = self.create_multistate_dict()
 
-			self.create_system_dir(
-				sys_name_list = list( multistate_dict.keys() )
-			)
-			self.download_multistate_struct(
-				multistate_dict = multistate_dict
-			)
+		self.create_system_dir(
+			sys_name_list = list( multistate_dict.keys() )
+		)
+		self.download_multistate_struct(
+			multistate_dict = multistate_dict
+		)
 
-			np.save(
-				self.file_paths["multistate_dict"],
-				multistate_dict,
-				allow_pickle = True
-			)
 		return multistate_dict
 
 	################################################################################
@@ -683,7 +722,11 @@ class MultiStateBenchmark():
 			to be modeled.
 		Extract the coordinates for the representative seq from the
 			apo and holo states and save on disk.
+		Ignore entries for which,
+			Could not align apo and holo state sequences.
+			apo and holo states are too similar.
 		"""
+		remove_sys = []
 		for sys_name in multistate_dict:
 			print( sys_name )
 			sys_dir_path = get_sys_data_dir_path(
@@ -691,6 +734,10 @@ class MultiStateBenchmark():
 				benchmark_name = self.benchmark_name,
 				sys_name = sys_name
 			)
+
+			if "representative" in multistate_dict[sys_name]:
+				print( f"Representative seq already exissts for {sys_name}..." )
+				continue
 
 			apo_pdb = multistate_dict[sys_name]["apo"]["pdb_id"]
 			apo_asym_id = multistate_dict[sys_name]["apo"]["chain_id"]
@@ -701,9 +748,6 @@ class MultiStateBenchmark():
 			apo_pdb_file = os.path.join(
 					sys_dir_path, f"{sys_name}_S1.pdb"
 				)
-			# obj = MmcifDictParser( cif_file = apo_cif_file )
-			# apo_asym_to_auth_asym_map = obj.get_chain_mapping()
-			# apo_auth_asum_id = apo_asym_to_auth_asym_map[apo_asym_id]
 
 			holo_pdb = multistate_dict[sys_name]["holo"]["pdb_id"]
 			holo_asym_id = multistate_dict[sys_name]["holo"]["chain_id"]
@@ -714,9 +758,7 @@ class MultiStateBenchmark():
 			holo_pdb_file = os.path.join(
 					sys_dir_path, f"{sys_name}_S2.pdb"
 				)
-			# obj = MmcifDictParser( cif_file = holo_cif_file )
-			# holo_asym_to_auth_asym_map = obj.get_chain_mapping()
-			# holo_auth_asum_id = holo_asym_to_auth_asym_map[holo_asym_id]
+
 			obj = ApoHoloStates(
 				apo_cif_file = apo_cif_file,
 				holo_cif_file = holo_cif_file,
@@ -728,12 +770,36 @@ class MultiStateBenchmark():
 				holo_out_file = holo_pdb_file
 			)
 			rep_dict = obj.forward()
+			if rep_dict is None:
+				remove_sys.append( sys_name )
+				continue
+			# Ignore entries for which apo and holo states are too similar.
+			if rep_dict["tm"] > self.tm_cutoff:
+				remove_sys.append( sys_name )
+				continue
+			sys_length = len( rep_dict["rep_seq"] )
+			if sys_length > self.config_dict.benchmark.globals.max_sys_length:
+				print( f"{sys_name} exceeds max length: {sys_length}..." )
+				remove_sys.append( sys_name )
+				continue
+
 			multistate_dict[sys_name]["representative"] = {
 				"seq": rep_dict["rep_seq"],
-				"seq_id": rep_dict["seq_id"]
+				"seq_id": rep_dict["seq_id"],
+				"tm": rep_dict["tm"],
+				"rmsd": rep_dict["rmsd"]
 			}
-			# multistate_dict[sys_name]["apo"]["auth_asym_d"] = apo_auth_asum_id
-			# multistate_dict[sys_name]["holo"]["auth_asym_d"] = holo_auth_asum_id
+			print( f"TM-score = {rep_dict['tm']}; RMSD = {rep_dict['rmsd']}" )
+		for sys_name in remove_sys:
+			_ = multistate_dict.pop( sys_name )
+
+		np.save(
+			self.file_paths["multistate_dict"],
+			multistate_dict,
+			allow_pickle = True
+		)
+
+		print( "Select multistate entries = ", len( multistate_dict ) )
 		return multistate_dict
 
 	################################################################################
@@ -890,9 +956,10 @@ class MultiStateBenchmark():
 		"""
 		drop_rows = []
 		for i in multistate_df.index:
-			if "domain" not in multistate_df["motion_type"][i]:
-				drop_rows.append( i )
-			if multistate_df["rmsd_apo_holo"][i] < 10:
+			if self.only_domain:
+				if "domain" not in multistate_df["motion_type"][i]:
+					drop_rows.append( i )
+			if multistate_df["rmsd_apo_holo"][i] < self.apo_holo_rmsd_cutoff:
 				drop_rows.append( i )
 		selected_df = multistate_df.drop( drop_rows, axis = 0 )
 		selected_df = selected_df.reset_index( drop = True )
@@ -917,7 +984,10 @@ class MultiStateBenchmark():
 		selected_df = self.preprocess_multistate_benchmark(
 			multistate_df = multistate_df
 		)
-		print( "Selected multistate entries...\n", selected_df.head() )
+		print(
+			"Selected multistate entries...\n",
+			selected_df.shape, "\n",
+			selected_df.head() )
 
 		for i in selected_df.index:
 			apo_id = selected_df["apo_id"][i]
@@ -949,18 +1019,37 @@ class MultiStateBenchmark():
 					"pdb_id": apo_pdb.lower(),
 					"chain_id": apo_chain,
 					"model_id": apo_model_id,
-					"state_id": f"{sys_name}_S1"
+					"state_id": f"{sys_name}_S1",
+					"motion_type": selected_df["motion_type"][i]
 				},
 				"holo": {
 					"pdb_id": holo_pdb.lower(),
 					"chain_id": holo_chain,
 					"model_id": holo_model_id,
-					"state_id": f"{sys_name}_S2"
+					"state_id": f"{sys_name}_S2",
+					"motion_type": selected_df["motion_type"][i]
 				}
 			}
 		return multistate_dict
 
 	################################################################################
+	def download_per_pdb( self, pdb_id: str ):
+		"""
+		"""
+		for ext in ["cif", "pdb"]:
+			pdb_file = os.path.join(
+					self.dir_paths["pdb_dir"], f"{pdb_id}.{ext}"
+				)
+			if os.path.exists( pdb_file ):
+				continue
+			download_pdb(
+				pdb_id = pdb_id,
+				ext = ext,
+				file_name = pdb_file,
+				download_assembly = False
+			)
+
+
 	def download_multistate_struct(
 		self,
 		multistate_dict: Dict[str, str]
@@ -971,22 +1060,20 @@ class MultiStateBenchmark():
 		We consider the biological assembly.
 		"""
 		print( "\nDownloading structures for multistate benchmark..." )
+		pdb_ids_list = []
 		for sys_name in multistate_dict:
-			print( sys_name )
+			# print( sys_name )
 			for state in ["apo", "holo"]:
 				pdb_id = multistate_dict[sys_name][state]["pdb_id"]
-				for ext in ["cif", "pdb"]:
-					pdb_file = os.path.join(
-							self.dir_paths["pdb_dir"], f"{pdb_id}.{ext}"
-						)
-					if os.path.exists( pdb_file ):
-						continue
-					download_pdb(
-						pdb_id = pdb_id,
-						ext = ext,
-						file_name = pdb_file,
-						download_assembly = False
-					)
+				pdb_ids_list.append( pdb_id )
+
+		with Pool( self.cpu_cores ) as p:
+			for result in tqdm.tqdm(
+				p.imap( self.download_per_pdb, pdb_ids_list ),
+				total = len( pdb_ids_list ),
+				desc = "Downloading structure"
+			):
+				pass
 
 	################################################################################
 	def get_pdb_resolution(
@@ -1180,9 +1267,6 @@ class MultiStateBenchmark():
 		for i in xl_df.index:
 			r1 = int( xl_df["res1"][i] )
 			r2 = int( xl_df["res2"][i] )
-
-			coord1 = coords[r1]
-			coord2 = coords[r2]
 
 			dist = np.linalg.norm( coords[r2] - coords[r1] )
 			if dist <= self.config_dict.benchmark.jwalk.short_linker:
@@ -1450,7 +1534,10 @@ class MultiStateBenchmark():
 		This is needed for the downstream scripts to run.
 		"""
 		# These are minimum fields needed.
-		flat_dict = {k:[] for k in ["PDB ID", "Auth Asym ID", "Stoichiometry", "Total length"]}
+		flat_dict = {k:[] for k in [
+			"PDB ID", "Auth Asym ID", "Stoichiometry", "Total length",
+			"Apo PDB ID", "Holo PDB ID", "TM-score", "RMSD", "Motion type"
+			]}
 
 		for sys_name in multistate_dict:
 			flat_dict["PDB ID"].append( sys_name )
@@ -1460,6 +1547,21 @@ class MultiStateBenchmark():
 			flat_dict["Stoichiometry"].append( 1 )
 			flat_dict["Total length"].append(
 				len( multistate_dict[sys_name]["representative"]["seq"] )
+			)
+			flat_dict["Apo PDB ID"].append(
+				multistate_dict[sys_name]["apo"]["pdb_id"]
+			)
+			flat_dict["Holo PDB ID"].append(
+				multistate_dict[sys_name]["holo"]["pdb_id"]
+			)
+			flat_dict["TM-score"].append(
+				multistate_dict[sys_name]["representative"]["tm"]
+			)
+			flat_dict["RMSD"].append(
+				multistate_dict[sys_name]["representative"]["rmsd"]
+			)
+			flat_dict["Motion type"].append(
+				multistate_dict[sys_name]["holo"]["motion_type"]
 			)
 
 		df = pd.DataFrame( flat_dict )
