@@ -612,6 +612,9 @@ class Analysis():
 				if len( model_ids ) == 0:
 					continue
 
+				self.per_config_logs[model_key][sys_name]["model_files"] = model_files
+				self.per_config_logs[model_key][sys_name]["native_files"] = native_files
+
 				if "xl_metrics" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing XL satisfaction..." )
 					xl_metrics = self.run_data_satisfaction_calc_per_sys(
@@ -642,29 +645,33 @@ class Analysis():
 					)
 					self.per_config_logs[model_key][sys_name]["tm"]  = similarity_dict
 
-				if "interface_similarity" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
-					print( "Computing interface similarity..." )
-					dock_dict = None
-					dock_dict = self.run_dockq_calc_per_sys(
-						model_ids1 = model_ids,
-						model_ids2 = model_ids,
-						model_files1 = model_files,
-						model_files2 = model_files
-					)
-					self.per_config_logs[model_key][sys_name]["interface_similarity"]  = dock_dict
+				if "interface_similarity" not in self.per_config_logs[model_key][sys_name]:
+					if self.benchmark_name != "multistate":
+						print( "Computing interface similarity..." )
+						dock_dict = None
+						dock_dict = self.run_dockq_calc_per_sys(
+							model_ids1 = model_ids,
+							model_ids2 = model_ids,
+							model_files1 = model_files,
+							model_files2 = model_files
+						)
+						self.per_config_logs[model_key][sys_name]["interface_similarity"] = dock_dict
+					else:
+						self.per_config_logs[model_key][sys_name]["interface_similarity"] = {}
 
-				if "dockq" not in self.per_config_logs[model_key][sys_name] and not self.benchmark_name == "multistate":
-					print( "Computing interface similarity wrt native structure..." )
-					dock_dict = None
-					dock_dict = self.run_dockq_calc_per_sys(
-						model_ids1 = model_ids,
-						model_ids2 = native_model_ids,
-						model_files1 = model_files,
-						model_files2 = native_files
-					)
-					self.per_config_logs[model_key][sys_name]["dockq"] = dock_dict
-				else:
-					self.per_config_logs[model_key][sys_name]["dockq"] = {}
+				if "dockq" not in self.per_config_logs[model_key][sys_name]:
+					if self.benchmark_name != "multistate":
+						print( "Computing interface similarity wrt native structure..." )
+						dock_dict = None
+						dock_dict = self.run_dockq_calc_per_sys(
+							model_ids1 = model_ids,
+							model_ids2 = native_model_ids,
+							model_files1 = model_files,
+							model_files2 = native_files
+						)
+						self.per_config_logs[model_key][sys_name]["dockq"] = dock_dict
+					else:
+						self.per_config_logs[model_key][sys_name]["dockq"] = {}
 
 				if "molprob" not in self.per_config_logs[model_key][sys_name]:
 					print( "Computing Molprobity metrics..." )
