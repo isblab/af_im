@@ -338,6 +338,7 @@ def supp_table():
 		records = return_metric(
 			metric = metric,
 			config_name = config_name,
+			benchmark_name = "crosslink",
 			models = models
 		)
 		for i, sys_name in enumerate( records["boltz2"]["complex"] ):
