@@ -1,16 +1,26 @@
-# IMP DL
 
+# AlphaFold-based Integrative Modeling
+We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP for applicability to integrative modleing.
 
-## Installation
-### OpenFold
-Unzip the openfold.tar.gz file. This has been cloned from the pl_upgrades branch in openfold git repo (for Cuda12) (https://github.com/aqlaboratory/openfold.git).  
-Minor modifications have been in script_utils/prep_output().  
-We are using the pl_upgrades branch from the openfold git repo.  
-For installation, see instructions in OpenFold gdoc.  
+![main_fig]()
+
+## Publication and Data
+* Kartik Majila, Shruthi Viswanath. **IMP DL.** (2026) [bioRxiv]().
+* Data is deposited in [Zenodo]()
+
+## Installation 
+
+### Dependencies
+* See `requirements.txt` for Python dependencies.
+We used the the pl_upgrades branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
+Add the path to the GitHub repository to bash_profile and run,
+```
+source ~/.bash_profile
+```
 
 ### JWalk
-Clone the git repo from https://github.com/Topf-Lab/Jwalk.git.  
-It's implemented in Python2, so I converted the code to Python3 using python2to3.com server.  
+Clone the git repo from [here](https://github.com/Topf-Lab/Jwalk.git).  
+We converted the Python2 implementation to Python3 using python2to3.com server.  
 For installation, run  
 ```
 python setup.py install
@@ -22,9 +32,18 @@ Add the imp_dl repository path to the ~/.bash_profile and run:
 source ~/.bash_profile
 ```
 
-## Benchmark
-### Simulated data benchmark
-Currently using the PDB benchmark from AFUnmasked and SAbDab datset for simulated data.  
+### AlphaLink2
+Clone and install AlphaLink2 as described [here](https://github.com/Rappsilber-Laboratory/AlphaLink2.git).
+
+### Boltz2
+Clone and install Boltz2 as described [here](https://github.com/jwohlwend/boltz.git).
+
+### GRASP
+Clone and install GRASP as described [here](https://github.com/aqlaboratory/openfold.git).
+
+
+## Benchmark creation
+### Multimeric benchmark
 ```
 cd ./data/
 ```
@@ -33,44 +52,94 @@ Simulated datset creation occurs in multiple stages:
 ```
 python prep_data2.py
 ```
-This downloads the structure for all complexes (.pdb abd .cif), followed by parsing the CIF file to obtain the sequence, residue numbers (seq_id).  
+This downloads the required metadata for all complexes (.pdb abd .cif), followed by parsing the CIF file to obtain the sequence, residue numbers (seq_id).  
 Further it runs JWalk to obtain crosslinks for all complexes.  
 It creates the following 2 directories: `{benchmark name}_benchmark/` and `{benchmark name}_metadata/`.  
 
 2. Creating input files for modeling
-
-Run modeling for 100 epochs for the benchmark PDB IDs and select those for which the iitial OpenFold prediction does not satisfy the data.  
-Run the follwing script to get the selected benchmark PDBs:  
 ```
 python create_benchmark2.py
 ```
 For all complexes selected in step 1, it creates a directory within `{benchmark name}_benchmark/` containing the structure file (.cif mostly), data file (.csv filr for crosslinks), and a JSON dict containing configs for modeling.  
 
-**Note:** Specify the benchmark name and the dataset configs for step 1 and 2 in the constructors of the respective scripts.  
 
-3. Assessing data satisfaction for initial structure  
+3. Creating MSAs
 ```
-cd ../
-python eye_drop.py
+python create_msas.py -b BENCHMARK_NAME -p
 ```
-This script runs the modeling to obtain the initial predicted structures and data satisfaction at epoch 0.  
+`BENCHMRK_NAME` could be either of crosslink or multistate. Use `-p` for multimers.  
+This script runs the OpenFold MSA creation pipeline for obtaining the MSA required for structure predeiction.  
 
 
-### Real data benchmark
+### Multi-state proteins
+For obtaining the input files for the multi-state proteins
 Experimental cross-links along with the AF2-multimer predicted structures taken from the [Integrative docking benchmark](https://github.com/isblab/Integrative_docking_benchmark.git) repo.  
 To create input file for modeling, run the following script:
 ```
-cd ./data/
-python prep_oreilly_complexes.py
+python multi_state2.py
 ```
-This script will create the input files and the directory structure as for the simulated benchmark. Once completed run the following script to get initial data satisfcation,  
+This script will create the input files for the multi-state proteins. The directory structure is the same as above.  
+
+
+## Predictions
+Run the following command for obtaining predictions,
 ```
-cd ../
-python eye_drop.py
+python get_competing_method_preds.py -m MODEL -c CONFIG_NAME -b BENCHMARK_NAME -d DEVICE
+```
+
+|  Flags |                                     Description                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------------------------------ |
+|  -m    | Model to use for prediction: alphalink2/boltz2/grasp                                                                     |
+|  -c    | Configs to use for obtaining predictions from a model. See model_configs.py for the available configs                    |
+|  -b    | Name of the benchmark to obtain predictions for: crosslink/multistate                                                    |
+|  -d    | Device to run predictions on: cpu/cuda:0/cuda:1                                                                          |
+
+For the results shown in the paper we used the following configs: alpha, beta1, kappa1, kappa2, kappa3.
+
+
+## Analysis
+Run the following command to perform the analysis,
+```
+python analysis.py -m MODEL -b BENCHMARK_NAME -m
+```
+
+`MODEL` and `BENCHMARK_NAME` are the same as defined above. Use -m to run analysis for multimers (crosslink benchmark).
+This script runs the analysis for all specified configs for a given model.
+
+To obtain the plots shown in the paper, run the following command,
+```
+python paper_figures.py
 ```
 
 
-## Modeling
+## Information
+__Author(s):__ Kartik Majila, Shruthi Viswanath
+
+__Date__: MM DD, 2026
+
+__License:__ GPL v3
+This work is licensed under the terms of the GNU General Public License,
+ Version 3, as published by the Free Software Foundation on 29 June 2007.
+
+__Testable:__ Yes
+
+__Parallelizeable:__ Yes
+
+__Publications:__  Majila K., Viswanath S. Evaluation of methods for AlphaFold-based Integrative modeling. bioRxiv  (2026), [DOI]().
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ## Modeling
 ### Input for modeling
 Create a data directory for the complex to be modeled (directory name must be the complex name). This must contain,  
 1. A conifg file (JSON format) containing,
@@ -109,4 +178,5 @@ Specify the complex name, base directory, data directory, and the modeling direc
 Run the following script to start the modeling,
 ```
 python openfold_wrapper.py
-```
+``` -->
+
