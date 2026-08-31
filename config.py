@@ -53,7 +53,9 @@ config = mlc.ConfigDict(
 			# Protein complexes from AF-multimer benchmark.
 			"afmb": os.path.join( "../raw/afm_benchmark/" ),
 			# Multi-state benchmark (monomers)
-			"multi_state": os.path.join( "../raw/Supplementary_Table_1_91_apo_holo_pairs.csv" )
+			"multi_state": os.path.join(
+				os.path.abspath( "./raw/Supplementary_Table_1_91_apo_holo_pairs.csv" )
+				)
 		},
 		"globals": {
 			# The PATH specified here wrt the /data/ dir.
