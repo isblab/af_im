@@ -67,7 +67,7 @@ class MsaPipeline():
 		benchmark_name: str,
 		is_multimer: bool
 		):
-		self.config_dict = get_config_dict()
+		self.config_dict = get_config_dict( is_multimer = is_multimer )
 		self.base_dir = os.path.join(
 			os.path.abspath( self.config_dict.benchmark.globals.base_dir )
 			)

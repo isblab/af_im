@@ -540,7 +540,7 @@ class MultiStateBenchmark():
 		structures.
 	"""
 	def __init__( self ):
-		self.config_dict = get_config_dict()
+		self.config_dict = get_config_dict( is_multimer = False )
 		self.cpu_cores = 10
 
 		# Select entries with RMSD > the cutoff.
