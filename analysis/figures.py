@@ -874,31 +874,6 @@ def plot_tm_v_dockq(
 	plt.close()
 
 ################################################################################
-# def plot_restraint_v_sampling():
-# 	"""
-# 	For Boltz2 only.
-# 	We wanna asess the effect of two hyperparameters on structural accuracy (DockQ):
-# 		Restraint-guidance: 0 (unguided) and 1 (guided)
-# 		Sampling diversity: 1.638 (default; less diverse) and 1.0 (more diverse)
-# 	We plot the restraint-guidance vs sampling diversity with the DockQ denoted
-# 		by the colour.
-# 	"""
-# 	model = "boltz2"
-
-# 	for r, config_name1 in zip( [0, 1], ["alpha", "beta1"] ):
-# 		records_r = return_metric( config_name = config_name1, metric = "dockq" )
-# 		dockq_r = records_r[model]["per_model_dockq"]
-# 		for s, config_name2 in zip( [0, 1], ["alpha2", "epsilon1"] ):
-# 			records_s = return_metric( config_name = config_name2, metric = "dockq" )
-# 			dockq_s = records_s[model]["per_model_dockq"]
-
-# 			plt.scatter( dockq_r, dockq_s, label = f"{config_name1}-{config_name2}" )
-# 	plt.legend()
-# 	plt.tight_layout()
-# 	plt.show()
-# 	plt.close()
-
-################################################################################
 def plot_cross_configs(
 	config1: str,
 	config2: str
@@ -1031,7 +1006,6 @@ def plot( config_name: str ):
 
 	plot_rmsf_scatter( config_name = config_name )
 
-	# plot_rmsf_contour( config_name = config_name )
 
 if __name__ == "__main__":
 	MODELS = ["alphalink2", "boltz2", "grasp"]
@@ -1046,16 +1020,14 @@ if __name__ == "__main__":
 	# # Following configs are specific for Boltz2 and GRASP
 	MODELS = ["boltz2", "grasp"]
 	print( f"\nUsing: {MODELS} " + "-"*20 )
-	for config_name in ["alpha", "beta2", "beta3", "gamma"]:
+	for config_name in ["alpha","beta3"]:
 		print( f"Creating plots for config: {config_name}..." )
 		plot( config_name = config_name )
 
 	print( "\nCreating cross-config plots..." )
 	for config1, config2 in [
 		["alpha", "beta1"],
-		["alpha", "beta2"],
 		["alpha", "beta3"],
-		["beta1", "beta2"],
 		["beta1", "beta3"],
 	]:
 		# Cross-config plots
@@ -1068,40 +1040,17 @@ if __name__ == "__main__":
 	# Following configs are specific for Boltz2
 	MODELS = ["boltz2"]
 	print( f"\nUsing: {MODELS} " + "-"*20 )
-	for config_name in ["beta4", "delta1", "delta2", "delta3", "epsilon1", "epsilon2", "epsilon3", "zeta1", "theta1", "iota1"]:
+	for config_name in ["delta1", "epsilon1"]:
 		print( f"Creating plots for config: {config_name}..." )
 		plot( config_name = config_name )
 
 	# Cross-config plots
 	print( "\nCreating cross-config plots..." )
 	for config1, config2 in [
-		["alpha", "alpha2"],
-		["alpha", "beta4"],
 		["alpha", "delta1"],
-		["alpha", "delta2"],
-		["alpha", "delta3"],
 		["alpha", "epsilon1"],
-		# ["alpha", "zeta1"],
-		["alpha", "theta1"],
-		["alpha2", "beta4"],
-		["alpha2", "epsilon1"],
 		# --------------------
-		["beta1", "beta4"],
 		["beta1", "delta1"],
-		["beta1", "delta2"],
-		["beta1", "delta3"],
-		["beta1", "epsilon1"],
-		["beta2", "epsilon2"],
-		["beta3", "epsilon3"],
-		# ["beta1", "zeta1"],
-		["beta1", "theta1"],
-		# --------------------
-		["epsilon1", "epsilon2"],
-		["epsilon1", "epsilon3"],
-		["epsilon1", "epsilon4"],
-		# --------------------
-		# ["epsilon1", "iota1"],
-		# ["delta1", "iota1"],
 	]:
 		print( f"{config1}-{config2}..." )
 		plot_cross_configs(
