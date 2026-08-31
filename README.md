@@ -12,8 +12,9 @@ We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP fo
 
 ### Dependencies
 * See `environment.yml` for the dependencies.  
+* Ensure Mamba is installed on the system.
 ```
-mamba create -n af_im -f environment.yml
+mamba env create -n af_im -f environment.yml
 ```
 We used the the pl_upgrades branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
 See instructions for downloading the databases on the OpenFold repository.  
@@ -42,10 +43,16 @@ Clone and install Boltz2 as described [here](https://github.com/jwohlwend/boltz.
 ### GRASP
 Clone and install GRASP as described [here](https://github.com/aqlaboratory/openfold.git).
 
+Post installation, actiavte the respective models environment and install pandas as: 
+```
+pip install pandas
+```
+
 
 ## Benchmark creation
 ### Multimeric benchmark
 ```
+mkdir benchmark
 cd ./data/
 ```
 Simulated datset creation occurs in multiple stages:  
@@ -75,6 +82,7 @@ This script runs the OpenFold MSA creation pipeline for obtaining the MSA requir
 ### Multi-state proteins
 For obtaining the input files for the multi-state proteins run the following script:
 ```
+cd ../
 python multi_state2.py
 ```
 This script will create the input files for the multi-state proteins in the same format as for the crosslink benchmark. The directory structure is the same as above.  
