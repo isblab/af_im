@@ -414,14 +414,12 @@ def create_summary_file_per_config(
 if __name__ == "__main__":
 	MODELS = ["alphalink2", "boltz2", "grasp"]
 	configs = {
-		"alphalink2": ["beta1", "beta2", "beta3"],
+		"alphalink2": ["beta1", "beta3"],
 		"boltz2": [
-			"alpha", "alpha2", "beta1", "beta2", "beta3", "beta4",
-			"gamma", "delta1", "delta2", "delta3",
-			"epsilon1", "epsilon2", "epsilon3", "epsilon4",
-			"zeta1", "theta1"
+			"alpha", "beta1", "beta3",
+			"delta1", "epsilon1"
 		],
-		"grasp": ["alpha", "beta1", "beta2", "beta3"]
+		"grasp": ["alpha", "beta1", "beta3"]
 	}
 	create_summary_file_per_config( configs = configs )
 	supp_table()
