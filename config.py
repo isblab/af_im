@@ -4,21 +4,17 @@ Configs for creating the dataset and analysis.
 import os, copy
 import ml_collections as mlc
 
-db_dir = "/data/alpha-fold-db"
-tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/"
-long_sequence_inference = False
-use_deepspeed_evoformer_attention = False
-is_multimer = True
-if is_multimer:
-	ofold_config_preset = "model_1_multimer_v3"
-else:
-	ofold_config_preset = "model_1_ptm"
+# Dir containing the AlphaFold databases
+db_dir = "" # PATH_TO_ALPHAFOLD_DATABASES
+# Check the bin/ dir in the mamba environment
+tool_base = "" # PATH_TO_TOOL_DIR
+openfold_params_dir = "" # PATH_TO_OPENFOLD_PARAMS_DIR
 
 def get_config_dict(
-	db_dir = "/data/alpha-fold-db/",
-	tool_base = "/home/kartik/miniforge3/envs/il_ofold/bin/",
-	long_sequence_inference = False,
-	use_deepspeed_evoformer_attention = False,
+	db_dir = None,
+	tool_base = None,
+	# long_sequence_inference = False,
+	# use_deepspeed_evoformer_attention = False,
 	is_multimer = True
 	) -> mlc.ConfigDict:
 	"""
@@ -30,6 +26,11 @@ def get_config_dict(
 		ofold_config_preset = "model_1_ptm"
 
 	c = copy.deepcopy( config )
+	c.msa.is_multimer = is_multimer
+	c.msa.config_preset = ofold_config_preset
+	c.msa.jax_params_path = os.path.join(
+		openfold_params_dir, f"params_{ofold_config_preset}.npz"
+	)
 
 	return c
 
@@ -94,23 +95,18 @@ config = mlc.ConfigDict(
 		"init_model_prefix": "_relaxed",
 		"save_feature_dicts": True,
 		"ofold_dir": os.path.join( os.path.abspath( "./openfold/" ) ),
-		"config_preset": ofold_config_preset,
-		# "ofold_params": os.path.join(
-		# 					f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/openfold/resources/params/params_model_1_multimer_v3.npz"
-		# 				),
+		"config_preset": "",
 		"model_checkpoint": None,
-		"jax_params_path": os.path.join(
-							f"/home/kartik/Documents/IMP_Rewired/imp_dl/openfold/resources/params/params_{ofold_config_preset}.npz"
-						),
+		"jax_params_path": "",
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
 		"db_preset": "full_dbs", # Use full or reduced database (full_dbs/ reduced_dbs).
-		"is_multimer": is_multimer,
+		"is_multimer": "",
 		"max_template_date": "2023-01-01",
 		"cpu_cores": 50,  # CPU cores to be used for OpenFold run.
 		"subtract_plddt": True,  # 100-pLDDT as a proxy for b-factor.
-		"long_sequence_inference": long_sequence_inference,
-		"use_deepspeed_evoformer_attention": use_deepspeed_evoformer_attention,
+		"long_sequence_inference": False,
+		"use_deepspeed_evoformer_attention": False,
 		"skip_relaxation": False,
 		"databases_n_tools": {
 			"template_mmcif_dir": os.path.join( db_dir, "pdb_mmcif/mmcif_files" ),
@@ -131,9 +127,7 @@ config = mlc.ConfigDict(
 		}
 	},
 	"models": {
-		# The PATH specified here wrt the /data/ dir.
-		# "base_dir": "./benchmark/",
-		"base_dir": "/data2/kartik/IMP_Rewired/im_bench/imp_dl/benchmark",
+		"base_dir": "./benchmark/",
 	}
 
 #----------#
