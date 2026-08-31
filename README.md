@@ -17,10 +17,13 @@ mamba create -n af_im -f environment.yml
 ```
 We used the the pl_upgrades branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
 See instructions for downloading the databases on the OpenFold repository.  
+* Download the model parameters from the OpenFold repository.
 Add the path to the `af_im` repository to bash_profile and run,
 ```
 source ~/.bash_profile
 ```
+
+Update the following paths in the config.py file: db_dir, tool_base, openfold_params_dir  
 
 ### JWalk
 Clone the git repo from [here](https://github.com/Topf-Lab/Jwalk.git).  
@@ -70,13 +73,11 @@ This script runs the OpenFold MSA creation pipeline for obtaining the MSA requir
 
 
 ### Multi-state proteins
-For obtaining the input files for the multi-state proteins
-Experimental cross-links along with the AF2-multimer predicted structures taken from the [Integrative docking benchmark](https://github.com/isblab/Integrative_docking_benchmark.git) repo.  
-To create input file for modeling, run the following script:
+For obtaining the input files for the multi-state proteins run the following script:
 ```
 python multi_state2.py
 ```
-This script will create the input files for the multi-state proteins. The directory structure is the same as above.  
+This script will create the input files for the multi-state proteins in the same format as for the crosslink benchmark. The directory structure is the same as above.  
 
 
 ## Predictions
@@ -124,57 +125,4 @@ __Testable:__ Yes
 __Parallelizeable:__ Yes
 
 __Publications:__  Majila K., Viswanath S. Evaluation of methods for AlphaFold-based Integrative modeling. bioRxiv  (2026), [DOI]().
-
-
-
-
-
-
-
-
-
-
-
-
-
-<!-- ## Modeling
-### Input for modeling
-Create a data directory for the complex to be modeled (directory name must be the complex name). This must contain,  
-1. A conifg file (JSON format) containing,
-```
-System: {
-	name: ,
-	entity: [
-		{
-			entity_name,
-			entity_id,
-			copy_num,
-			start residue,
-			end residue,
-			sequence
-		},
-		...
-	],
-	data_gathering: {
-		xl_restraint: {
-			xl_max_bound,
-			file_name
-		}
-	}
-}
-```
-2. The data file to be used for modeling. For crosslinking data, a .csv file must be provided in the following format,  
-```
-protein1,residue1,protein2,residue2
-```
-
-
-### Single complex modeling
-For a single complex, one can directly use the `openfold_wrapper.py` script. Make the required changes to the parameters specified in `topology.py` file.
-Ensure that the input files exist for the complex to be modeled.  
-Specify the complex name, base directory, data directory, and the modeling directory name at the bottom of the `openfold_wrapper.py` script.  
-Run the following script to start the modeling,
-```
-python openfold_wrapper.py
-``` -->
 
