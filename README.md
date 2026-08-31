@@ -93,17 +93,21 @@ python get_competing_method_preds.py -m MODEL -c CONFIG_NAME -b BENCHMARK_NAME -
 |  -b    | Name of the benchmark to obtain predictions for: crosslink/multistate                                                    |
 |  -d    | Device to run predictions on: cpu/cuda:0/cuda:1                                                                          |
 
-For the results shown in the paper we used the following configs: alpha, beta1, kappa1, kappa2, kappa3.
+For the results shown in the paper we used the following configs: alpha, beta1, beta3, kappa1, kappa2, kappa3.
 
 
 ## Analysis
-Run the following command to perform the analysis,
+For the crosslink benchmark use the following command to run the analysis,
 ```
-python analysis.py -m MODEL -b BENCHMARK_NAME -m
+python analysis.py -m MODEL -b BENCHMARK_NAME
+```
+For multistate benchmark run the following command,
+```
+python analysis.py -m MODEL -b BENCHMARK_NAME -ms
 ```
 
-`MODEL` and `BENCHMARK_NAME` are the same as defined above. Use -m to run analysis for multimers (crosslink benchmark).
-This script runs the analysis for all specified configs for a given model.
+`MODEL` and `BENCHMARK_NAME` are the same as defined above.  
+This script runs the analysis for all specified configs for a given model in the `model_configs.py`.
 
 To obtain the plots shown in the paper, run the following command,
 ```
