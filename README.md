@@ -11,9 +11,13 @@ We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP fo
 ## Installation 
 
 ### Dependencies
-* See `requirements.txt` for Python dependencies.
+* See `environment.yml` for the dependencies.  
+```
+mamba create -n af_im -f environment.yml
+```
 We used the the pl_upgrades branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
-Add the path to the GitHub repository to bash_profile and run,
+See instructions for downloading the databases on the OpenFold repository.  
+Add the path to the `af_im` repository to bash_profile and run,
 ```
 source ~/.bash_profile
 ```
@@ -24,12 +28,6 @@ We converted the Python2 implementation to Python3 using python2to3.com server.
 For installation, run  
 ```
 python setup.py install
-```
-
-### imp_dl
-Add the imp_dl repository path to the ~/.bash_profile and run:  
-```
-source ~/.bash_profile
 ```
 
 ### AlphaLink2
