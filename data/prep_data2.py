@@ -35,7 +35,6 @@ class Metadata():
 	Obtain all required metadata for the benchmark dataset.
 	"""
 	def __init__( self ):
-		# self.benchmark_name = "xlmerged"  # "xlmerged", pinderS, "afmb"
 		self.config_dict = get_config_dict()
 		self.dataset_configs = self.config_dict.benchmark
 		self.benchmark_name = self.dataset_configs.globals.benchmark_name

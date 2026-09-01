@@ -15,7 +15,7 @@ def get_config_dict(
 	tool_base = None,
 	# long_sequence_inference = False,
 	# use_deepspeed_evoformer_attention = False,
-	is_multimer = True
+	is_multimer: bool = True
 	) -> mlc.ConfigDict:
 	"""
 	returns a config dictionary as an mlc.ConfigDict.
@@ -51,8 +51,8 @@ config = mlc.ConfigDict(
 			"foldbench_prot_pep": os.path.join( "../raw/interface_protein_peptide.csv" ),
 			# Protein complexes from PINDER-S.
 			"pinder_s": os.path.join( "../raw/pinder_s.txt" ),
-			# Protein complexes from PINDER-S.
-			"pinder_s": os.path.join( "../raw/pinder_xl.txt" ),
+			# Protein complexes from PINDER-XL.
+			"pinder_xl": os.path.join( "../raw/pinder_xl.txt" ),
 			# Protein complexes from AF-multimer benchmark.
 			"afmb": os.path.join( "../raw/afm_benchmark/" ),
 			# Multi-state benchmark (monomers)
@@ -103,7 +103,7 @@ config = mlc.ConfigDict(
 		"tool_base": tool_base,
 		"db_dir": db_dir, # Path to the parent directory containing the alphafold databases.
 		"db_preset": "full_dbs", # Use full or reduced database (full_dbs/ reduced_dbs).
-		"is_multimer": "",
+		"is_multimer": None,
 		"max_template_date": "2023-01-01",
 		"cpu_cores": 50,  # CPU cores to be used for OpenFold run.
 		"subtract_plddt": True,  # 100-pLDDT as a proxy for b-factor.
