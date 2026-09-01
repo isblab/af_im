@@ -149,7 +149,7 @@ class Metadata():
 			Protein-protein and protein-peptide benchmark from FoldBench
 			SAbDab database
 			Antigen-Antibody benchmark from FoldBench
-			PINDER-S
+			PINDER
 			AFM benchmark
 		"""
 		afu = self.parse_pdb_afu_benchmark()
@@ -158,15 +158,15 @@ class Metadata():
 		print( f"PDB IDs from FoldBench benchmark: {len( foldbench )}" )
 		sabdab = self.parse_sabdab_benchmark()
 		print( f"PDB IDs from SAbDab benchmark: {len( sabdab )}" )
-		pinderS = self.parse_pinderS_benchmark()
-		print( f"PDB IDs from PINDER-S benchmark: {len( pinderS )}" )
+		pinder = self.parse_pinder_benchmark()
+		print( f"PDB IDs from PINDER benchmark: {len( pinder )}" )
 		afmb = self.parse_afmb_benchmark()
 		print( f"PDB IDs from AFM benchmark: {len( afmb )}" )
 
 		# Remove duplicate PDB IDs and sort.
 		pdb_ids = sorted(
 			list(
-				set( afu + foldbench + sabdab + pinderS + afmb )
+				set( afu + foldbench + sabdab + pinder + afmb )
 			)
 		)
 		return pdb_ids
@@ -227,14 +227,14 @@ class Metadata():
 		return pdb_ids
 
 
-	def parse_pinderS_benchmark( self ) -> List[str]:
+	def parse_pinder_benchmark( self ) -> List[str]:
 		"""
-		PINDER-S dataset was obtained from the PINDER package as
+		PINDER dataset was obtained from the PINDER package as
 			specified in #Issue41.
 			(https://github.com/pinder-org/pinder)
-		Parse the PINDER-S dataset and return the PDB IDs.
+		Parse the PINDER dataset and return the PDB IDs.
 		"""
-		f = open_file_handler( self.dataset_configs.datasets.pinder_s, "r" )
+		f = open_file_handler( self.dataset_configs.datasets.pinder_xl, "r" )
 		pdb_ids = f.readlines()[0].split( "," )
 		return pdb_ids
 
