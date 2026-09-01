@@ -76,7 +76,7 @@ For all complexes selected in step 1, it creates a directory within `{benchmark 
 python create_msas.py -b BENCHMARK_NAME -p
 ```
 `BENCHMRK_NAME` could be either of crosslink or multistate. Use `-p` for multimers.  
-This script runs the OpenFold MSA creation pipeline for obtaining the MSA required for structure predeiction.  
+This script runs the OpenFold MSA creation pipeline for obtaining the MSA required for structure prediction.  
 
 
 ### Multi-state proteins
@@ -107,14 +107,14 @@ For the results shown in the paper we used the following configs: alpha, beta1, 
 ## Analysis
 For the crosslink benchmark use the following command to run the analysis,
 ```
-python analysis.py -m MODEL -b BENCHMARK_NAME
+python analysis.py -m MODEL -b crosslink
 ```
 For multistate benchmark run the following command,
 ```
-python analysis.py -m MODEL -b BENCHMARK_NAME -ms
+python analysis.py -m MODEL -b multistate -ms
 ```
 
-`MODEL` and `BENCHMARK_NAME` are the same as defined above.  
+`MODEL` is the same as defined above.  
 This script runs the analysis for all specified configs for a given model in the `model_configs.py`.
 
 To obtain the plots shown in the paper, run the following command,
