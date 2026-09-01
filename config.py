@@ -51,6 +51,8 @@ config = mlc.ConfigDict(
 			"foldbench_prot_pep": os.path.join( "../raw/interface_protein_peptide.csv" ),
 			# Protein complexes from PINDER-S.
 			"pinder_s": os.path.join( "../raw/pinder_s.txt" ),
+			# Protein complexes from PINDER-S.
+			"pinder_s": os.path.join( "../raw/pinder_xl.txt" ),
 			# Protein complexes from AF-multimer benchmark.
 			"afmb": os.path.join( "../raw/afm_benchmark/" ),
 			# Multi-state benchmark (monomers)
