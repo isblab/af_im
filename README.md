@@ -2,8 +2,6 @@
 # AlphaFold-based Integrative Modeling
 We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP for their applicability towards integrative modeling.
 
-![main_fig]()
-
 ## Publication and Data
 * Kartik Majila, Shruthi Viswanath. **Evaluation of methods for AlphaFold-based integrative modeling.** (2026) [bioRxiv]().
 * Data is deposited in [Zenodo]()
