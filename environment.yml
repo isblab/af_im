@@ -40,3 +40,4 @@ dependencies:
       - wget==3.2
       - aiohttp==3.13.2
       - DockQ==2.1.3
+      - dm-tree==0.1.6
