@@ -11,15 +11,20 @@ We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP fo
 ## Installation 
 
 ### Dependencies
+
 * See `environment.yml` for the dependencies.  
 * Ensure Mamba is installed on the system.
 ```
 mamba env create -n af_im -f environment.yml
 ```
-We used the `pl_upgrades` branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
-See instructions for downloading the databases on the OpenFold repository.  
-* Download the model parameters from the OpenFold repository.
+
+### OpenFold 
+We used the `pl_upgrades` branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git). As in `openfold` directory. 
+
+Download the databases for AlphaFold/OpenFold. See instructions for downloading the databases on the OpenFold repository.
+
 Add the path to the `af_im` repository to bash_profile and run,
+
 ```
 source ~/.bash_profile
 ```
@@ -43,7 +48,8 @@ Clone and install Boltz2 as described [here](https://github.com/jwohlwend/boltz.
 ### GRASP
 Clone and install GRASP as described [here](https://github.com/aqlaboratory/openfold.git).
 
-Post installation, actiavte the respective models environment and install the following packages: 
+Post installation, activate the respective models environment and install the following packages: 
+
 ```
 pip install pandas, typing-extensions, ml_collections
 ```
