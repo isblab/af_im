@@ -16,7 +16,7 @@ We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP fo
 ```
 mamba env create -n af_im -f environment.yml
 ```
-We used the the pl_upgrades branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
+We used the `pl_upgrades` branch in [openfold git repo (for Cuda12)](https://github.com/aqlaboratory/openfold.git).  
 See instructions for downloading the databases on the OpenFold repository.  
 * Download the model parameters from the OpenFold repository.
 Add the path to the `af_im` repository to bash_profile and run,
@@ -24,7 +24,7 @@ Add the path to the `af_im` repository to bash_profile and run,
 source ~/.bash_profile
 ```
 
-Update the following paths in the config.py file: db_dir, tool_base, openfold_params_dir  
+Update the following paths in the config.py file: `db_dir, tool_base, openfold_params_dir`  
 
 ### JWalk
 Clone the git repo from [here](https://github.com/Topf-Lab/Jwalk.git).  
