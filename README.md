@@ -1,11 +1,11 @@
 
 # AlphaFold-based Integrative Modeling
-We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP for applicability to integrative modleing.
+We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP for their applicability towards integrative modeling.
 
 ![main_fig]()
 
 ## Publication and Data
-* Kartik Majila, Shruthi Viswanath. **IMP DL.** (2026) [bioRxiv]().
+* Kartik Majila, Shruthi Viswanath. **Evaluation of methods for AlphaFold-based integrative modeling.** (2026) [bioRxiv]().
 * Data is deposited in [Zenodo]()
 
 ## Installation 
@@ -43,9 +43,9 @@ Clone and install Boltz2 as described [here](https://github.com/jwohlwend/boltz.
 ### GRASP
 Clone and install GRASP as described [here](https://github.com/aqlaboratory/openfold.git).
 
-Post installation, actiavte the respective models environment and install pandas as: 
+Post installation, actiavte the respective models environment and install the following packages: 
 ```
-pip install pandas
+pip install pandas, typing-extensions, ml_collections
 ```
 
 
@@ -68,7 +68,7 @@ It creates the following 2 directories: `{benchmark name}_benchmark/` and `{benc
 ```
 python create_benchmark2.py
 ```
-For all complexes selected in step 1, it creates a directory within `{benchmark name}_benchmark/` containing the structure file (.cif mostly), data file (.csv filr for crosslinks), and a JSON dict containing configs for modeling.  
+For all complexes selected in step 1, it creates a directory within `{benchmark name}_benchmark/` containing the structure file (.cif or .pdb), data file (.csv file for crosslinks), and a JSON dict containing configs for modeling.  
 
 
 3. Creating MSAs
@@ -89,7 +89,7 @@ This script will create the input files for the multi-state proteins in the same
 
 
 ## Predictions
-Run the following command for obtaining predictions,
+Activate the respective models environment and then run the following command for obtaining predictions,
 ```
 python get_competing_method_preds.py -m MODEL -c CONFIG_NAME -b BENCHMARK_NAME -d DEVICE
 ```
@@ -136,5 +136,5 @@ __Testable:__ Yes
 
 __Parallelizeable:__ Yes
 
-__Publications:__  Majila K., Viswanath S. Evaluation of methods for AlphaFold-based Integrative modeling. bioRxiv  (2026), [DOI]().
+__Publications:__  Majila K., Viswanath S. Evaluation of methods for AlphaFold-based integrative modeling. bioRxiv  (2026), [DOI]().
 
