@@ -59,7 +59,9 @@ pip install pandas, typing-extensions, ml_collections
 mkdir benchmark
 cd ./data/
 ```
-Simulated datset creation occurs in multiple stages:  
+
+Dataset creation occurs in multiple stages:  
+
 1. Metadata collection  
 ```
 python prep_data2.py
@@ -132,8 +134,8 @@ __Author(s):__ Kartik Majila, Shruthi Viswanath
 
 __Date__: MM DD, 2026
 
-__License:__ GPL v3
-This work is licensed under the terms of the GNU General Public License,
+__License:__ GPL v3 \
+ This work is licensed under the terms of the GNU General Public License,
  Version 3, as published by the Free Software Foundation on 29 June 2007.
 
 __Testable:__ Yes
