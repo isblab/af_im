@@ -130,7 +130,7 @@ class CreateBenchmark():
 		"""
 		for sys_name in self.benchmark_pdb_ids:
 			if sys_name not in self.seqres_dict:
-				raise KeyError( f"{sys_name} doe snot exists in self.seqres_dict..." )
+				raise KeyError( f"{sys_name} does not exists in self.seqres_dict..." )
 
 			self.chain_entity_map[sys_name] = {}
 

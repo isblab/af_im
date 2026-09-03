@@ -118,6 +118,7 @@ def create_pdb_num_to_seq_id_mapping(
 	We map the pdb_seq_num to seq_id.
 		This is because pdb_seq_num may be discontinous in some cases
 			(8g0q_B, 8g0q_D) however, seq_id is always continous.
+	Note: we do not exclude the missing residues from sequence.
 
 	Inputs:
 	----------
