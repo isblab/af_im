@@ -229,7 +229,7 @@ class SimulateCrosslinks():
 		"""
 		For each entry_id,
 			Select all XLs as specified:
-				Either iterprotein or intraprotein.
+				Either interprotein or intraprotein.
 			Select XLs with short linker.
 			Select XLs with long linker.
 			Also select false positive (FP) XLs.
