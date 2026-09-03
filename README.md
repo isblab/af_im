@@ -66,8 +66,9 @@ Dataset creation occurs in multiple stages:
 ```
 python prep_data2.py
 ```
-This downloads the required metadata for all complexes (.pdb and .cif), followed by parsing the CIF file to obtain the sequence, residue numbers (seq_id).  
+This downloads the required metadata for all complexes (.pdb and .cif), followed by parsing the CIF file to obtain the sequence and residue numbers (`seq_id`).  
 Further it runs JWalk to obtain crosslinks for all complexes.  
+
 It creates the following 2 directories: `{benchmark name}_benchmark/` and `{benchmark name}_metadata/`.  
 
 2. Creating input files for modeling
