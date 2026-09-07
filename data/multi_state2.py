@@ -670,7 +670,7 @@ class MultiStateBenchmark():
 		xl_file_paths = self.create_xl_file_paths(
 			multistate_dict = multistate_dict
 		)
-		self.simulated_xl_generatiion(
+		self.simulated_xl_generation(
 			multistate_dict = multistate_dict,
 			xl_file_paths = xl_file_paths
 		)
@@ -803,7 +803,7 @@ class MultiStateBenchmark():
 		return multistate_dict
 
 	################################################################################
-	def simulated_xl_generatiion(
+	def simulated_xl_generation(
 		self,
 		multistate_dict: Dict[str, Any],
 		xl_file_paths: Dict[str, Dict]
