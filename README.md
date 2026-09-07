@@ -37,6 +37,15 @@ For installation, run
 python setup.py install
 ```
 
+### USaign
+Install USalign as instructed [here](https://github.com/pylelab/USalign.git).
+Post installation, add the executable to `./af_im/`.
+
+
+### MolProbity
+Download and install Phenix from [here](https://phenix-online.org/download).
+
+
 ### AlphaLink2
 Clone and install AlphaLink2 as described [here](https://github.com/Rappsilber-Laboratory/AlphaLink2.git).
 
