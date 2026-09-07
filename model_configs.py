@@ -1,6 +1,8 @@
 """
 Contains configurations for the models to be tested.
 The configs are named after Greek letters.
+
+Note: 50% FP XLs mentioned here maps to 33% FP XLs in the main text.
 """
 import ml_collections as mlc
 
@@ -20,7 +22,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -42,7 +44,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -64,7 +66,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -86,7 +88,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -108,7 +110,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -130,7 +132,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -152,7 +154,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -174,7 +176,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -196,7 +198,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -218,7 +220,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -240,7 +242,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
@@ -262,7 +264,7 @@ BOLTZ = mlc.ConfigDict(
 		# No. of recycling iterations.
 		"recycling_steps": 3,  # default = 3
 		# No. of samples to predict.
-		"diffusion_samples": 25,  # default = 25
+		"diffusion_samples": 25,  # default = 1
 		# No. of diffusion sampling steps.
 		"sampling_steps": 200,  # default = 200
 		# max no. of samples to predict in parallel.
