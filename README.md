@@ -37,7 +37,7 @@ For installation, run
 python setup.py install
 ```
 
-### USaign
+### USalign
 Install USalign as instructed [here](https://github.com/pylelab/USalign.git).
 Post installation, add the executable to `./af_im/`.
 
