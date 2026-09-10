@@ -473,7 +473,7 @@ class Analysis():
 			that originate from the same underlying XL but differ due to
 			chain ambiguity.
 		Grouping is performed by assigning a unique index to consecutive entries
-			with identical (residue1, residue2) pairs.
+			with identical (entity1, entity2, residue1, residue2) quadruplets.
 		By construction, entries corresponding to the same ambiguous XL appear
   			consecutively in `xl_flat_amb_dict`.
 
@@ -497,22 +497,26 @@ class Analysis():
 				}
 			}
 		"""
+		entity1 = xl_flat_amb_dict["entity_id1"]
+		entity2 = xl_flat_amb_dict["entity_id2"]
 		residue1 = xl_flat_amb_dict["residue1"]
 		residue2 = xl_flat_amb_dict["residue2"]
 
 		xl_amb_dict = {}
 		xl_pairs = []
-		prev = ( residue1[0], residue2[0] )
+		prev_ent = ( entity1[0], entity2[0] )
+		prev_res = ( residue1[0], residue2[0] )
 		xl_group_id = 0
 		# Add the 0-th pair.
 		xl_pairs.append( xl_group_id )
 
-		for r1, r2 in zip( residue1[1:], residue2[1:] ):
-			if prev == ( r1, r2 ):
+		for e1, e2, r1, r2 in zip( entity1[1:], entity2[1:], residue1[1:], residue2[1:] ):
+			if prev_res == ( r1, r2 ) and prev_ent == ( e1, e2 ):
 				pass
 			else:
 				xl_group_id += 1
-				prev = ( r1, r2 )
+				prev_ent = ( e1, e2 )
+				prev_res = ( r1, r2 )
 			xl_pairs.append( xl_group_id )
 		xl_pairs = np.array( xl_pairs ).reshape( -1 )
 
