@@ -4,7 +4,7 @@ We evaluate existing AlphaFold-based, including AlphaLink2, Boltz2, and GRASP fo
 
 ## Publication and Data
 * Kartik Majila, Shruthi Viswanath. **Evaluation of methods for AlphaFold-based integrative modeling.** (2026) [bioRxiv]().
-* Data is deposited in [Zenodo]()
+* Data is deposited in [Zenodo](https://doi.org/10.5281/zenodo.22159054)
 
 ## Installation 
 
